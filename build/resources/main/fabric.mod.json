@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "base-finder",
+  "version": "0.1.0",
+  "name": "Base Finder",
+  "description": "A Meteor client addon for finding bases on anarchy servers.",
+  "authors": [
+    "Jules"
+  ],
+  "contact": {
+    "sources": "https://github.com/YourGithub/base-finder"
+  },
+  "icon": "assets/template/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "meteor": [
+      "com.baseminer.basefinder.BaseFinder"
+    ]
+  },
+  "mixins": [
+    "addon-template.mixins.json"
+  ],
+  "custom": {
+    "meteor-client:color": "225,25,25"
+  },
+  "depends": {
+    "java": ">=21",
+    "minecraft": ["1.21.8", "1.21.7", "1.21.6"],
+    "meteor-client": "*"
+  }
+}

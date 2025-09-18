@@ -1,0 +1,14 @@
+{
+  "mappings": {
+    "com/baseminer/basefinder/mixin/LivingEntityMixin": {
+      "onDeath": "Lnet/minecraft/class_1309;method_6078(Lnet/minecraft/class_1282;)V"
+    }
+  },
+  "data": {
+    "named:intermediary": {
+      "com/baseminer/basefinder/mixin/LivingEntityMixin": {
+        "onDeath": "Lnet/minecraft/class_1309;method_6078(Lnet/minecraft/class_1282;)V"
+      }
+    }
+  }
+}
