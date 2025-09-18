@@ -19,15 +19,18 @@ public class Config {
 
     // Default configuration values
     public static String discordWebhookUrl = "";
-    public static int blockDetectionThreshold = 8; // Reduced from 5
+    public static int blockDetectionThreshold = 10; // Increased from 8 to reduce false positives
     public static int scanRadius = 64; // Reduced from 128 to avoid natural structures
     public static int flightAltitude = 320;
     public static int scanInterval = 40;
     public static boolean playerDetection = true;
     public static boolean notifyOnDeath = true;
-    public static boolean storageOnlyMode = true; // New setting for storage-only detection
-    public static int maxVolumeThreshold = 10000; // Maximum volume to prevent natural structure detection
-    public static boolean filterNaturalStructures = true; // Filter out likely natural structures
+    public static boolean storageOnlyMode = true; // Storage-only detection by default
+    public static int maxVolumeThreshold = 5000; // Reduced from 10000 - more aggressive filtering
+    public static boolean filterNaturalStructures = true;
+    public static double minDensityThreshold = 0.002; // New setting for minimum density
+    public static double notificationDensityThreshold = 0.005; // New setting for Discord notification threshold
+    public static int maxClusterDistance = 30; // New setting for clustering blocks
 
     // Storage containers only (for stash finding)
     public static List<Block> storageBlocks = new ArrayList<>(Arrays.asList(
@@ -83,7 +86,7 @@ public class Config {
         Blocks.WHITE_SHULKER_BOX,
         Blocks.YELLOW_SHULKER_BOX,
 
-        // Functional blocks that indicate a base (but not spawners!)
+        // Functional blocks that indicate a base
         Blocks.FURNACE,
         Blocks.BLAST_FURNACE,
         Blocks.SMOKER,
@@ -116,12 +119,10 @@ public class Config {
         Blocks.BEACON,
         Blocks.CONDUIT,
 
-        // Player-placed redstone (but limit to avoid natural structures)
+        // Player-placed redstone
         Blocks.HOPPER,
         Blocks.DISPENSER,
         Blocks.DROPPER
-
-        // NOTE: Removed SPAWNER from this list as it causes false positives
     ));
 
     // Get the appropriate block list based on mode
@@ -135,15 +136,18 @@ public class Config {
                 properties.load(fis);
 
                 discordWebhookUrl = properties.getProperty("discordWebhookUrl", "");
-                blockDetectionThreshold = getIntProperty("blockDetectionThreshold", 8);
+                blockDetectionThreshold = getIntProperty("blockDetectionThreshold", 10);
                 scanRadius = getIntProperty("scanRadius", 64);
                 flightAltitude = getIntProperty("flightAltitude", 320);
                 scanInterval = getIntProperty("scanInterval", 40);
                 playerDetection = getBoolProperty("playerDetection", true);
                 notifyOnDeath = getBoolProperty("notifyOnDeath", true);
                 storageOnlyMode = getBoolProperty("storageOnlyMode", true);
-                maxVolumeThreshold = getIntProperty("maxVolumeThreshold", 10000);
+                maxVolumeThreshold = getIntProperty("maxVolumeThreshold", 5000);
                 filterNaturalStructures = getBoolProperty("filterNaturalStructures", true);
+                minDensityThreshold = getDoubleProperty("minDensityThreshold", 0.002);
+                notificationDensityThreshold = getDoubleProperty("notificationDensityThreshold", 0.005);
+                maxClusterDistance = getIntProperty("maxClusterDistance", 30);
 
             } catch (IOException e) {
                 System.err.println("Failed to load Base Finder config: " + e.getMessage());
@@ -173,6 +177,9 @@ public class Config {
                 properties.setProperty("storageOnlyMode", String.valueOf(storageOnlyMode));
                 properties.setProperty("maxVolumeThreshold", String.valueOf(maxVolumeThreshold));
                 properties.setProperty("filterNaturalStructures", String.valueOf(filterNaturalStructures));
+                properties.setProperty("minDensityThreshold", String.valueOf(minDensityThreshold));
+                properties.setProperty("notificationDensityThreshold", String.valueOf(notificationDensityThreshold));
+                properties.setProperty("maxClusterDistance", String.valueOf(maxClusterDistance));
 
                 properties.store(fos, "Base Finder Configuration - Auto-generated");
             }
@@ -193,6 +200,15 @@ public class Config {
 
     private static boolean getBoolProperty(String key, boolean defaultValue) {
         return Boolean.parseBoolean(properties.getProperty(key, String.valueOf(defaultValue)));
+    }
+
+    private static double getDoubleProperty(String key, double defaultValue) {
+        try {
+            return Double.parseDouble(properties.getProperty(key, String.valueOf(defaultValue)));
+        } catch (NumberFormatException e) {
+            System.err.println("Invalid double value for " + key + ", using default: " + defaultValue);
+            return defaultValue;
+        }
     }
 
     /**
@@ -232,6 +248,21 @@ public class Config {
             changed = true;
         }
 
+        if (minDensityThreshold < 0.0001) {
+            minDensityThreshold = 0.0001;
+            changed = true;
+        }
+
+        if (notificationDensityThreshold < 0.0) {
+            notificationDensityThreshold = 0.0;
+            changed = true;
+        }
+
+        if (maxClusterDistance < 10) {
+            maxClusterDistance = 10;
+            changed = true;
+        }
+
         if (changed) {
             save();
         }
@@ -239,19 +270,14 @@ public class Config {
 
     /**
      * Determines if a collection of blocks is likely a natural structure
+     * This is a legacy method kept for compatibility
      */
     public static boolean isLikelyNaturalStructure(List<Block> blocks, double volume) {
         if (!filterNaturalStructures) {
             return false;
         }
 
-        // Count suspicious natural blocks
-        long spawnerCount = blocks.stream().mapToLong(block -> block == Blocks.SPAWNER ? 1 : 0).sum();
-        long naturalBlockCount = spawnerCount;
-
-        // If more than 50% of blocks are natural structure blocks, it's likely natural
-        double naturalRatio = (double) naturalBlockCount / blocks.size();
-
-        return naturalRatio > 0.5 || volume > maxVolumeThreshold;
+        // Simple volume check for backwards compatibility
+        return volume > maxVolumeThreshold;
     }
 }
