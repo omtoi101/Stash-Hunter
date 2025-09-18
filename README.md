@@ -1,0 +1,2 @@
+# stash-finder
+base finder
