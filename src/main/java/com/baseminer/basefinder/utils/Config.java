@@ -25,6 +25,7 @@ public class Config {
     public static int scanInterval = 40;
     public static boolean playerDetection = true;
     public static boolean notifyOnDeath = true;
+    public static boolean notifyOnCompletion = true; // New setting for completion notifications
     public static boolean storageOnlyMode = true; // Storage-only detection by default
     public static int maxVolumeThreshold = 5000; // Reduced from 10000 - more aggressive filtering
     public static boolean filterNaturalStructures = true;
@@ -36,7 +37,6 @@ public class Config {
     public static List<Block> storageBlocks = new ArrayList<>(Arrays.asList(
         Blocks.CHEST,
         Blocks.TRAPPED_CHEST,
-        Blocks.ENDER_CHEST,
         Blocks.BARREL,
 
         // All shulker boxes
@@ -64,7 +64,6 @@ public class Config {
         // Storage containers
         Blocks.CHEST,
         Blocks.TRAPPED_CHEST,
-        Blocks.ENDER_CHEST,
         Blocks.BARREL,
 
         // All shulker boxes
@@ -142,6 +141,7 @@ public class Config {
                 scanInterval = getIntProperty("scanInterval", 40);
                 playerDetection = getBoolProperty("playerDetection", true);
                 notifyOnDeath = getBoolProperty("notifyOnDeath", true);
+                notifyOnCompletion = getBoolProperty("notifyOnCompletion", true);
                 storageOnlyMode = getBoolProperty("storageOnlyMode", true);
                 maxVolumeThreshold = getIntProperty("maxVolumeThreshold", 5000);
                 filterNaturalStructures = getBoolProperty("filterNaturalStructures", true);
@@ -174,6 +174,7 @@ public class Config {
                 properties.setProperty("scanInterval", String.valueOf(scanInterval));
                 properties.setProperty("playerDetection", String.valueOf(playerDetection));
                 properties.setProperty("notifyOnDeath", String.valueOf(notifyOnDeath));
+                properties.setProperty("notifyOnCompletion", String.valueOf(notifyOnCompletion));
                 properties.setProperty("storageOnlyMode", String.valueOf(storageOnlyMode));
                 properties.setProperty("maxVolumeThreshold", String.valueOf(maxVolumeThreshold));
                 properties.setProperty("filterNaturalStructures", String.valueOf(filterNaturalStructures));

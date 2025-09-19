@@ -14,6 +14,7 @@ public class ElytraController {
     private static List<Vec3d> waypoints = new ArrayList<>();
     private static int currentWaypoint = 0;
     private static boolean active = false;
+    private static boolean justCompleted = false; // Track if we just completed scanning
     private static Vec3d currentTarget = null;
     private static long lastWaypointTime = 0;
 
@@ -21,6 +22,7 @@ public class ElytraController {
         waypoints.clear();
         currentWaypoint = 0;
         active = true;
+        justCompleted = false; // Reset completion flag
         lastWaypointTime = System.currentTimeMillis();
 
         // Generate waypoints in a lawnmower pattern
@@ -93,6 +95,9 @@ public class ElytraController {
                 MeteorClient.mc.player.sendMessage(
                     net.minecraft.text.Text.of("§aCompleted scanning area!"), false);
             }
+
+            // Mark as just completed for notification purposes
+            justCompleted = true;
             stop();
             return;
         }
@@ -241,5 +246,16 @@ public class ElytraController {
         }
 
         return "Flying to waypoint " + currentWaypoint + "/" + waypoints.size();
+    }
+
+    /**
+     * Returns true if scanning just completed and resets the flag
+     */
+    public static boolean justCompleted() {
+        if (justCompleted) {
+            justCompleted = false; // Reset the flag after checking
+            return true;
+        }
+        return false;
     }
 }

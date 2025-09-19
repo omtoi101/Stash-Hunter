@@ -52,6 +52,6 @@ public class BaseFinder extends MeteorAddon {
 
     @Override
     public GithubRepo getRepo() {
-        return new GithubRepo("Jules", "base-finder");
+        return new GithubRepo("omtoi", "base-finder");
     }
 }
