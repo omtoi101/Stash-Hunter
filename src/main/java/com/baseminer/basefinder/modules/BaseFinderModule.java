@@ -10,6 +10,8 @@ import com.baseminer.basefinder.utils.WorldScanner;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.systems.waypoints.Waypoint;
+import meteordevelopment.meteorclient.systems.waypoints.Waypoints;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -651,6 +653,15 @@ public class BaseFinderModule extends Module {
             String title = storageOnlyMode.get() ? "Stash Found!" : "Base Found!";
             DiscordEmbed embed = new DiscordEmbed(title, description, 0x00FF00);
             DiscordWebhook.sendMessage("@everyone", embed);
+
+            // Create a waypoint
+            String waypointName = String.format("%d Blocks at %s", valuableBlocks.size(), coords);
+            Waypoint waypoint = new Waypoint.Builder()
+                .name(waypointName)
+                .pos(basePos)
+                .build();
+            Waypoints.get().add(waypoint);
+            info("Created waypoint: " + waypointName);
         } else {
             // Log that we skipped notification due to low density
             info("Skipped Discord notification for low density stash (density: " + String.format("%.6f", density) + 
