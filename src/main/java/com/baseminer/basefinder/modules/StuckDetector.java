@@ -124,37 +124,41 @@ public class StuckDetector extends Module {
 
         if (autoFix.get()) {
             fixInProgress = true;
+            final Vec3d positionWhenStuck = mc.player.getPos(); // Capture position for later check
+
             new Thread(() -> {
                 try {
                     ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
                     boolean wasActive = elytraFly.isActive();
 
                     if (wasActive) {
-                        info("Disabling ElytraFly to fix rubber-banding...");
+                        info("Attempting Fix 1: Toggling ElytraFly module...");
                         elytraFly.toggle();
-                        Thread.sleep(1000); // Wait for 1 second
-                        info("Re-enabling ElytraFly...");
+                        Thread.sleep(1000);
                         elytraFly.toggle();
-                    } else {
-                        // If ElytraFly is not active, try toggling the gliding state directly
-                        info("Toggling vanilla elytra flight to fix rubber-banding...");
-                        // This packet toggles the fall flying state. Send once to stop.
-                        if (mc.getNetworkHandler() != null) {
-                            mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
-                        }
-                        Thread.sleep(1000); // Wait 1 second
-                        // Send again to re-enable.
-                        if (mc.getNetworkHandler() != null) {
-                            mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
-                        }
-                        info("Re-toggled vanilla elytra flight.");
-                    }
+                        info("ElytraFly re-enabled. Monitoring for recovery...");
+                        Thread.sleep(2000); // Wait 2 seconds to see if we start moving
 
+                        if (mc.player.getPos().distanceTo(positionWhenStuck) < 1.0) {
+                            info("Fix 1 seems to have failed. Attempting Fix 2: Stopping vanilla flight via packet...");
+                            if (mc.getNetworkHandler() != null) {
+                                mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
+                            }
+                        } else {
+                            info("Fix 1 appears successful. No further action needed.");
+                        }
+                    } else {
+                        // ElytraFly not active, go straight to the packet fix
+                        info("ElytraFly not active. Attempting to get unstuck by stopping flight via packet...");
+                        if (mc.getNetworkHandler() != null) {
+                            mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
+                        }
+                    }
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 } finally {
                     fixInProgress = false;
-                    fixCooldown = 200; // 10-second cooldown to prevent repeated fixes
+                    fixCooldown = 200; // Cooldown starts after all fix attempts
                 }
             }).start();
         }
