@@ -201,6 +201,17 @@ public class BaseFinderModule extends Module {
         .build()
     );
 
+    private final Setting<Boolean> notifyOnElytraOut = sgGeneral.add(new BoolSetting.Builder()
+        .name("notify-on-elytra-out")
+        .description("Whether to notify and disconnect when you run out of elytras.")
+        .defaultValue(Config.notifyOnElytraOut)
+        .onChanged(v -> {
+            Config.notifyOnElytraOut = v;
+            Config.save();
+        })
+        .build()
+    );
+
     // State
     private final Map<PlayerEntity, Long> reportedPlayers = new ConcurrentHashMap<>();
     private final List<BlockPos> reportedBases = new ArrayList<>();
@@ -241,7 +252,7 @@ public class BaseFinderModule extends Module {
         }
 
         // Elytra check
-        if (ElytraController.isActive() && mc.player.getEquippedStack(EquipmentSlot.CHEST).isEmpty()) {
+        if (notifyOnElytraOut.get() && ElytraController.isActive() && mc.player.getEquippedStack(EquipmentSlot.CHEST).isEmpty()) {
             // Send Discord notification
             DiscordEmbed embed = new DiscordEmbed(
                 "Out of Elytras!",
