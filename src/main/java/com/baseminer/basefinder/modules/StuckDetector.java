@@ -11,7 +11,6 @@ import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.item.Items;
-import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.util.math.Vec3d;
 
 public class StuckDetector extends Module {
@@ -84,9 +83,9 @@ public class StuckDetector extends Module {
             return;
         }
 
-        // Check if player is flying with an elytra by checking the fall flying flag (index 7)
-        if (!mc.player.getFlag(7)) {
-            stationaryTicks = 0; // Reset if not flying
+        // Check if player is gliding
+        if (!mc.player.isGliding()) {
+            stationaryTicks = 0; // Reset if not gliding
             return;
         }
 
@@ -140,19 +139,15 @@ public class StuckDetector extends Module {
                         Thread.sleep(2000); // Wait 2 seconds to see if we start moving
 
                         if (mc.player.getPos().distanceTo(positionWhenStuck) < 1.0) {
-                            info("Fix 1 seems to have failed. Attempting Fix 2: Stopping vanilla flight via packet...");
-                            if (mc.getNetworkHandler() != null) {
-                                mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
-                            }
+                            info("Fix 1 seems to have failed. Attempting Fix 2: Stopping vanilla flight...");
+                            mc.player.stopGliding();
                         } else {
                             info("Fix 1 appears successful. No further action needed.");
                         }
                     } else {
-                        // ElytraFly not active, go straight to the packet fix
-                        info("ElytraFly not active. Attempting to get unstuck by stopping flight via packet...");
-                        if (mc.getNetworkHandler() != null) {
-                            mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
-                        }
+                        // ElytraFly not active, go straight to stopping flight
+                        info("ElytraFly not active. Attempting to get unstuck by stopping flight...");
+                        mc.player.stopGliding();
                     }
                 } catch (InterruptedException e) {
                     e.printStackTrace();
