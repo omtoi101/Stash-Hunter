@@ -35,6 +35,7 @@ For more detailed information, please see the following documents:
 
 -   [**Features**](./docs/FEATURES.md): A detailed overview of all features.
 -   [**Usage**](./docs/USAGE.md): In-depth instructions for all commands.
+-   [**Configuration**](./docs/CONFIGURATION.md): A guide to all available settings.
 
 ## Building
 
