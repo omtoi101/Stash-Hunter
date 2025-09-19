@@ -11,6 +11,7 @@ import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.item.Items;
+import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.util.math.Vec3d;
 
 public class StuckDetector extends Module {
@@ -137,9 +138,17 @@ public class StuckDetector extends Module {
                         elytraFly.toggle();
                     } else {
                         // If ElytraFly is not active, try toggling the gliding state directly
-                        mc.player.stopFallFlying();
-                        Thread.sleep(500);
-                        mc.player.startFallFlying();
+                        info("Toggling vanilla elytra flight to fix rubber-banding...");
+                        // This packet toggles the fall flying state. Send once to stop.
+                        if (mc.getNetworkHandler() != null) {
+                            mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
+                        }
+                        Thread.sleep(1000); // Wait 1 second
+                        // Send again to re-enable.
+                        if (mc.getNetworkHandler() != null) {
+                            mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
+                        }
+                        info("Re-toggled vanilla elytra flight.");
                     }
 
                 } catch (InterruptedException e) {
