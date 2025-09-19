@@ -84,9 +84,8 @@ public class StuckDetector extends Module {
             return;
         }
 
-        // Check if player is flying with an elytra
-        boolean isFlyingWithElytra = mc.player.isFallFlying() && mc.player.getEquippedStack(net.minecraft.entity.EquipmentSlot.CHEST).getItem() == Items.ELYTRA;
-        if (!isFlyingWithElytra) {
+        // Check if player is flying with an elytra by checking the fall flying flag (index 7)
+        if (!mc.player.getFlag(7)) {
             stationaryTicks = 0; // Reset if not flying
             return;
         }
