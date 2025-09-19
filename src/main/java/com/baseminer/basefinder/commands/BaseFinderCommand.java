@@ -1,12 +1,17 @@
 package com.baseminer.basefinder.commands;
 
+package com.baseminer.basefinder.commands;
+
 import com.baseminer.basefinder.utils.ElytraController;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import meteordevelopment.meteorclient.commands.Command;
 import net.minecraft.command.CommandSource;
 
 import static com.mojang.brigadier.Command.SINGLE_SUCCESS;
+import static meteordevelopment.meteorclient.MeteorClient.mc;
 
 public class BaseFinderCommand extends Command {
     public BaseFinderCommand() {
@@ -17,24 +22,36 @@ public class BaseFinderCommand extends Command {
     public void build(LiteralArgumentBuilder<CommandSource> builder) {
         // Start scanning with coordinates and optional strip width
         builder.then(literal("start")
-            .then(argument("x1", IntegerArgumentType.integer())
-                .then(argument("z1", IntegerArgumentType.integer())
-                    .then(argument("x2", IntegerArgumentType.integer())
-                        .then(argument("z2", IntegerArgumentType.integer())
+            .then(argument("x1", StringArgumentType.string())
+                .then(argument("z1", StringArgumentType.string())
+                    .then(argument("x2", StringArgumentType.string())
+                        .then(argument("z2", StringArgumentType.string())
                             .executes(context -> {
-                                int x1 = IntegerArgumentType.getInteger(context, "x1");
-                                int z1 = IntegerArgumentType.getInteger(context, "z1");
-                                int x2 = IntegerArgumentType.getInteger(context, "x2");
-                                int z2 = IntegerArgumentType.getInteger(context, "z2");
+                                int x1, z1, x2, z2;
+                                try {
+                                    x1 = parseCoordinate(StringArgumentType.getString(context, "x1"), 'x');
+                                    z1 = parseCoordinate(StringArgumentType.getString(context, "z1"), 'z');
+                                    x2 = parseCoordinate(StringArgumentType.getString(context, "x2"), 'x');
+                                    z2 = parseCoordinate(StringArgumentType.getString(context, "z2"), 'z');
+                                } catch (CommandSyntaxException e) {
+                                    error(e.getRawMessage().getString());
+                                    return 0;
+                                }
 
                                 return startScanning(x1, z1, x2, z2, 128); // Default strip width
                             })
                             .then(argument("stripWidth", IntegerArgumentType.integer(50, 500))
                                 .executes(context -> {
-                                    int x1 = IntegerArgumentType.getInteger(context, "x1");
-                                    int z1 = IntegerArgumentType.getInteger(context, "z1");
-                                    int x2 = IntegerArgumentType.getInteger(context, "x2");
-                                    int z2 = IntegerArgumentType.getInteger(context, "z2");
+                                    int x1, z1, x2, z2;
+                                    try {
+                                        x1 = parseCoordinate(StringArgumentType.getString(context, "x1"), 'x');
+                                        z1 = parseCoordinate(StringArgumentType.getString(context, "z1"), 'z');
+                                        x2 = parseCoordinate(StringArgumentType.getString(context, "x2"), 'x');
+                                        z2 = parseCoordinate(StringArgumentType.getString(context, "z2"), 'z');
+                                    } catch (CommandSyntaxException e) {
+                                        error(e.getRawMessage().getString());
+                                        return 0;
+                                    }
                                     int stripWidth = IntegerArgumentType.getInteger(context, "stripWidth");
 
                                     return startScanning(x1, z1, x2, z2, stripWidth);
@@ -67,7 +84,7 @@ public class BaseFinderCommand extends Command {
 
                 if (ElytraController.isActive()) {
                     info("Current waypoint: " + ElytraController.getCurrentWaypoint() +
-                         "/" + ElytraController.getTotalWaypoints());
+                        "/" + ElytraController.getTotalWaypoints());
 
                     if (ElytraController.getCurrentTarget() != null) {
                         var target = ElytraController.getCurrentTarget();
@@ -84,6 +101,7 @@ public class BaseFinderCommand extends Command {
             .executes(context -> {
                 info("Base Finder Commands:");
                 info("§7/basefinder start <x1> <z1> <x2> <z2> [stripWidth] §f- Start scanning an area");
+                info("§7You can use §c~§7 to specify your current coordinates (e.g. ~ ~ ~1000 ~1000).");
                 info("§7/basefinder stop §f- Stop the current scanning operation");
                 info("§7/basefinder status §f- Show current status and progress");
                 info("§7/basefinder help §f- Show this help message");
@@ -99,6 +117,33 @@ public class BaseFinderCommand extends Command {
             info("Use §7/basefinder help §ffor command usage.");
             return SINGLE_SUCCESS;
         });
+    }
+
+    private int parseCoordinate(String coord, char axis) throws CommandSyntaxException {
+        if (mc.player == null) {
+            throw new CommandSyntaxException(null, () -> "Player not in game.");
+        }
+
+        if (!coord.startsWith("~")) {
+            try {
+                return Integer.parseInt(coord);
+            } catch (NumberFormatException e) {
+                throw new CommandSyntaxException(null, () -> "Invalid coordinate: " + coord);
+            }
+        }
+
+        double base = (axis == 'x') ? mc.player.getX() : mc.player.getZ();
+
+        if (coord.length() == 1) {
+            return (int) base;
+        }
+
+        try {
+            int offset = Integer.parseInt(coord.substring(1));
+            return (int) (base + offset);
+        } catch (NumberFormatException e) {
+            throw new CommandSyntaxException(null, () -> "Invalid offset: " + coord);
+        }
     }
 
     private int startScanning(int x1, int z1, int x2, int z2, int stripWidth) {
