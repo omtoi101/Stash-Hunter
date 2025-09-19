@@ -1,7 +1,5 @@
 package com.baseminer.basefinder.commands;
 
-package com.baseminer.basefinder.commands;
-
 import com.baseminer.basefinder.utils.ElytraController;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
