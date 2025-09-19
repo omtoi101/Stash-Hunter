@@ -33,6 +33,11 @@ public class Config {
     public static double notificationDensityThreshold = 0.005; // New setting for Discord notification threshold
     public static int maxClusterDistance = 30; // New setting for clustering blocks
 
+    // Stuck Detector settings
+    public static String stuckDetectorWebhookUrl = "";
+    public static int stuckDetectorThreshold = 3;
+    public static boolean stuckDetectorAutoFix = true;
+
     // Storage containers only (for stash finding)
     public static List<Block> storageBlocks = new ArrayList<>(Arrays.asList(
         Blocks.CHEST,
@@ -149,6 +154,11 @@ public class Config {
                 notificationDensityThreshold = getDoubleProperty("notificationDensityThreshold", 0.005);
                 maxClusterDistance = getIntProperty("maxClusterDistance", 30);
 
+                // Load Stuck Detector settings
+                stuckDetectorWebhookUrl = properties.getProperty("stuckDetectorWebhookUrl", "");
+                stuckDetectorThreshold = getIntProperty("stuckDetectorThreshold", 3);
+                stuckDetectorAutoFix = getBoolProperty("stuckDetectorAutoFix", true);
+
             } catch (IOException e) {
                 System.err.println("Failed to load Base Finder config: " + e.getMessage());
                 e.printStackTrace();
@@ -181,6 +191,11 @@ public class Config {
                 properties.setProperty("minDensityThreshold", String.valueOf(minDensityThreshold));
                 properties.setProperty("notificationDensityThreshold", String.valueOf(notificationDensityThreshold));
                 properties.setProperty("maxClusterDistance", String.valueOf(maxClusterDistance));
+
+                // Save Stuck Detector settings
+                properties.setProperty("stuckDetectorWebhookUrl", stuckDetectorWebhookUrl);
+                properties.setProperty("stuckDetectorThreshold", String.valueOf(stuckDetectorThreshold));
+                properties.setProperty("stuckDetectorAutoFix", String.valueOf(stuckDetectorAutoFix));
 
                 properties.store(fos, "Base Finder Configuration - Auto-generated");
             }
