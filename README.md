@@ -29,6 +29,13 @@ Once in-game, you can enable the `BaseFinder` module through the Meteor Client G
 
 The HUD can be enabled and configured from the Meteor Client HUD settings.
 
+## Documentation
+
+For more detailed information, please see the following documents:
+
+-   [**Features**](./docs/FEATURES.md): A detailed overview of all features.
+-   [**Usage**](./docs/USAGE.md): In-depth instructions for all commands.
+
 ## Building
 
 To build this project from source, you will need:
