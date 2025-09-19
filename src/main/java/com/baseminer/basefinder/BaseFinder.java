@@ -6,6 +6,7 @@ import com.baseminer.basefinder.commands.ClearBasesCommand;
 import com.baseminer.basefinder.commands.ClearPlayersCommand;
 import com.baseminer.basefinder.hud.BaseFinderHud;
 import com.baseminer.basefinder.modules.BaseFinderModule;
+import com.baseminer.basefinder.modules.StuckDetector;
 import com.mojang.logging.LogUtils;
 import meteordevelopment.meteorclient.addons.GithubRepo;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
@@ -30,6 +31,7 @@ public class BaseFinder extends MeteorAddon {
 
         // Modules
         Modules.get().add(new BaseFinderModule());
+        Modules.get().add(new StuckDetector());
 
         // Commands
         Commands.add(new BaseFinderCommand());
