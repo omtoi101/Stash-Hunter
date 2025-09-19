@@ -16,6 +16,7 @@ import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.client.option.KeyBinding;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
@@ -211,6 +212,8 @@ public class BaseFinderModule extends Module {
     private int tickCounter = 0;
     private int lastHealthCheck = -1; // Track health for death detection
     private int elytraBrokenTicks = 0;
+    private int reEngagingElytraTicks = 0;
+    private boolean wasElytraBroken = false;
 
     public BaseFinderModule() {
         super(BaseFinder.CATEGORY, "base-finder", "Automatically finds bases by flying around and scanning for valuable blocks.");
@@ -251,6 +254,7 @@ public class BaseFinderModule extends Module {
             boolean elytraMissing = chestSlot.isEmpty() || (chestSlot.getItem() == Items.ELYTRA && chestSlot.isDamaged() && chestSlot.getDamage() >= chestSlot.getMaxDamage() - 1);
 
             if (elytraMissing) {
+                wasElytraBroken = true;
                 elytraBrokenTicks++;
                 if (elytraBrokenTicks > 40) { // ~2 seconds leeway
                     // Send Discord notification
@@ -275,7 +279,19 @@ public class BaseFinderModule extends Module {
                 }
             } else {
                 elytraBrokenTicks = 0;
+                if (wasElytraBroken) {
+                    wasElytraBroken = false;
+                    reEngagingElytraTicks = 100; // 5 seconds
+                }
             }
+        }
+
+        // Handle re-engagement
+        if (reEngagingElytraTicks > 0) {
+            reEngagingElytraTicks--;
+            mc.options.jumpKey.setPressed(true);
+        } else {
+            mc.options.jumpKey.setPressed(false);
         }
 
         // Death detection - check if player health dropped to 0 or respawned
