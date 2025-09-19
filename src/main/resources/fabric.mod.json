@@ -5,10 +5,10 @@
   "name": "Base Finder",
   "description": "A Meteor client addon for finding bases on anarchy servers.",
   "authors": [
-    "omtoi101"
+    "omtoi"
   ],
   "contact": {
-    "sources": "https://github.com/omtoi101/base-finder/tree/working"
+    "sources": "https://github.com/omtoi101/stash-finder"
   },
   "icon": "assets/template/icon.png",
   "environment": "client",

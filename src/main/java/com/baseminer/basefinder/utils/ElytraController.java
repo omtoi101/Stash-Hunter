@@ -115,15 +115,6 @@ public class ElytraController {
         if (horizontalDistance < 20.0) { // Increased threshold for more reliable waypoint progression
             flyToNextWaypoint();
         } else {
-            // Check if we're stuck (haven't made progress in a while)
-            if (System.currentTimeMillis() - lastWaypointTime > 45000) { // Increased timeout to 45 seconds
-                if (MeteorClient.mc.player != null) {
-                    MeteorClient.mc.player.sendMessage(
-                        net.minecraft.text.Text.of("§cStuck at waypoint, skipping..."), false);
-                }
-                flyToNextWaypoint();
-            }
-
             // Only control flight if we're reasonably close to the target altitude
             double altitudeDifference = Math.abs(playerPos.y - target.y);
             if (altitudeDifference < 100) { // Only control if within reasonable altitude range
