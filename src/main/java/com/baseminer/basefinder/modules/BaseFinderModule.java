@@ -18,6 +18,8 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
@@ -208,6 +210,7 @@ public class BaseFinderModule extends Module {
     private final List<BlockPos> reportedBases = new ArrayList<>();
     private int tickCounter = 0;
     private int lastHealthCheck = -1; // Track health for death detection
+    private int elytraBrokenTicks = 0;
 
     public BaseFinderModule() {
         super(BaseFinder.CATEGORY, "base-finder", "Automatically finds bases by flying around and scanning for valuable blocks.");
@@ -243,26 +246,36 @@ public class BaseFinderModule extends Module {
         }
 
         // Elytra check
-        if (ElytraController.isActive() && mc.player.getEquippedStack(EquipmentSlot.CHEST).isEmpty()) {
-            // Send Discord notification
-            DiscordEmbed embed = new DiscordEmbed(
-                "Out of Elytras!",
-                "The bot has run out of elytras and will now disconnect.",
-                0xFF0000
-            );
-            DiscordWebhook.sendMessage("@everyone", embed);
+        if (ElytraController.isActive()) {
+            ItemStack chestSlot = mc.player.getEquippedStack(EquipmentSlot.CHEST);
+            boolean elytraMissing = chestSlot.isEmpty() || (chestSlot.getItem() == Items.ELYTRA && chestSlot.isDamaged() && chestSlot.getDamage() >= chestSlot.getMaxDamage() - 1);
 
-            // Disconnect from server
-            if (mc.getNetworkHandler() != null) {
-                mc.getNetworkHandler().getConnection().disconnect(Text.of("Ran out of elytras."));
+            if (elytraMissing) {
+                elytraBrokenTicks++;
+                if (elytraBrokenTicks > 40) { // ~2 seconds leeway
+                    // Send Discord notification
+                    DiscordEmbed embed = new DiscordEmbed(
+                        "Out of Elytras!",
+                        "The bot has run out of elytras or the equipped elytra broke, and will now disconnect.",
+                        0xFF0000
+                    );
+                    DiscordWebhook.sendMessage("@everyone", embed);
+
+                    // Disconnect from server
+                    if (mc.getNetworkHandler() != null) {
+                        mc.getNetworkHandler().getConnection().disconnect(Text.of("Ran out of elytras or elytra broke."));
+                    }
+
+                    // Stop elytra controller
+                    ElytraController.stop();
+
+                    // Deactivate the module
+                    toggle();
+                    return; // Stop further processing in onTick
+                }
+            } else {
+                elytraBrokenTicks = 0;
             }
-
-            // Stop elytra controller
-            ElytraController.stop();
-
-            // Deactivate the module
-            toggle();
-            return; // Stop further processing in onTick
         }
 
         // Death detection - check if player health dropped to 0 or respawned
