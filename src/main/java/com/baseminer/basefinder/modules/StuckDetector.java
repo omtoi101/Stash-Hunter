@@ -4,12 +4,14 @@ import com.baseminer.basefinder.BaseFinder;
 import com.baseminer.basefinder.utils.Config;
 import com.baseminer.basefinder.utils.DiscordEmbed;
 import com.baseminer.basefinder.utils.DiscordWebhook;
+import com.baseminer.basefinder.utils.KeyHold;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import meteordevelopment.orbit.EventHandler;
+import net.minecraft.client.option.KeyBinding;
 import net.minecraft.item.Items;
 import net.minecraft.util.math.Vec3d;
 
@@ -141,19 +143,28 @@ public class StuckDetector extends Module {
                         if (mc.player.getPos().distanceTo(positionWhenStuck) < 1.0) {
                             info("Fix 1 seems to have failed. Attempting Fix 2: Stopping vanilla flight...");
                             mc.player.stopGliding();
+
+                            info("Attempting Fix 3: Holding jump...");
+                            KeyHold.hold(mc.options.jumpKey, 5, (v) -> {
+                                info("Jump complete.");
+                                fixInProgress = false;
+                                fixCooldown = 200;
+                            });
+
                         } else {
                             info("Fix 1 appears successful. No further action needed.");
+                            fixInProgress = false;
+                            fixCooldown = 200;
                         }
                     } else {
                         // ElytraFly not active, go straight to stopping flight
                         info("ElytraFly not active. Attempting to get unstuck by stopping flight...");
                         mc.player.stopGliding();
+                        fixInProgress = false;
+                        fixCooldown = 200;
                     }
                 } catch (InterruptedException e) {
                     e.printStackTrace();
-                } finally {
-                    fixInProgress = false;
-                    fixCooldown = 200; // Cooldown starts after all fix attempts
                 }
             }).start();
         }
