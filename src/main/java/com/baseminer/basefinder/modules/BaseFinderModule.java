@@ -496,6 +496,18 @@ public class BaseFinderModule extends Module {
             return true;
         }
 
+        // Check for Woodland Mansion: 44 chests and mostly wood/cobblestone
+        if (chestCount == 44) {
+            int darkOakLogCount = blockCounts.getOrDefault(Blocks.DARK_OAK_LOG, 0);
+            int darkOakPlanksCount = blockCounts.getOrDefault(Blocks.DARK_OAK_PLANKS, 0);
+            int cobblestoneCount = blockCounts.getOrDefault(Blocks.COBBLESTONE, 0);
+            double mansionBlockRatio = (double)(darkOakLogCount + darkOakPlanksCount + cobblestoneCount) / totalBlocks;
+
+            if (mansionBlockRatio > 0.5) {
+                return true; // Likely a Woodland Mansion
+            }
+        }
+
         // Check Y-level distribution - natural structures often span many Y levels
         int minY = blocks.stream().mapToInt(BlockPos::getY).min().orElse(0);
         int maxY = blocks.stream().mapToInt(BlockPos::getY).max().orElse(0);
