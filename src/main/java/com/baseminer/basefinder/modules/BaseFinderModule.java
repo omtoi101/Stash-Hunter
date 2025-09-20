@@ -2,6 +2,7 @@ package com.baseminer.basefinder.modules;
 
 import com.baseminer.basefinder.BaseFinder;
 import com.baseminer.basefinder.events.PlayerDeathEvent;
+import com.baseminer.basefinder.events.PlayerDisconnectEvent;
 import com.baseminer.basefinder.utils.Config;
 import com.baseminer.basefinder.utils.DiscordEmbed;
 import com.baseminer.basefinder.utils.DiscordWebhook;
@@ -205,6 +206,17 @@ public class BaseFinderModule extends Module {
         .build()
     );
 
+    private final Setting<Boolean> notifyOnDisconnect = sgGeneral.add(new BoolSetting.Builder()
+        .name("notify-on-disconnect")
+        .description("Whether to notify when you are disconnected from the server.")
+        .defaultValue(Config.notifyOnDisconnect)
+        .onChanged(v -> {
+            Config.notifyOnDisconnect = v;
+            Config.save();
+        })
+        .build()
+    );
+
     // State
     private final Map<PlayerEntity, Long> reportedPlayers = new ConcurrentHashMap<>();
     private final List<BlockPos> reportedBases = new ArrayList<>();
@@ -234,6 +246,19 @@ public class BaseFinderModule extends Module {
 
     public void clearReportedPlayers() {
         reportedPlayers.clear();
+    }
+
+    @EventHandler
+    private void onDisconnect(PlayerDisconnectEvent event) {
+        if (notifyOnDisconnect.get()) {
+            DiscordEmbed embed = new DiscordEmbed(
+                "Disconnected!",
+                "The client has been disconnected from the server.",
+                0xFF0000
+            );
+            DiscordWebhook.sendMessage("@everyone", embed);
+            info("Disconnected from server and notified to Discord");
+        }
     }
 
     @EventHandler

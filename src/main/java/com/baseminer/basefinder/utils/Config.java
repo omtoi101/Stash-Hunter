@@ -26,6 +26,7 @@ public class Config {
     public static boolean playerDetection = true;
     public static boolean notifyOnDeath = true;
     public static boolean notifyOnCompletion = true; // New setting for completion notifications
+    public static boolean notifyOnDisconnect = true;
     public static boolean storageOnlyMode = true; // Storage-only detection by default
     public static int maxVolumeThreshold = 5000; // Reduced from 10000 - more aggressive filtering
     public static boolean filterNaturalStructures = true;
@@ -147,6 +148,7 @@ public class Config {
                 playerDetection = getBoolProperty("playerDetection", true);
                 notifyOnDeath = getBoolProperty("notifyOnDeath", true);
                 notifyOnCompletion = getBoolProperty("notifyOnCompletion", true);
+                notifyOnDisconnect = getBoolProperty("notifyOnDisconnect", true);
                 storageOnlyMode = getBoolProperty("storageOnlyMode", true);
                 maxVolumeThreshold = getIntProperty("maxVolumeThreshold", 5000);
                 filterNaturalStructures = getBoolProperty("filterNaturalStructures", true);
@@ -185,6 +187,7 @@ public class Config {
                 properties.setProperty("playerDetection", String.valueOf(playerDetection));
                 properties.setProperty("notifyOnDeath", String.valueOf(notifyOnDeath));
                 properties.setProperty("notifyOnCompletion", String.valueOf(notifyOnCompletion));
+                properties.setProperty("notifyOnDisconnect", String.valueOf(notifyOnDisconnect));
                 properties.setProperty("storageOnlyMode", String.valueOf(storageOnlyMode));
                 properties.setProperty("maxVolumeThreshold", String.valueOf(maxVolumeThreshold));
                 properties.setProperty("filterNaturalStructures", String.valueOf(filterNaturalStructures));
