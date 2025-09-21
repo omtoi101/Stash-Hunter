@@ -1,5 +1,6 @@
 package com.stashhunter.stashhunter.utils;
 
+import com.stashhunter.stashhunter.utils.TripManager;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
@@ -27,25 +28,9 @@ public class ElytraController {
 
         // Generate waypoints in a lawnmower pattern
         generateWaypoints(x1, z1, x2, z2, stripWidth);
+        TripManager.addTrip(waypoints, currentWaypoint);
 
-        if (!waypoints.isEmpty()) {
-            // Ensure player has elytra equipped
-            if (MeteorClient.mc.player != null &&
-                MeteorClient.mc.player.getEquippedStack(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) {
-                MeteorClient.mc.player.sendMessage(
-                    net.minecraft.text.Text.of("§cPlease equip an Elytra before starting!"), false);
-                stop();
-                return;
-            }
-
-            // Enable Meteor's ElytraFly module if available
-            ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
-            if (elytraFly != null && !elytraFly.isActive()) {
-                elytraFly.toggle();
-            }
-
-            flyToNextWaypoint();
-        }
+        initiateFlight();
     }
 
     private static void generateWaypoints(int x1, int z1, int x2, int z2, int stripWidth) {
@@ -83,6 +68,68 @@ public class ElytraController {
                 net.minecraft.text.Text.of("§aStash hunter flight stopped"), false);
         }
     }
+
+    public static void pause() {
+        if (!active) {
+            return;
+        }
+        TripManager.addTrip(waypoints, currentWaypoint);
+        stop();
+    }
+
+    public static void resume() {
+        if (active) {
+            return;
+        }
+
+        TripManager.TripData tripData = TripManager.getLatestTrip();
+        if (tripData != null) {
+            resume(tripData);
+        }
+    }
+
+    public static void resume(long timestamp) {
+        if (active) {
+            return;
+        }
+
+        TripManager.TripData tripData = TripManager.getTrip(timestamp);
+        if (tripData != null) {
+            resume(tripData);
+        }
+    }
+
+    private static void resume(TripManager.TripData tripData) {
+        waypoints = tripData.waypoints;
+        currentWaypoint = tripData.currentWaypoint;
+        active = true;
+        justCompleted = false;
+        lastWaypointTime = System.currentTimeMillis();
+
+        initiateFlight();
+    }
+
+    private static void initiateFlight() {
+        if (!waypoints.isEmpty()) {
+            // Ensure player has elytra equipped
+            if (MeteorClient.mc.player != null &&
+                MeteorClient.mc.player.getEquippedStack(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) {
+                MeteorClient.mc.player.sendMessage(
+                    net.minecraft.text.Text.of("§cPlease equip an Elytra before starting!"), false);
+                stop();
+                return;
+            }
+
+            // Enable Meteor's ElytraFly module if available
+            ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
+            if (elytraFly != null && !elytraFly.isActive()) {
+                elytraFly.toggle();
+            }
+
+            flyToNextWaypoint();
+        }
+    }
+
 
     public static void onTick() {
         if (!active || MeteorClient.mc.player == null || waypoints.isEmpty()) {

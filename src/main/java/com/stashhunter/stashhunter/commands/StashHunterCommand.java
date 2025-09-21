@@ -2,6 +2,7 @@ package com.stashhunter.stashhunter.commands;
 
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import meteordevelopment.meteorclient.commands.Command;
@@ -70,6 +71,55 @@ public class StashHunterCommand extends Command {
             })
         );
 
+        // Pause scanning
+        builder.then(literal("pause")
+            .executes(context -> {
+                if (ElytraController.isActive()) {
+                    ElytraController.pause();
+                    info("Stash hunter flight paused.");
+                } else {
+                    error("Stash hunter is not currently active.");
+                }
+                return SINGLE_SUCCESS;
+            })
+        );
+
+        // Resume scanning
+        builder.then(literal("resume")
+            .executes(context -> {
+                if (ElytraController.isActive()) {
+                    error("Stash hunter is already active.");
+                } else {
+                    ElytraController.resume();
+                    info("Stash hunter flight resumed.");
+                }
+                return SINGLE_SUCCESS;
+            })
+            .then(argument("timestamp", LongArgumentType.longArg())
+                .executes(context -> {
+                    if (ElytraController.isActive()) {
+                        error("Stash hunter is already active.");
+                    } else {
+                        long timestamp = LongArgumentType.getLong(context, "timestamp");
+                        ElytraController.resume(timestamp);
+                        info("Stash hunter flight resumed.");
+                    }
+                    return SINGLE_SUCCESS;
+                })
+            )
+        );
+
+        // List trips
+        builder.then(literal("list")
+            .executes(context -> {
+                info("Saved trips:");
+                for (com.stashhunter.stashhunter.utils.TripManager.TripData trip : com.stashhunter.stashhunter.utils.TripManager.getTrips()) {
+                    info("  " + trip.timestamp);
+                }
+                return SINGLE_SUCCESS;
+            })
+        );
+
         // Status command
         builder.then(literal("status")
             .executes(context -> {
@@ -95,6 +145,9 @@ public class StashHunterCommand extends Command {
                 info("Stash-Hunter Commands:");
                 info("§7/stashhunter start <x1> <z1> <x2> <z2> [stripWidth] §f- Start scanning an area");
                 info("§7/stashhunter stop §f- Stop the current scanning operation");
+                info("§7/stashhunter pause §f- Pause the current scanning operation");
+                info("§7/stashhunter resume [timestamp] §f- Resume the latest or a specific trip");
+                info("§7/stashhunter list §f- List all saved trips");
                 info("§7/stashhunter status §f- Show current status and progress");
                 info("§7/stashhunter help §f- Show this help message");
                 info("");
