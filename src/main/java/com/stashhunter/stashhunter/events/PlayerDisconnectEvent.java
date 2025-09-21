@@ -1,4 +1,4 @@
-package com.baseminer.basefinder.events;
+package com.stashhunter.stashhunter.events;
 
 import meteordevelopment.orbit.ICancellable;
 

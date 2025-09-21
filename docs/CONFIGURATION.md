@@ -1,18 +1,18 @@
 # Configuration
 
-This document provides a detailed overview of all the settings available for customization in the Base Finder addon.
+This document provides a detailed overview of all the settings available for customization in the Stash-Hunter addon.
 
-## Base Finder Module
+## Stash-Hunter Module
 
-These settings control the core functionality of the base finding process.
+These settings control the core functionality of the stash finding process.
 
 | Setting                        | Description                                                                                             | Default Value |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------- | ------------- |
 | `discord-webhook-url`          | The Discord webhook URL to send notifications to.                                                       | (empty)       |
-| `block-detection-threshold`    | The number of valuable blocks to find before a base is detected.                                        | 10            |
+| `block-detection-threshold`    | The number of valuable blocks to find before a stash is detected.                                       | 10            |
 | `scan-radius`                  | The radius (in blocks) to scan for valuable blocks around the player.                                   | 64            |
 | `storage-only-mode`            | If enabled, only searches for storage containers (chests, shulkers). Faster than a full block scan.      | true          |
-| `max-volume-threshold`         | The maximum volume of a block cluster to be considered a base. Helps filter out large natural structures. | 5000          |
+| `max-volume-threshold`         | The maximum volume of a block cluster to be considered a stash. Helps filter out large natural structures. | 5000          |
 | `filter-natural-structures`    | If enabled, attempts to filter out likely natural structures like dungeons and mineshafts.                | true          |
 | `min-density-threshold`        | The minimum density (blocks/volume) required for a cluster to be considered a potential stash.          | 0.002         |
 | `notification-density-threshold` | The minimum density required to send a Discord notification. Set to 0 to be notified for all finds.       | 0.005         |

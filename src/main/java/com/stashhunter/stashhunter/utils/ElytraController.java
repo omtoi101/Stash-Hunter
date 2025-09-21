@@ -1,4 +1,4 @@
-package com.baseminer.basefinder.utils;
+package com.stashhunter.stashhunter.utils;
 
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.systems.modules.Modules;
@@ -80,7 +80,7 @@ public class ElytraController {
 
         if (MeteorClient.mc.player != null) {
             MeteorClient.mc.player.sendMessage(
-                net.minecraft.text.Text.of("§aBase finder flight stopped"), false);
+                net.minecraft.text.Text.of("§aStash hunter flight stopped"), false);
         }
     }
 

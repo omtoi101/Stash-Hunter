@@ -1,30 +1,30 @@
-# Base Finder
+# Stash-Hunter
 
-A Meteor client addon for finding bases on anarchy servers. This mod is designed to help players discover new bases by tracking player-placed blocks.
+A Meteor client addon for finding stashes on anarchy servers. This mod is designed to help players discover new stashes by tracking player-placed blocks.
 
 ## Features
 
-- **Base Finding Module**: The core of the addon, which actively searches for and records potential base locations.
+- **Stash Finding Module**: The core of the addon, which actively searches for and records potential stash locations.
 - **Stuck Detector**: A utility to detect if the player character is stuck, which can be useful during automated exploration.
 - **Customizable Commands**:
-    - `.basefinder`: The main command to configure the Base Finder module.
-    - `.clearbases`: Clears the list of found bases.
+    - `.stashhunter`: The main command to configure the Stash-Hunter module.
+    - `.clearstashes`: Clears the list of found stashes.
     - `.clearplayers`: Clears the list of tracked players.
-- **In-game HUD**: A Heads-Up Display to show real-time information about the base finding process.
+- **In-game HUD**: A Heads-Up Display to show real-time information about the stash finding process.
 
 ## Installation
 
-1.  Download the latest version of Base Finder from the [Releases](https://github.com/omtoi101/base-finder/releases) page.
+1.  Download the latest version of Stash-Hunter from the [Releases](https://github.com/omtoi101/stash-hunter/releases) page.
 2.  Make sure you have [Meteor Client](https://meteorclient.com/) installed.
 3.  Place the downloaded `.jar` file into your `mods` folder.
 4.  Launch Minecraft with Fabric.
 
 ## Usage
 
-Once in-game, you can enable the `BaseFinder` module through the Meteor Client GUI. Use the following commands to manage the addon:
+Once in-game, you can enable the `StashHunter` module through the Meteor Client GUI. Use the following commands to manage the addon:
 
--   `.basefinder help`: Displays help for the basefinder command.
--   `.clearbases`: Deletes all saved base locations.
+-   `.stashhunter help`: Displays help for the stashhunter command.
+-   `.clearstashes`: Deletes all saved stash locations.
 -   `.clearplayers`: Deletes all tracked player data.
 
 The HUD can be enabled and configured from the Meteor Client HUD settings.
@@ -48,8 +48,8 @@ Follow these steps:
 
 1.  **Clone the repository:**
     ```sh
-    git clone https://github.com/omtoi101/base-finder.git
-    cd base-finder
+    git clone https://github.com/omtoi101/stash-hunter.git
+    cd stash-hunter
     ```
 
 2.  **Build the project:**

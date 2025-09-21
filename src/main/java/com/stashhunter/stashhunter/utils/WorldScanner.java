@@ -1,4 +1,4 @@
-package com.baseminer.basefinder.utils;
+package com.stashhunter.stashhunter.utils;
 
 import net.minecraft.block.Block;
 import net.minecraft.client.MinecraftClient;

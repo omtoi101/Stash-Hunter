@@ -1,29 +1,29 @@
 # Features
 
-This document provides a detailed overview of the features available in the Base Finder addon.
+This document provides a detailed overview of the features available in the Stash-Hunter addon.
 
-## Base Finder Module
+## Stash-Hunter Module
 
-The `BaseFinderModule` is the core of this addon. It is a highly configurable module that automates the process of finding bases and stashes.
+The `StashHunterModule` is the core of this addon. It is a highly configurable module that automates the process of finding stashes.
 
 ### Key Features:
 
 -   **Automated Elytra Flight**: The module uses `ElytraController` to fly automatically over a specified area, scanning for valuable blocks.
 -   **Configurable Scanning**: You can configure various parameters for scanning, such as:
     -   `scan-radius`: The radius around the player to scan for blocks.
-    -   `block-detection-threshold`: The minimum number of valuable blocks to trigger a base detection.
+    -   `block-detection-threshold`: The minimum number of valuable blocks to trigger a stash detection.
     -   `storage-only-mode`: A mode to only search for storage containers like chests and shulker boxes, which is faster than scanning for all valuable blocks.
 -   **Advanced Filtering**: The module includes advanced filtering to avoid false positives from natural structures:
-    -   `max-volume-threshold`: Sets a maximum volume for a cluster of blocks to be considered a base.
-    -   `min-density-threshold`: Sets a minimum density (blocks/volume) for a cluster to be considered a base.
+    -   `max-volume-threshold`: Sets a maximum volume for a cluster of blocks to be considered a stash.
+    -   `min-density-threshold`: Sets a minimum density (blocks/volume) for a cluster to be considered a stash.
     -   `filter-natural-structures`: An option to enable or disable the filtering of natural structures.
 -   **Player Detection**: The module can detect other players within a certain range and send a notification.
 -   **Discord Integration**: The module can send detailed notifications to a Discord webhook for:
-    -   Found bases and stashes, with coordinates, density, and a list of found containers.
+    -   Found stashes, with coordinates, density, and a list of found containers.
     -   Detected players.
     -   Player death events.
     -   Completion of a scanning mission.
--   **Meteor Waypoints**: When a base is found, a waypoint is automatically created in Meteor Client.
+-   **Meteor Waypoints**: When a stash is found, a waypoint is automatically created in Meteor Client.
 
 ## Stuck Detector Module
 
@@ -37,9 +37,9 @@ The `StuckDetector` is a utility module designed to handle a common issue with e
     2.  If that fails, it will stop the player's gliding.
 -   **Discord Notifications**: It can send a notification to a Discord webhook when the player gets stuck, and whether it is attempting an automatic fix.
 
-## Base Finder HUD
+## Stash-Hunter HUD
 
-The `BaseFinderHud` provides real-time information about the status of the Base Finder on your screen.
+The `StashHunterHud` provides real-time information about the status of the Stash-Hunter on your screen.
 
 ### HUD Elements:
 

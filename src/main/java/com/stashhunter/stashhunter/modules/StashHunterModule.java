@@ -1,13 +1,13 @@
-package com.baseminer.basefinder.modules;
+package com.stashhunter.stashhunter.modules;
 
-import com.baseminer.basefinder.BaseFinder;
-import com.baseminer.basefinder.events.PlayerDeathEvent;
-import com.baseminer.basefinder.events.PlayerDisconnectEvent;
-import com.baseminer.basefinder.utils.Config;
-import com.baseminer.basefinder.utils.DiscordEmbed;
-import com.baseminer.basefinder.utils.DiscordWebhook;
-import com.baseminer.basefinder.utils.ElytraController;
-import com.baseminer.basefinder.utils.WorldScanner;
+import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.events.PlayerDeathEvent;
+import com.stashhunter.stashhunter.events.PlayerDisconnectEvent;
+import com.stashhunter.stashhunter.utils.Config;
+import com.stashhunter.stashhunter.utils.DiscordEmbed;
+import com.stashhunter.stashhunter.utils.DiscordWebhook;
+import com.stashhunter.stashhunter.utils.ElytraController;
+import com.stashhunter.stashhunter.utils.WorldScanner;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class BaseFinderModule extends Module {
+public class StashHunterModule extends Module {
     // Settings
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
 
@@ -50,7 +50,7 @@ public class BaseFinderModule extends Module {
 
     private final Setting<Integer> blockDetectionThreshold = sgGeneral.add(new IntSetting.Builder()
         .name("block-detection-threshold")
-        .description("The number of valuable blocks to find before a base is detected.")
+        .description("The number of valuable blocks to find before a stash is detected.")
         .defaultValue(Config.blockDetectionThreshold)
         .min(1)
         .sliderMax(50)
@@ -76,7 +76,7 @@ public class BaseFinderModule extends Module {
 
     private final Setting<Boolean> storageOnlyMode = sgGeneral.add(new BoolSetting.Builder()
         .name("storage-only-mode")
-        .description("Only search for storage containers (chests, shulkers). Disable to search for all base blocks.")
+        .description("Only search for storage containers (chests, shulkers). Disable to search for all stash blocks.")
         .defaultValue(Config.storageOnlyMode)
         .onChanged(v -> {
             Config.storageOnlyMode = v;
@@ -220,21 +220,21 @@ public class BaseFinderModule extends Module {
 
     // State
     private final Map<PlayerEntity, Long> reportedPlayers = new ConcurrentHashMap<>();
-    private final List<BlockPos> reportedBases = new ArrayList<>();
+    private final List<BlockPos> reportedStashes = new ArrayList<>();
     private int tickCounter = 0;
     private int lastHealthCheck = -1; // Track health for death detection
     private int elytraBrokenTicks = 0;
     private int reEngagingElytraTicks = 0;
     private boolean wasElytraBroken = false;
 
-    public BaseFinderModule() {
-        super(BaseFinder.CATEGORY, "base-finder", "Automatically finds bases by flying around and scanning for valuable blocks.");
+    public StashHunterModule() {
+        super(StashHunter.CATEGORY, "stash-hunter", "Automatically finds stashes by flying around and scanning for valuable blocks.");
     }
 
     @Override
     public void onActivate() {
         reportedPlayers.clear();
-        reportedBases.clear();
+        reportedStashes.clear();
         lastHealthCheck = -1; // Reset health tracking
     }
 
@@ -243,8 +243,8 @@ public class BaseFinderModule extends Module {
         ElytraController.stop();
     }
 
-    public void clearReportedBases() {
-        reportedBases.clear();
+    public void clearReportedStashes() {
+        reportedStashes.clear();
     }
 
     public void clearReportedPlayers() {
@@ -388,14 +388,14 @@ public class BaseFinderModule extends Module {
 
         // Clean up old reported bases every 10 minutes
         if (tickCounter % 12000 == 0) {
-            reportedBases.clear();
+            reportedStashes.clear();
         }
 
         // Check if ElytraController completed and send notification
         if (notifyOnCompletion.get() && ElytraController.justCompleted()) {
             DiscordEmbed embed = new DiscordEmbed(
                 "Scanning Completed!",
-                "Base finder has finished scanning the designated area.\n" +
+                "Stash hunter has finished scanning the designated area.\n" +
                 "Total waypoints completed: " + ElytraController.getTotalWaypoints() +
                 "\nFinal location: " + (mc.player != null ? mc.player.getBlockPos().toShortString() : "Unknown"),
                 0x0099FF
@@ -477,11 +477,11 @@ public class BaseFinderModule extends Module {
     }
 
     private void processCluster(List<BlockPos> cluster) {
-        BlockPos basePos = calculateBaseCenter(cluster);
+        BlockPos stashPos = calculateStashCenter(cluster);
 
         // Check if we've already reported a base near this location
-        boolean alreadyReported = reportedBases.stream()
-            .anyMatch(reportedBase -> reportedBase.isWithinDistance(basePos, 100));
+        boolean alreadyReported = reportedStashes.stream()
+            .anyMatch(reportedStash -> reportedStash.isWithinDistance(stashPos, 100));
 
         if (alreadyReported) {
             return;
@@ -495,8 +495,8 @@ public class BaseFinderModule extends Module {
             return;
         }
 
-        reportedBases.add(basePos);
-        reportBase(basePos, cluster, volume, density);
+        reportedStashes.add(stashPos);
+        reportStash(stashPos, cluster, volume, density);
     }
 
     /**
@@ -607,9 +607,9 @@ public class BaseFinderModule extends Module {
                         continue;
                     }
 
-                    // Scan only common base building heights
+                    // Scan only common stash building heights
                     int minY = Math.max(mc.world.getBottomY(), -64);
-                    int maxY = Math.min(mc.world.getHeight(), 80); // Focus on common base heights
+                    int maxY = Math.min(mc.world.getHeight(), 80); // Focus on common stash heights
 
                     for (int y = minY; y < maxY; y += 2) { // Skip every other Y level for performance
                         BlockPos pos = new BlockPos(x, y, z);
@@ -629,7 +629,7 @@ public class BaseFinderModule extends Module {
         }
     }
 
-    private BlockPos calculateBaseCenter(List<BlockPos> blocks) {
+    private BlockPos calculateStashCenter(List<BlockPos> blocks) {
         if (blocks.isEmpty()) return mc.player.getBlockPos();
 
         int totalX = 0, totalY = 0, totalZ = 0;
@@ -646,8 +646,8 @@ public class BaseFinderModule extends Module {
         );
     }
 
-    private void reportBase(BlockPos basePos, List<BlockPos> valuableBlocks, double volume, double density) {
-        String coords = basePos.toShortString();
+    private void reportStash(BlockPos stashPos, List<BlockPos> valuableBlocks, double volume, double density) {
+        String coords = stashPos.toShortString();
         String rating = getRatingFromDensity(density);
 
         Map<Block, Integer> counts = countBlockTypes(valuableBlocks);
@@ -660,9 +660,9 @@ public class BaseFinderModule extends Module {
                 .append(entry.getKey().getName().getString())
                 .append("\n"));
 
-        String modeInfo = storageOnlyMode.get() ? " (Storage Only)" : " (Full Base)";
+        String modeInfo = storageOnlyMode.get() ? " (Storage Only)" : " (Full Stash)";
         String logMessage = String.format("%s at: %s with %d valuable blocks (density: %.6f)",
-            storageOnlyMode.get() ? "Stash Found" : "Base Found", coords, valuableBlocks.size(), density);
+            storageOnlyMode.get() ? "Stash Found" : "Stash Found", coords, valuableBlocks.size(), density);
 
         // Always log to console/chat
         info(logMessage);
@@ -679,7 +679,7 @@ public class BaseFinderModule extends Module {
                 coords, modeInfo, valuableBlocks.size(), volume, density, rating, containerList.toString()
             );
 
-            String title = storageOnlyMode.get() ? "Stash Found!" : "Base Found!";
+            String title = storageOnlyMode.get() ? "Stash Found!" : "Stash Found!";
             DiscordEmbed embed = new DiscordEmbed(title, description, 0x00FF00);
             DiscordWebhook.sendMessage("@everyone", embed);
 
@@ -687,7 +687,7 @@ public class BaseFinderModule extends Module {
             String waypointName = String.format("%d Blocks at %s", valuableBlocks.size(), coords);
             Waypoint waypoint = new Waypoint.Builder()
                 .name(waypointName)
-                .pos(basePos)
+                .pos(stashPos)
                 .build();
             Waypoints.get().add(waypoint);
             info("Created waypoint: " + waypointName);

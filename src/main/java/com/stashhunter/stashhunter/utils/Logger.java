@@ -1,4 +1,4 @@
-package com.baseminer.basefinder.utils;
+package com.stashhunter.stashhunter.utils;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -8,7 +8,7 @@ import java.util.Date;
 
 public class Logger {
     private static final String LOG_DIR = System.getProperty("user.home") + "/.meteor-client/";
-    private static final String LOG_FILE = LOG_DIR + "basefinder.log";
+    private static final String LOG_FILE = LOG_DIR + "stashhunter.log";
     private static FileWriter writer;
 
     static {

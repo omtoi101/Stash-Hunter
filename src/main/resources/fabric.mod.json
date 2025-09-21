@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "id": "base-finder",
+  "id": "stash-hunter",
   "version": "${version}",
-  "name": "Base Finder",
-  "description": "A Meteor client addon for finding bases on anarchy servers.",
+  "name": "Stash-Hunter",
+  "description": "A Meteor client addon for finding stashes on anarchy servers.",
   "authors": [
     "omtoi"
   ],
   "contact": {
-    "sources": "https://github.com/omtoi101/stash-finder"
+    "sources": "https://github.com/omtoi101/stash-hunter"
   },
   "icon": "assets/template/icon.png",
   "environment": "client",
   "entrypoints": {
     "meteor": [
-      "com.baseminer.basefinder.BaseFinder"
+      "com.stashhunter.stashhunter.StashHunter"
     ]
   },
   "mixins": [
