@@ -1,4 +1,4 @@
-package com.baseminer.basefinder.utils;
+package com.stashhunter.stashhunter.utils;
 
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.world.TickEvent;

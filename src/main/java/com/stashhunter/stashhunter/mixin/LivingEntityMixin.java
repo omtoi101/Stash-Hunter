@@ -1,7 +1,7 @@
-package com.baseminer.basefinder.mixin;
+package com.stashhunter.stashhunter.mixin;
 
-import com.baseminer.basefinder.BaseFinder;
-import com.baseminer.basefinder.events.PlayerDeathEvent;
+import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.events.PlayerDeathEvent;
 import meteordevelopment.meteorclient.MeteorClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.LivingEntity;
@@ -17,7 +17,7 @@ public class LivingEntityMixin {
     private void onDeath(DamageSource source, CallbackInfo ci) {
         LivingEntity entity = (LivingEntity) (Object) this;
         if (entity instanceof ClientPlayerEntity) {
-            BaseFinder.LOG.info("Player death mixin called!");
+            StashHunter.LOG.info("Player death mixin called!");
             MeteorClient.EVENT_BUS.post(PlayerDeathEvent.get((ClientPlayerEntity) entity));
         }
     }

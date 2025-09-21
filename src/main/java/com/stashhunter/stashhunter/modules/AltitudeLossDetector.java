@@ -1,7 +1,7 @@
-package com.baseminer.basefinder.modules;
+package com.stashhunter.stashhunter.modules;
 
-import com.baseminer.basefinder.BaseFinder;
-import com.baseminer.basefinder.utils.KeyHold;
+import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.utils.KeyHold;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
@@ -33,7 +33,7 @@ public class AltitudeLossDetector extends Module {
     private int fixCooldown = 0;
 
     public AltitudeLossDetector() {
-        super(BaseFinder.CATEGORY, "altitude-loss-detector", "Detects when you are rapidly losing altitude and tries to fix it.");
+        super(StashHunter.CATEGORY, "altitude-loss-detector", "Detects when you are rapidly losing altitude and tries to fix it.");
     }
 
     @Override
