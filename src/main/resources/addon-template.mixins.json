@@ -3,7 +3,8 @@
   "package": "com.baseminer.basefinder.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "LivingEntityMixin"
+    "LivingEntityMixin",
+    "ClientPlayNetworkHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 1
