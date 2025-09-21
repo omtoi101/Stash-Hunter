@@ -7,10 +7,12 @@ import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.item.Items;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 public class ElytraController {
@@ -37,10 +39,34 @@ public class ElytraController {
     }
 
     private static void generateWaypoints(int x1, int z1, int x2, int z2, int stripWidth) {
-        if (newerNewChunks != null) {
+        if (newerNewChunks != null && newerNewChunks.isActive()) {
             List<ChunkPos> oldChunks = newerNewChunks.getOldChunks();
             if (oldChunks != null && !oldChunks.isEmpty()) {
-                for (ChunkPos chunk : oldChunks) {
+                List<ChunkPos> sortedChunks = new ArrayList<>();
+                ChunkPos currentChunk = oldChunks.stream()
+                    .min(Comparator.comparingDouble(c -> c.getStartPos().getSquaredDistance(MeteorClient.mc.player.getBlockPos())))
+                    .orElse(null);
+
+                if (currentChunk != null) {
+                    sortedChunks.add(currentChunk);
+                    oldChunks.remove(currentChunk);
+
+                    while (!oldChunks.isEmpty()) {
+                        BlockPos lastPos = sortedChunks.get(sortedChunks.size() - 1).getStartPos();
+                        ChunkPos nextChunk = oldChunks.stream()
+                            .min(Comparator.comparingDouble(c -> c.getStartPos().getSquaredDistance(lastPos)))
+                            .orElse(null);
+
+                        if (nextChunk != null) {
+                            sortedChunks.add(nextChunk);
+                            oldChunks.remove(nextChunk);
+                        } else {
+                            break; // Should not happen
+                        }
+                    }
+                }
+
+                for (ChunkPos chunk : sortedChunks) {
                     waypoints.add(new Vec3d(chunk.getCenterX(), Config.flightAltitude, chunk.getCenterZ()));
                 }
                 return;
@@ -175,6 +201,21 @@ public class ElytraController {
         if (horizontalDistance < 20.0) { // Increased threshold for more reliable waypoint progression
             flyToNextWaypoint();
         } else {
+            // Obstacle avoidance
+            if (newerNewChunks != null && newerNewChunks.isActive()) {
+                List<ChunkPos> newChunks = newerNewChunks.getNewChunks();
+                if (newChunks != null && !newChunks.isEmpty()) {
+                    Vec3d forwardVec = Vec3d.fromPolar(0, MeteorClient.mc.player.getYaw()).normalize();
+                    Vec3d checkPos = playerPos.add(forwardVec.multiply(32)); // Check 32 blocks ahead
+                    ChunkPos checkChunk = new ChunkPos(new BlockPos((int)checkPos.x, (int)checkPos.y, (int)checkPos.z));
+
+                    if (newChunks.contains(checkChunk)) {
+                        // Obstacle detected, turn right
+                        MeteorClient.mc.player.setYaw(MeteorClient.mc.player.getYaw() + 15);
+                    }
+                }
+            }
+
             // Only control flight if we're reasonably close to the target altitude
             double altitudeDifference = Math.abs(playerPos.y - target.y);
             if (altitudeDifference < 100) { // Only control if within reasonable altitude range

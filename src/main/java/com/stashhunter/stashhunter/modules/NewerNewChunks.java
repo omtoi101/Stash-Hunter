@@ -383,6 +383,9 @@ public class NewerNewChunks extends Module {
 	public List<ChunkPos> getOldChunks() {
 		return new ArrayList<>(oldChunks);
 	}
+	public List<ChunkPos> getNewChunks() {
+		return new ArrayList<>(newChunks);
+	}
 	private void clearChunkData() {
 		newChunks.clear();
 		oldChunks.clear();
@@ -746,17 +749,17 @@ public class NewerNewChunks extends Module {
 				}
 
 				if (endOldChunksDetector.get() && mc.world.getRegistryKey() == World.END && chunk.getStatus().isAtLeast(ChunkStatus.FULL) && !chunk.isEmpty()) {
-					// ChunkSection section = chunk.getSection(0);
-					// var biomesContainer = section.getBiomeContainer();
-					// if (biomesContainer instanceof PalettedContainer<RegistryEntry<Biome>> biomesPaletteContainer) {
-					// 	// Palette<RegistryEntry<Biome>> biomePalette = biomesPaletteContainer.palette();
-					// 	// for (int i = 0; i < biomePalette.getSize(); i++) {
-					// 	// 	if (biomePalette.get(i).getKey().get() == BiomeKeys.THE_END) {
-					// 	// 		isOldGeneration = true;
-					// 			break;
-					// 		}
-					// 	}
-					// }
+					ChunkSection section = chunk.getSection(0);
+					var biomesContainer = section.getBiomeContainer();
+					if (biomesContainer instanceof PalettedContainer<RegistryEntry<Biome>> biomesPaletteContainer) {
+						Palette<RegistryEntry<Biome>> biomePalette = biomesPaletteContainer.palette();
+						for (int i = 0; i < biomePalette.getSize(); i++) {
+							if (biomePalette.get(i).getKey().get() == BiomeKeys.THE_END) {
+								isOldGeneration = true;
+								break;
+							}
+						}
+					}
 				}
 
 				if (PaletteExploit.get()) {
@@ -770,57 +773,57 @@ public class NewerNewChunks extends Module {
 								int isNewSection = 0;
 								int isBeingUpdatedSection = 0;
 
-								// if (!section.isEmpty()) {
-								// 	var blockStatesContainer = section.getBlockStateContainer();
-								// 	// Palette<BlockState> blockStatePalette = blockStatesContainer.palette();
-								// 	// int blockPaletteLength = blockStatePalette.getSize();
+								if (!section.isEmpty()) {
+									var blockStatesContainer = section.getBlockStateContainer();
+									Palette<BlockState> blockStatePalette = blockStatesContainer.palette();
+									int blockPaletteLength = blockStatePalette.getSize();
 
-								// 	// if (blockStatePalette instanceof BiMapPalette<BlockState>){
-								// 	// 	Set<BlockState> bstates = new HashSet<>();
-								// 		for (int x = 0; x < 16; x++) {
-								// 			for (int y = 0; y < 16; y++) {
-								// 				for (int z = 0; z < 16; z++) {
-								// 					bstates.add(blockStatesContainer.get(x, y, z));
-								// 				}
-								// 			}
-								// 		}
-								// 		int bstatesSize = bstates.size();
-								// 		if (bstatesSize <= 1) bstatesSize = blockPaletteLength;
-								// 		if (bstatesSize < blockPaletteLength) {
-								// 			isNewSection = 2;
-								// 		}
-								// 	}
+									if (blockStatePalette instanceof BiMapPalette<BlockState>){
+										Set<BlockState> bstates = new HashSet<>();
+										for (int x = 0; x < 16; x++) {
+											for (int y = 0; y < 16; y++) {
+												for (int z = 0; z < 16; z++) {
+													bstates.add(blockStatesContainer.get(x, y, z));
+												}
+											}
+										}
+										int bstatesSize = bstates.size();
+										if (bstatesSize <= 1) bstatesSize = blockPaletteLength;
+										if (bstatesSize < blockPaletteLength) {
+											isNewSection = 2;
+										}
+									}
 
-								// 	for (int i2 = 0; i2 < blockPaletteLength; i2++) {
-								// 		BlockState blockPaletteEntry = blockStatePalette.get(i2);
-								// 		if (i2 == 0 && loops == 0 && blockPaletteEntry.getBlock() == Blocks.AIR && mc.world.getRegistryKey() != World.END)
-								// 			firstchunkappearsnew = true;
-								// 		if (i2 == 0 && blockPaletteEntry.getBlock() == Blocks.AIR && mc.world.getRegistryKey() != World.NETHER && mc.world.getRegistryKey() != World.END)
-								// 			isNewSection++;
-								// 		if (i2 == 1 && (blockPaletteEntry.getBlock() == Blocks.WATER || blockPaletteEntry.getBlock() == Blocks.STONE || blockPaletteEntry.getBlock() == Blocks.GRASS_BLOCK || blockPaletteEntry.getBlock() == Blocks.SNOW_BLOCK) && mc.world.getRegistryKey() != World.NETHER && mc.world.getRegistryKey() != World.END)
-								// 			isNewSection++;
-								// 		if (i2 == 2 && (blockPaletteEntry.getBlock() == Blocks.SNOW_BLOCK || blockPaletteEntry.getBlock() == Blocks.DIRT || blockPaletteEntry.getBlock() == Blocks.POWDER_SNOW) && mc.world.getRegistryKey() != World.NETHER && mc.world.getRegistryKey() != World.END)
-								// 			isNewSection++;
-								// 		if (loops == 4 && blockPaletteEntry.getBlock() == Blocks.BEDROCK && mc.world.getRegistryKey() != World.NETHER && mc.world.getRegistryKey() != World.END) {
-								// 			if (!chunkIsBeingUpdated && beingUpdatedDetector.get())
-								// 				chunkIsBeingUpdated = true;
-								// 		}
-								// 		if (blockPaletteEntry.getBlock() == Blocks.AIR && (mc.world.getRegistryKey() == World.NETHER || mc.world.getRegistryKey() == World.END))
-								// 			isBeingUpdatedSection++;
-								// 	}
-								// 	if (isBeingUpdatedSection >= 2) oldChunkQuantifier++;
-								// 	if (isNewSection >= 2) newChunkQuantifier++;
-								// }
-								// if (mc.world.getRegistryKey() == World.END) {
-								// 	var biomesContainer = section.getBiomeContainer();
-								// 	if (biomesContainer instanceof PalettedContainer<RegistryEntry<Biome>> biomesPaletteContainer) {
-								// 		// Palette<RegistryEntry<Biome>> biomePalette = biomesPaletteContainer.palette();
-								// 		// for (int i3 = 0; i3 < biomePalette.getSize(); i3++) {
-								// 		// 	if (i3 == 0 && biomePalette.get(i3).getKey().get() == BiomeKeys.PLAINS) isNewChunk = true;
-								// 		// 	if (!isNewChunk && i3 == 0 && biomePalette.get(i3).getKey().get() != Bi-omeKeys.THE_END) isNewChunk = false;
-								// 		// }
-								// 	}
-								// }
+									for (int i2 = 0; i2 < blockPaletteLength; i2++) {
+										BlockState blockPaletteEntry = blockStatePalette.get(i2);
+										if (i2 == 0 && loops == 0 && blockPaletteEntry.getBlock() == Blocks.AIR && mc.world.getRegistryKey() != World.END)
+											firstchunkappearsnew = true;
+										if (i2 == 0 && blockPaletteEntry.getBlock() == Blocks.AIR && mc.world.getRegistryKey() != World.NETHER && mc.world.getRegistryKey() != World.END)
+											isNewSection++;
+										if (i2 == 1 && (blockPaletteEntry.getBlock() == Blocks.WATER || blockPaletteEntry.getBlock() == Blocks.STONE || blockPaletteEntry.getBlock() == Blocks.GRASS_BLOCK || blockPaletteEntry.getBlock() == Blocks.SNOW_BLOCK) && mc.world.getRegistryKey() != World.NETHER && mc.world.getRegistryKey() != World.END)
+											isNewSection++;
+										if (i2 == 2 && (blockPaletteEntry.getBlock() == Blocks.SNOW_BLOCK || blockPaletteEntry.getBlock() == Blocks.DIRT || blockPaletteEntry.getBlock() == Blocks.POWDER_SNOW) && mc.world.getRegistryKey() != World.NETHER && mc.world.getRegistryKey() != World.END)
+											isNewSection++;
+										if (loops == 4 && blockPaletteEntry.getBlock() == Blocks.BEDROCK && mc.world.getRegistryKey() != World.NETHER && mc.world.getRegistryKey() != World.END) {
+											if (!chunkIsBeingUpdated && beingUpdatedDetector.get())
+												chunkIsBeingUpdated = true;
+										}
+										if (blockPaletteEntry.getBlock() == Blocks.AIR && (mc.world.getRegistryKey() == World.NETHER || mc.world.getRegistryKey() == World.END))
+											isBeingUpdatedSection++;
+									}
+									if (isBeingUpdatedSection >= 2) oldChunkQuantifier++;
+									if (isNewSection >= 2) newChunkQuantifier++;
+								}
+								if (mc.world.getRegistryKey() == World.END) {
+									var biomesContainer = section.getBiomeContainer();
+									if (biomesContainer instanceof PalettedContainer<RegistryEntry<Biome>> biomesPaletteContainer) {
+										Palette<RegistryEntry<Biome>> biomePalette = biomesPaletteContainer.palette();
+										for (int i3 = 0; i3 < biomePalette.getSize(); i3++) {
+											if (i3 == 0 && biomePalette.get(i3).getKey().get() == BiomeKeys.PLAINS) isNewChunk = true;
+											if (!isNewChunk && i3 == 0 && biomePalette.get(i3).getKey().get() != BiomeKeys.THE_END) isNewChunk = false;
+										}
+									}
+								}
 								if (!section.isEmpty())loops++;
 							}
 						}
