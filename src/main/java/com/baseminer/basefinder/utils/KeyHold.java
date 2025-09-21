@@ -1,5 +1,6 @@
 package com.baseminer.basefinder.utils;
 
+import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.MinecraftClient;
@@ -9,22 +10,27 @@ import java.util.function.Consumer;
 
 public class KeyHold {
     private static final MinecraftClient mc = MinecraftClient.getInstance();
-    private static KeyBinding key;
-    private static int durationTicks;
-    private static Consumer<Void> onComplete;
-    private static int ticksHeld;
+    private KeyBinding key;
+    private int durationTicks;
+    private Consumer<Void> onComplete;
+    private int ticksHeld;
 
     public static void hold(KeyBinding keyToHold, int durationSeconds, Consumer<Void> onCompleteCallback) {
-        key = keyToHold;
-        durationTicks = durationSeconds * 20;
-        onComplete = onCompleteCallback;
-        ticksHeld = 0;
+        new KeyHold(keyToHold, durationSeconds * 20, onCompleteCallback);
+    }
 
+    private KeyHold(KeyBinding key, int durationTicks, Consumer<Void> onComplete) {
+        this.key = key;
+        this.durationTicks = durationTicks;
+        this.onComplete = onComplete;
+        this.ticksHeld = 0;
+
+        MeteorClient.EVENT_BUS.subscribe(this);
         KeyBinding.setKeyPressed(key.getDefaultKey(), true);
     }
 
     @EventHandler
-    private static void onTick(TickEvent.Post event) {
+    private void onTick(TickEvent.Post event) {
         if (mc.player == null || mc.world == null) {
             release();
             return;
@@ -37,8 +43,9 @@ public class KeyHold {
         }
     }
 
-    private static void release() {
+    private void release() {
         KeyBinding.setKeyPressed(key.getDefaultKey(), false);
+        MeteorClient.EVENT_BUS.unsubscribe(this);
         if (onComplete != null) {
             onComplete.accept(null);
         }
