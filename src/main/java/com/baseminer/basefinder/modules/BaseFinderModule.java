@@ -526,27 +526,6 @@ public class BaseFinderModule extends Module {
 
         // Check for mineshaft patterns (mostly chests with some barrels)
         int chestCount = blockCounts.getOrDefault(Blocks.CHEST, 0);
-        int barrelCount = blockCounts.getOrDefault(Blocks.BARREL, 0);
-        int shulkerCount = getTotalShulkerCount(blockCounts);
-
-        // If more than 80% are regular chests/barrels and very few shulkers, likely natural
-        double naturalStorageRatio = (double)(chestCount + barrelCount) / totalBlocks;
-        double artificialStorageRatio = (double)shulkerCount / totalBlocks;
-
-        if (naturalStorageRatio > 0.8 && artificialStorageRatio < 0.1) {
-            return true;
-        }
-                // Check Y-level distribution - natural structures often span many Y levels
-        int minY = blocks.stream().mapToInt(BlockPos::getY).min().orElse(0);
-        int maxY = blocks.stream().mapToInt(BlockPos::getY).max().orElse(0);
-        int ySpread = maxY - minY;
-
-        // If spread across more than 30 Y levels, likely natural structure
-        if (ySpread > 30) {
-            return true;
-
-
-        }
         // Check for Woodland Mansion: 44 chests and mostly wood/cobblestone
         if (chestCount == 44) {
             int darkOakLogCount = blockCounts.getOrDefault(Blocks.DARK_OAK_LOG, 0);
@@ -558,20 +537,7 @@ public class BaseFinderModule extends Module {
                 return true; // Likely a Woodland Mansion
             }
         }
-        // Check horizontal spread vs vertical spread ratio
-        int minX = blocks.stream().mapToInt(BlockPos::getX).min().orElse(0);
-        int maxX = blocks.stream().mapToInt(BlockPos::getX).max().orElse(0);
-        int minZ = blocks.stream().mapToInt(BlockPos::getZ).min().orElse(0);
-        int maxZ = blocks.stream().mapToInt(BlockPos::getZ).max().orElse(0);
 
-        int xSpread = maxX - minX;
-        int zSpread = maxZ - minZ;
-        int horizontalSpread = Math.max(xSpread, zSpread);
-
-        // If horizontal spread is much larger than vertical and density is low, likely natural
-        if (horizontalSpread > 100 && ySpread < 20 && density < 0.01) {
-            return true;
-        }
 
 
         return false;
