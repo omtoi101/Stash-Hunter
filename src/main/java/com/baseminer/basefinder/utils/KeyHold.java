@@ -15,8 +15,8 @@ public class KeyHold {
     private Consumer<Void> onComplete;
     private int ticksHeld;
 
-    public static void hold(KeyBinding keyToHold, int durationSeconds, Consumer<Void> onCompleteCallback) {
-        new KeyHold(keyToHold, durationSeconds * 20, onCompleteCallback);
+    public static void hold(KeyBinding keyToHold, int durationTicks, Consumer<Void> onCompleteCallback) {
+        new KeyHold(keyToHold, durationTicks, onCompleteCallback);
     }
 
     private KeyHold(KeyBinding key, int durationTicks, Consumer<Void> onComplete) {
