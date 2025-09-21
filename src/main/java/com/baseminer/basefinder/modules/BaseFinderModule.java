@@ -492,9 +492,6 @@ public class BaseFinderModule extends Module {
 
         // Enhanced filtering for natural structures
         if (isNaturalStructure(cluster, volume, density)) {
-            info("Skipped natural structure at " + basePos.toShortString() +
-                 " (volume: " + String.format("%.0f", volume) +
-                 ", density: " + String.format("%.6f", density) + ")");
             return;
         }
 
