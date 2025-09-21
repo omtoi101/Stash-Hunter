@@ -1,17 +1,20 @@
 package com.stashhunter.stashhunter.utils;
 
+import com.stashhunter.stashhunter.modules.NewerNewChunks;
 import com.stashhunter.stashhunter.utils.TripManager;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.item.Items;
+import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class ElytraController {
+    private static final NewerNewChunks newerNewChunks = Modules.get().get(NewerNewChunks.class);
     private static List<Vec3d> waypoints = new ArrayList<>();
     private static int currentWaypoint = 0;
     private static boolean active = false;
@@ -34,6 +37,16 @@ public class ElytraController {
     }
 
     private static void generateWaypoints(int x1, int z1, int x2, int z2, int stripWidth) {
+        if (newerNewChunks != null) {
+            List<ChunkPos> oldChunks = newerNewChunks.getOldChunks();
+            if (oldChunks != null && !oldChunks.isEmpty()) {
+                for (ChunkPos chunk : oldChunks) {
+                    waypoints.add(new Vec3d(chunk.getCenterX(), Config.flightAltitude, chunk.getCenterZ()));
+                }
+                return;
+            }
+        }
+
         int minX = Math.min(x1, x2);
         int maxX = Math.max(x1, x2);
         int minZ = Math.min(z1, z2);
