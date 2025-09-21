@@ -17,6 +17,10 @@ repositories {
         name = "meteor-maven-snapshots"
         url = uri("https://maven.meteordev.org/snapshots")
     }
+    maven {
+        name = "Fabric"
+        url = uri("https://maven.fabricmc.net/")
+    }
 }
 
 dependencies {
@@ -24,6 +28,7 @@ dependencies {
     minecraft("com.mojang:minecraft:${properties["minecraft_version"] as String}")
     mappings("net.fabricmc:yarn:${properties["yarn_mappings"] as String}:v2")
     modImplementation("net.fabricmc:fabric-loader:${properties["loader_version"] as String}")
+    modImplementation("net.fabricmc.fabric-api:fabric-api:${properties["fabric_version"] as String}")
 
     // Meteor
     modImplementation("meteordevelopment:meteor-client:${properties["minecraft_version"] as String}-SNAPSHOT")

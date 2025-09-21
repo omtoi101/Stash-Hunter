@@ -4,10 +4,12 @@ import com.baseminer.basefinder.utils.Config;
 import com.baseminer.basefinder.commands.BaseFinderCommand;
 import com.baseminer.basefinder.commands.ClearBasesCommand;
 import com.baseminer.basefinder.commands.ClearPlayersCommand;
+import com.baseminer.basefinder.events.PlayerDisconnectEvent;
 import com.baseminer.basefinder.hud.BaseFinderHud;
 import com.baseminer.basefinder.modules.BaseFinderModule;
 import com.baseminer.basefinder.modules.StuckDetector;
 import com.mojang.logging.LogUtils;
+import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.addons.GithubRepo;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
 import meteordevelopment.meteorclient.commands.Commands;
@@ -15,6 +17,7 @@ import meteordevelopment.meteorclient.systems.hud.Hud;
 import meteordevelopment.meteorclient.systems.hud.HudGroup;
 import meteordevelopment.meteorclient.systems.modules.Category;
 import meteordevelopment.meteorclient.systems.modules.Modules;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import org.slf4j.Logger;
 
 public class BaseFinder extends MeteorAddon {
@@ -40,6 +43,11 @@ public class BaseFinder extends MeteorAddon {
 
         // HUD
         Hud.get().register(BaseFinderHud.INFO);
+
+        // Events
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            MeteorClient.EVENT_BUS.post(PlayerDisconnectEvent.get());
+        });
     }
 
     @Override
