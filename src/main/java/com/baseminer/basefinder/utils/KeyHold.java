@@ -2,7 +2,6 @@ package com.baseminer.basefinder.utils;
 
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.orbit.EventHandler;
-import meteordevelopment.orbit.EventBus;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
 
@@ -21,7 +20,6 @@ public class KeyHold {
         onComplete = onCompleteCallback;
         ticksHeld = 0;
 
-        EventBus.subscribe(KeyHold.class);
         KeyBinding.setKeyPressed(key.getDefaultKey(), true);
     }
 
@@ -41,7 +39,6 @@ public class KeyHold {
 
     private static void release() {
         KeyBinding.setKeyPressed(key.getDefaultKey(), false);
-        EventBus.unsubscribe(KeyHold.class);
         if (onComplete != null) {
             onComplete.accept(null);
         }

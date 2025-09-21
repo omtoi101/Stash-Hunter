@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "com.baseminer.basefinder.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "LivingEntityMixin",
+    "ClientPlayNetworkHandlerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
