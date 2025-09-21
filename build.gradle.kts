@@ -21,6 +21,7 @@ repositories {
         name = "Fabric"
         url = uri("https://maven.fabricmc.net/")
     }
+    mavenCentral()
 }
 
 dependencies {
@@ -32,6 +33,9 @@ dependencies {
 
     // Meteor
     modImplementation("meteordevelopment:meteor-client:${properties["minecraft_version"] as String}-SNAPSHOT")
+
+    // GSON
+    implementation("com.google.code.gson:gson:2.10.1")
 }
 
 tasks {
