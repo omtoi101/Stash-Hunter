@@ -322,31 +322,31 @@ public class BaseFinderModule extends Module {
         // Death detection - check if player health dropped to 0 or respawned
         if (notifyOnDeath.get()) {
             float currentHealth = mc.player.getHealth();
-            
+
             // If health went from positive to 0, player died
             if (lastHealthCheck > 0 && currentHealth <= 0) {
                 DiscordEmbed embed = new DiscordEmbed(
-                    "Bot Died!", 
+                    "Bot Died!",
                     "Death location: " + mc.player.getBlockPos().toShortString() +
-                    "\nLast health: " + lastHealthCheck + " → 0", 
+                    "\nLast health: " + lastHealthCheck + " → 0",
                     0xFF0000
                 );
                 DiscordWebhook.sendMessage("@everyone", embed);
                 info("Death detected and notified to Discord");
             }
-            
+
             // If we were at 0 health and now have health, we respawned
             if (lastHealthCheck <= 0 && currentHealth > 0) {
                 DiscordEmbed embed = new DiscordEmbed(
-                    "Bot Respawned", 
+                    "Bot Respawned",
                     "Respawn location: " + mc.player.getBlockPos().toShortString() +
-                    "\nHealth restored: " + currentHealth, 
+                    "\nHealth restored: " + currentHealth,
                     0x00FF00
                 );
                 DiscordWebhook.sendMessage("", embed);
                 info("Respawn detected and notified to Discord");
             }
-            
+
             lastHealthCheck = (int)currentHealth;
         }
 
@@ -394,10 +394,10 @@ public class BaseFinderModule extends Module {
         // Check if ElytraController completed and send notification
         if (notifyOnCompletion.get() && ElytraController.justCompleted()) {
             DiscordEmbed embed = new DiscordEmbed(
-                "Scanning Completed!", 
+                "Scanning Completed!",
                 "Base finder has finished scanning the designated area.\n" +
                 "Total waypoints completed: " + ElytraController.getTotalWaypoints() +
-                "\nFinal location: " + (mc.player != null ? mc.player.getBlockPos().toShortString() : "Unknown"), 
+                "\nFinal location: " + (mc.player != null ? mc.player.getBlockPos().toShortString() : "Unknown"),
                 0x0099FF
             );
             DiscordWebhook.sendMessage("@everyone", embed);
@@ -429,7 +429,7 @@ public class BaseFinderModule extends Module {
         if (valuableBlocksInRange.size() >= blockDetectionThreshold.get()) {
             // Group blocks into clusters to separate actual stashes from natural structures
             List<List<BlockPos>> clusters = clusterBlocks(valuableBlocksInRange, Config.maxClusterDistance);
-            
+
             for (List<BlockPos> cluster : clusters) {
                 if (cluster.size() >= blockDetectionThreshold.get()) {
                     processCluster(cluster);
@@ -492,8 +492,8 @@ public class BaseFinderModule extends Module {
 
         // Enhanced filtering for natural structures
         if (isNaturalStructure(cluster, volume, density)) {
-            info("Skipped natural structure at " + basePos.toShortString() + 
-                 " (volume: " + String.format("%.0f", volume) + 
+            info("Skipped natural structure at " + basePos.toShortString() +
+                 " (volume: " + String.format("%.0f", volume) +
                  ", density: " + String.format("%.6f", density) + ")");
             return;
         }
@@ -536,7 +536,17 @@ public class BaseFinderModule extends Module {
         if (naturalStorageRatio > 0.8 && artificialStorageRatio < 0.1) {
             return true;
         }
+                // Check Y-level distribution - natural structures often span many Y levels
+        int minY = blocks.stream().mapToInt(BlockPos::getY).min().orElse(0);
+        int maxY = blocks.stream().mapToInt(BlockPos::getY).max().orElse(0);
+        int ySpread = maxY - minY;
 
+        // If spread across more than 30 Y levels, likely natural structure
+        if (ySpread > 30) {
+            return true;
+
+
+        }
         // Check for Woodland Mansion: 44 chests and mostly wood/cobblestone
         if (chestCount == 44) {
             int darkOakLogCount = blockCounts.getOrDefault(Blocks.DARK_OAK_LOG, 0);
@@ -548,7 +558,20 @@ public class BaseFinderModule extends Module {
                 return true; // Likely a Woodland Mansion
             }
         }
+        // Check horizontal spread vs vertical spread ratio
+        int minX = blocks.stream().mapToInt(BlockPos::getX).min().orElse(0);
+        int maxX = blocks.stream().mapToInt(BlockPos::getX).max().orElse(0);
+        int minZ = blocks.stream().mapToInt(BlockPos::getZ).min().orElse(0);
+        int maxZ = blocks.stream().mapToInt(BlockPos::getZ).max().orElse(0);
 
+        int xSpread = maxX - minX;
+        int zSpread = maxZ - minZ;
+        int horizontalSpread = Math.max(xSpread, zSpread);
+
+        // If horizontal spread is much larger than vertical and density is low, likely natural
+        if (horizontalSpread > 100 && ySpread < 20 && density < 0.01) {
+            return true;
+        }
 
 
         return false;
@@ -677,7 +700,7 @@ public class BaseFinderModule extends Module {
         String modeInfo = storageOnlyMode.get() ? " (Storage Only)" : " (Full Base)";
         String logMessage = String.format("%s at: %s with %d valuable blocks (density: %.6f)",
             storageOnlyMode.get() ? "Stash Found" : "Base Found", coords, valuableBlocks.size(), density);
-        
+
         // Always log to console/chat
         info(logMessage);
 
@@ -707,7 +730,7 @@ public class BaseFinderModule extends Module {
             info("Created waypoint: " + waypointName);
         } else {
             // Log that we skipped notification due to low density
-            info("Skipped Discord notification for low density stash (density: " + String.format("%.6f", density) + 
+            info("Skipped Discord notification for low density stash (density: " + String.format("%.6f", density) +
                  ", threshold: " + String.format("%.6f", Config.notificationDensityThreshold) + ")");
         }
     }
