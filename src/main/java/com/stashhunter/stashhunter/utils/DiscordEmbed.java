@@ -1,4 +1,4 @@
-package com.baseminer.basefinder.utils;
+package com.stashhunter.stashhunter.utils;
 
 public class DiscordEmbed {
     public String title;

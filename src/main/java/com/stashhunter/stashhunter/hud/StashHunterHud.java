@@ -1,7 +1,7 @@
-package com.baseminer.basefinder.hud;
+package com.stashhunter.stashhunter.hud;
 
-import com.baseminer.basefinder.BaseFinder;
-import com.baseminer.basefinder.utils.ElytraController;
+import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.utils.ElytraController;
 
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.systems.hud.HudElement;
@@ -10,15 +10,15 @@ import meteordevelopment.meteorclient.systems.hud.HudRenderer;
 import meteordevelopment.meteorclient.utils.render.color.Color;
 import net.minecraft.util.math.Vec3d;
 
-public class BaseFinderHud extends HudElement {
-    public static final HudElementInfo<BaseFinderHud> INFO = new HudElementInfo<>(
-        BaseFinder.HUD_GROUP,
-        "base-finder-status",
-        "Displays the status of the Base Finder bot.",
-        BaseFinderHud::new
+public class StashHunterHud extends HudElement {
+    public static final HudElementInfo<StashHunterHud> INFO = new HudElementInfo<>(
+        StashHunter.HUD_GROUP,
+        "stash-hunter-status",
+        "Displays the status of the Stash Hunter bot.",
+        StashHunterHud::new
     );
 
-    public BaseFinderHud() {
+    public StashHunterHud() {
         super(INFO);
     }
 

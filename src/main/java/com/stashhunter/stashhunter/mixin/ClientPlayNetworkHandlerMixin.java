@@ -1,6 +1,6 @@
-package com.baseminer.basefinder.mixin;
+package com.stashhunter.stashhunter.mixin;
 
-import com.baseminer.basefinder.events.PlayerDisconnectEvent;
+import com.stashhunter.stashhunter.events.PlayerDisconnectEvent;
 import meteordevelopment.meteorclient.MeteorClient;
 import net.minecraft.client.network.ClientPlayNetworkHandler;
 import net.minecraft.text.Text;
