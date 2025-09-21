@@ -79,7 +79,7 @@ public class AltitudeLossDetector extends Module {
         if (autoFix.get()) {
             fixInProgress = true;
             info("Attempting to fix by holding jump...");
-            KeyHold.hold(mc.options.jumpKey, 5, (v) -> {
+            KeyHold.hold(mc.options.jumpKey, 100, (v) -> {
                 info("Jump complete.");
                 fixInProgress = false;
                 fixCooldown = 200;

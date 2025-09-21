@@ -1,6 +1,7 @@
 package com.baseminer.basefinder;
 
 import com.baseminer.basefinder.utils.Config;
+import com.baseminer.basefinder.utils.KeyHold;
 import com.baseminer.basefinder.commands.BaseFinderCommand;
 import com.baseminer.basefinder.commands.ClearBasesCommand;
 import com.baseminer.basefinder.commands.ClearPlayersCommand;
@@ -50,6 +51,8 @@ public class BaseFinder extends MeteorAddon {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             MeteorClient.EVENT_BUS.post(PlayerDisconnectEvent.get());
         });
+
+        KeyHold.register();
     }
 
     @Override
