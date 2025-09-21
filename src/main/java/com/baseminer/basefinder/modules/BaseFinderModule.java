@@ -496,30 +496,19 @@ public class BaseFinderModule extends Module {
             return true;
         }
 
-        // Check Y-level distribution - natural structures often span many Y levels
-        int minY = blocks.stream().mapToInt(BlockPos::getY).min().orElse(0);
-        int maxY = blocks.stream().mapToInt(BlockPos::getY).max().orElse(0);
-        int ySpread = maxY - minY;
+        // Check for Woodland Mansion: 44 chests and mostly wood/cobblestone
+        if (chestCount == 44) {
+            int darkOakLogCount = blockCounts.getOrDefault(Blocks.DARK_OAK_LOG, 0);
+            int darkOakPlanksCount = blockCounts.getOrDefault(Blocks.DARK_OAK_PLANKS, 0);
+            int cobblestoneCount = blockCounts.getOrDefault(Blocks.COBBLESTONE, 0);
+            double mansionBlockRatio = (double)(darkOakLogCount + darkOakPlanksCount + cobblestoneCount) / totalBlocks;
 
-        // If spread across more than 30 Y levels, likely natural structure
-        if (ySpread > 30) {
-            return true;
+            if (mansionBlockRatio > 0.5) {
+                return true; // Likely a Woodland Mansion
+            }
         }
 
-        // Check horizontal spread vs vertical spread ratio
-        int minX = blocks.stream().mapToInt(BlockPos::getX).min().orElse(0);
-        int maxX = blocks.stream().mapToInt(BlockPos::getX).max().orElse(0);
-        int minZ = blocks.stream().mapToInt(BlockPos::getZ).min().orElse(0);
-        int maxZ = blocks.stream().mapToInt(BlockPos::getZ).max().orElse(0);
 
-        int xSpread = maxX - minX;
-        int zSpread = maxZ - minZ;
-        int horizontalSpread = Math.max(xSpread, zSpread);
-
-        // If horizontal spread is much larger than vertical and density is low, likely natural
-        if (horizontalSpread > 100 && ySpread < 20 && density < 0.01) {
-            return true;
-        }
 
         return false;
     }
