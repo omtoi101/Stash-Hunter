@@ -1,10 +1,10 @@
 # Configuration
 
-This document provides a detailed overview of all the settings available for customization in the Base Finder addon.
+This document provides a detailed overview of all the settings available for customization in the Stash-Hunter addon.
 
-## Base Finder Module
+## Stash Hunter Module
 
-These settings control the core functionality of the base finding process.
+These settings control the core functionality of the stash finding process.
 
 | Setting                        | Description                                                                                             | Default Value |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------- | ------------- |

@@ -1,10 +1,10 @@
-package com.baseminer.basefinder.modules;
+package com.stashhunter.stashhunter.modules;
 
-import com.baseminer.basefinder.BaseFinder;
-import com.baseminer.basefinder.utils.Config;
-import com.baseminer.basefinder.utils.DiscordEmbed;
-import com.baseminer.basefinder.utils.DiscordWebhook;
-import com.baseminer.basefinder.utils.KeyHold;
+import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.utils.Config;
+import com.stashhunter.stashhunter.utils.DiscordEmbed;
+import com.stashhunter.stashhunter.utils.DiscordWebhook;
+import com.stashhunter.stashhunter.utils.KeyHold;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
@@ -59,7 +59,7 @@ public class StuckDetector extends Module {
     private int fixCooldown = 0;
 
     public StuckDetector() {
-        super(BaseFinder.CATEGORY, "stuck-detector", "Detects when you are stuck in an elytra rubber-band loop and tries to fix it.");
+        super(StashHunter.CATEGORY, "stuck-detector", "Detects when you are stuck in an elytra rubber-band loop and tries to fix it.");
     }
 
     @Override

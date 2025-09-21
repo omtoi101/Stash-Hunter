@@ -1,6 +1,6 @@
-package com.baseminer.basefinder.commands;
+package com.stashhunter.stashhunter.commands;
 
-import com.baseminer.basefinder.utils.ElytraController;
+import com.stashhunter.stashhunter.utils.ElytraController;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -10,9 +10,9 @@ import net.minecraft.command.CommandSource;
 
 import static com.mojang.brigadier.Command.SINGLE_SUCCESS;
 
-public class BaseFinderCommand extends Command {
-    public BaseFinderCommand() {
-        super("basefinder", "Controls the base finding flight system.", "bf");
+public class StashHunterCommand extends Command {
+    public StashHunterCommand() {
+        super("stashhunter", "Controls the stash finding flight system.", "sh");
     }
 
     @Override
@@ -62,9 +62,9 @@ public class BaseFinderCommand extends Command {
             .executes(context -> {
                 if (ElytraController.isActive()) {
                     ElytraController.stop();
-                    info("Base finder flight stopped.");
+                    info("Stash hunter flight stopped.");
                 } else {
-                    error("Base finder is not currently active.");
+                    error("Stash hunter is not currently active.");
                 }
                 return SINGLE_SUCCESS;
             })
@@ -74,7 +74,7 @@ public class BaseFinderCommand extends Command {
         builder.then(literal("status")
             .executes(context -> {
                 String status = ElytraController.getStatus();
-                info("Base Finder Status: " + status);
+                info("Stash Hunter Status: " + status);
 
                 if (ElytraController.isActive()) {
                     info("Current waypoint: " + ElytraController.getCurrentWaypoint() +
@@ -92,16 +92,16 @@ public class BaseFinderCommand extends Command {
         // Help command
         builder.then(literal("help")
             .executes(context -> {
-                info("Base Finder Commands:");
-                info("§7/basefinder start <x1> <z1> <x2> <z2> [stripWidth] §f- Start scanning an area");
-                info("§7/basefinder stop §f- Stop the current scanning operation");
-                info("§7/basefinder status §f- Show current status and progress");
-                info("§7/basefinder help §f- Show this help message");
+                info("Stash Hunter Commands:");
+                info("§7/stashhunter start <x1> <z1> <x2> <z2> [stripWidth] §f- Start scanning an area");
+                info("§7/stashhunter stop §f- Stop the current scanning operation");
+                info("§7/stashhunter status §f- Show current status and progress");
+                info("§7/stashhunter help §f- Show this help message");
                 info("");
                 info("§eCoordinate Examples:");
-                info("§f/basefinder start 1000 1000 5000 5000 150 §7- Absolute coordinates");
-                info("§f/basefinder start ~ ~ ~4000 ~4000 150 §7- Relative to current position");
-                info("§f/basefinder start ~-2000 ~-2000 ~2000 ~2000 120 §7- Relative with offsets");
+                info("§f/stashhunter start 1000 1000 5000 5000 150 §7- Absolute coordinates");
+                info("§f/stashhunter start ~ ~ ~4000 ~4000 150 §7- Relative to current position");
+                info("§f/stashhunter start ~-2000 ~-2000 ~2000 ~2000 120 §7- Relative with offsets");
                 info("");
                 info("§7Use §f~§7 for relative coordinates (current position)");
                 info("§7Use §f~<number>§7 for relative coordinates with offset");
@@ -111,7 +111,7 @@ public class BaseFinderCommand extends Command {
 
         // Default help when no arguments
         builder.executes(context -> {
-            info("Use §7/basefinder help §ffor command usage.");
+            info("Use §7/stashhunter help §ffor command usage.");
             return SINGLE_SUCCESS;
         });
     }
@@ -145,7 +145,7 @@ public class BaseFinderCommand extends Command {
 
     private int startScanning(int x1, int z1, int x2, int z2, int stripWidth) {
         if (ElytraController.isActive()) {
-            error("Base finder is already active! Use '/basefinder stop' first.");
+            error("Stash hunter is already active! Use '/stashhunter stop' first.");
             return SINGLE_SUCCESS;
         }
 
@@ -164,7 +164,7 @@ public class BaseFinderCommand extends Command {
         long area = Math.abs((long)(x2 - x1) * (z2 - z1));
         long estimatedWaypoints = (Math.abs(x2 - x1) / stripWidth) * 2;
 
-        info("Starting base finding process:");
+        info("Starting stash finding process:");
         info("§7Area: §f" + area + " blocks²");
         info("§7From: §f(" + x1 + ", " + z1 + ") §7to §f(" + x2 + ", " + z2 + ")");
         info("§7Strip width: §f" + stripWidth + " blocks");

@@ -1,4 +1,4 @@
-package com.baseminer.basefinder.utils;
+package com.stashhunter.stashhunter.utils;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -25,7 +25,7 @@ public class DiscordWebhook {
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("User-Agent", "BaseFinder");
+            connection.setRequestProperty("User-Agent", "StashHunter");
             connection.setDoOutput(true);
 
             JsonObject json = new JsonObject();

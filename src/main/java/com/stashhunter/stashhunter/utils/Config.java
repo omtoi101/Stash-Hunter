@@ -1,4 +1,4 @@
-package com.baseminer.basefinder.utils;
+package com.stashhunter.stashhunter.utils;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -14,7 +14,7 @@ import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
 
 public class Config {
-    private static final File CONFIG_FILE = new File(MeteorClient.FOLDER, "base-finder.properties");
+    private static final File CONFIG_FILE = new File(MeteorClient.FOLDER, "stash-hunter.properties");
     private static final Properties properties = new Properties();
 
     // Default configuration values
@@ -162,7 +162,7 @@ public class Config {
                 stuckDetectorAutoFix = getBoolProperty("stuckDetectorAutoFix", true);
 
             } catch (IOException e) {
-                System.err.println("Failed to load Base Finder config: " + e.getMessage());
+                System.err.println("Failed to load Stash Hunter config: " + e.getMessage());
                 e.printStackTrace();
             }
         } else {
@@ -200,10 +200,10 @@ public class Config {
                 properties.setProperty("stuckDetectorThreshold", String.valueOf(stuckDetectorThreshold));
                 properties.setProperty("stuckDetectorAutoFix", String.valueOf(stuckDetectorAutoFix));
 
-                properties.store(fos, "Base Finder Configuration - Auto-generated");
+                properties.store(fos, "Stash Hunter Configuration - Auto-generated");
             }
         } catch (IOException e) {
-            System.err.println("Failed to save Base Finder config: " + e.getMessage());
+            System.err.println("Failed to save Stash Hunter config: " + e.getMessage());
             e.printStackTrace();
         }
     }
