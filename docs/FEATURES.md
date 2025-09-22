@@ -25,6 +25,20 @@ The `StashHunterModule` is the core of this addon. It is a highly configurable m
     -   Completion of a scanning mission.
 -   **Meteor Waypoints**: When a stash is found, a waypoint is automatically created in Meteor Client.
 
+## NewerNewChunks Module
+
+The `NewerNewChunks` module is a powerful tool for identifying newly generated chunks, which can indicate recent player activity. This module is essential for the "dynamic chunk trail searching" feature.
+
+### Key Features:
+
+-   **Multiple Detection Methods**: The module uses several techniques to detect new chunks:
+    -   **PaletteExploit**: (1.18+ only) Detects new chunks by analyzing the structure of chunk data. This is the most reliable method on modern servers.
+    -   **LiquidExploit**: Identifies new chunks by looking for flowing liquids, which often indicates recent world generation.
+    -   **BlockUpdateExploit**: Detects block updates that can signify new chunk generation.
+-   **Old Chunk Detection**: The module can also identify chunks generated in older versions of Minecraft, helping to distinguish between old and new areas.
+-   **Dynamic Trail Following**: When enabled, the `ElytraController` will automatically follow trails of new chunks. This is a powerful way to find bases and other points of interest.
+-   **Configurable Rendering**: You can customize the color and rendering style of different types of chunks (new, old, etc.) to make them easily visible.
+
 ## Stuck Detector Module
 
 The `StuckDetector` is a utility module designed to handle a common issue with elytra flight on anarchy servers: rubber-banding.

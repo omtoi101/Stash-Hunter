@@ -97,6 +97,12 @@ public class NewerNewChunks extends Module {
 			.defaultValue(DetectMode.Normal)
 			.build()
 	);
+    public final Setting<Boolean> dynamicTrailDetection = sgGeneral.add(new BoolSetting.Builder()
+        .name("dynamic-trail-detection")
+        .description("Enables dynamic following of new chunk trails.")
+        .defaultValue(true)
+        .build()
+    );
 	private final Setting<Boolean> liquidexploit = sgGeneral.add(new BoolSetting.Builder()
 			.name("LiquidExploit")
 			.description("Estimates newchunks based on flowing liquids.")

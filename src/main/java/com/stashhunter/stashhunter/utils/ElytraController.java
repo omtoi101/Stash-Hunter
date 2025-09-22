@@ -221,7 +221,7 @@ public class ElytraController {
         // Check for obstacles and boundaries
         ChunkBoundaryInfo boundaryInfo = checkForBoundaries(playerPos);
 
-        if (boundaryInfo.hasNewChunks) {
+        if (boundaryInfo.hasNewChunks && newerNewChunks.dynamicTrailDetection.get()) {
             // Found new chunks - switch to trail following mode
             switchToTrailFollowing(boundaryInfo);
         } else if (boundaryInfo.hasUnloadedArea) {
