@@ -7,6 +7,7 @@ import com.stashhunter.stashhunter.commands.ClearPlayersCommand;
 import com.stashhunter.stashhunter.events.PlayerDisconnectEvent;
 import com.stashhunter.stashhunter.hud.StashHunterHud;
 import com.stashhunter.stashhunter.modules.AltitudeLossDetector;
+import com.stashhunter.stashhunter.modules.NewerNewChunks;
 import com.stashhunter.stashhunter.modules.StashHunterModule;
 import com.stashhunter.stashhunter.modules.StuckDetector;
 import com.mojang.logging.LogUtils;
@@ -37,6 +38,7 @@ public class StashHunter extends MeteorAddon {
         Modules.get().add(new StashHunterModule());
         Modules.get().add(new StuckDetector());
         Modules.get().add(new AltitudeLossDetector());
+        Modules.get().add(new NewerNewChunks());
 
         // Commands
         Commands.add(new StashHunterCommand());
