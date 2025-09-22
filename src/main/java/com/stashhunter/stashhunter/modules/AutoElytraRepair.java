@@ -204,9 +204,12 @@ public class AutoElytraRepair extends Module {
     private void handleFindingLanding() {
         Vec3d playerPos = mc.player.getPos();
 
+        // Calculate search radius based on attempts
+        int currentRadius = landingRadius.get() * (landingAttempts + 1);
+
         // Find safe landing spot
         BlockPos landingSpot = SafeLandingSpotFinder.findLandingSpot(
-            playerPos, landingRadius.get(), mc.world, false
+            playerPos, currentRadius, mc.world, false
         );
 
         if (landingSpot != null) {
@@ -214,18 +217,10 @@ public class AutoElytraRepair extends Module {
             resumePosition = playerPos; // Remember where we were
             currentState = RepairState.DESCENDING;
             info("Found safe landing spot at " + landingSpot.toShortString());
+            landingAttempts = 0; // Reset for next time
         } else {
             landingAttempts++;
-            if (landingAttempts >= MAX_LANDING_ATTEMPTS) {
-                error("Could not find safe landing spot after " + MAX_LANDING_ATTEMPTS + " attempts!");
-                initiateEmergencyDisconnect("No safe landing spot found");
-                return;
-            }
-
-            // Try expanding search radius
-            int expandedRadius = landingRadius.get() * (landingAttempts + 1);
-            info("Expanding landing search radius to " + expandedRadius + " blocks...");
-
+            info("Could not find landing spot, expanding search radius to " + (landingRadius.get() * (landingAttempts + 1)) + " blocks...");
             // Continue searching with expanded radius next tick
         }
     }
