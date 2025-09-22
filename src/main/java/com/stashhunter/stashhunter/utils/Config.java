@@ -39,6 +39,7 @@ public class Config {
     public static int stuckDetectorThreshold = 3;
     public static boolean stuckDetectorAutoFix = true;
 
+
     // Storage containers only (for stash finding)
     public static List<Block> storageBlocks = new ArrayList<>(Arrays.asList(
         Blocks.CHEST,

@@ -8,7 +8,9 @@ import com.stashhunter.stashhunter.utils.DiscordEmbed;
 import com.stashhunter.stashhunter.utils.DiscordWebhook;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.WorldScanner;
+import com.stashhunter.stashhunter.modules.AutoElytraRepair;
 import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.waypoints.Waypoint;
@@ -226,6 +228,7 @@ public class StashHunterModule extends Module {
     private int elytraBrokenTicks = 0;
     private int reEngagingElytraTicks = 0;
     private boolean wasElytraBroken = false;
+    private final AutoElytraRepair autoElytraRepair = Modules.get().get(AutoElytraRepair.class);
 
     public StashHunterModule() {
         super(StashHunter.CATEGORY, "stash-hunter", "Automatically finds stashes by flying around and scanning for valuable blocks.");
@@ -273,43 +276,54 @@ public class StashHunterModule extends Module {
             return;
         }
 
-        // Elytra check
-        if (ElytraController.isActive()) {
-            ItemStack chestSlot = mc.player.getEquippedStack(EquipmentSlot.CHEST);
-            boolean elytraMissing = chestSlot.isEmpty() || (chestSlot.getItem() == Items.ELYTRA && chestSlot.isDamaged() && chestSlot.getDamage() >= chestSlot.getMaxDamage() - 1);
+// Enhanced Elytra check with repair integration
+if (ElytraController.isActive()) {
+    ItemStack chestSlot = mc.player.getEquippedStack(EquipmentSlot.CHEST);
+    boolean elytraMissing = chestSlot.isEmpty() ||
+        (chestSlot.getItem() == Items.ELYTRA && chestSlot.isDamaged() && chestSlot.getDamage() >= chestSlot.getMaxDamage() - 1);
 
-            if (elytraMissing) {
-                wasElytraBroken = true;
-                elytraBrokenTicks++;
-                if (elytraBrokenTicks > 40) { // ~2 seconds leeway
-                    // Send Discord notification
-                    DiscordEmbed embed = new DiscordEmbed(
-                        "Out of Elytras!",
-                        "The bot has run out of elytras or the equipped elytra broke, and will now disconnect.",
-                        0xFF0000
-                    );
-                    DiscordWebhook.sendMessage("@everyone", embed);
+    // Check if auto repair is handling the situation
+    if (autoElytraRepair != null && autoElytraRepair.isActive() && autoElytraRepair.isRepairing()) {
+        // Auto repair is active, let it handle elytra management
+        return; // Skip normal elytra checks
+    }
 
-                    // Disconnect from server
-                    if (mc.getNetworkHandler() != null) {
-                        mc.getNetworkHandler().getConnection().disconnect(Text.of("Ran out of elytras or elytra broke."));
-                    }
+    if (elytraMissing) {
+        wasElytraBroken = true;
+        elytraBrokenTicks++;
 
-                    // Stop elytra controller
-                    ElytraController.stop();
+        // Give auto repair system time to activate before panicking
+        int timeoutTicks = autoElytraRepair != null && autoElytraRepair.isActive() ? 200 : 40;
 
-                    // Deactivate the module
-                    toggle();
-                    return; // Stop further processing in onTick
-                }
-            } else {
-                elytraBrokenTicks = 0;
-                if (wasElytraBroken) {
-                    wasElytraBroken = false;
-                    reEngagingElytraTicks = 100; // 5 seconds
-                }
+        if (elytraBrokenTicks > timeoutTicks) {
+            // Send Discord notification
+            DiscordEmbed embed = new DiscordEmbed(
+                "Out of Elytras!",
+                "The bot has run out of elytras or all elytras are broken beyond repair, and will now disconnect.",
+                0xFF0000
+            );
+            DiscordWebhook.sendMessage("@everyone", embed);
+
+            // Disconnect from server
+            if (mc.getNetworkHandler() != null) {
+                mc.getNetworkHandler().getConnection().disconnect(Text.of("Ran out of elytras or all elytras broken."));
             }
+
+            // Stop elytra controller
+            ElytraController.stop();
+
+            // Deactivate the module
+            toggle();
+            return;
         }
+    } else {
+        elytraBrokenTicks = 0;
+        if (wasElytraBroken) {
+            wasElytraBroken = false;
+            reEngagingElytraTicks = 100; // 5 seconds
+        }
+    }
+}
 
         // Handle re-engagement
         if (reEngagingElytraTicks > 0) {

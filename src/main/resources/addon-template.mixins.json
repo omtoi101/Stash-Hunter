@@ -3,7 +3,8 @@
   "package": "com.stashhunter.stashhunter.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "LivingEntityMixin"
+    "LivingEntityMixin",
+    "PlayerInventoryAccessor"
   ],
   "injectors": {
     "defaultRequire": 1
