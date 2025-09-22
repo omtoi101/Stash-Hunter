@@ -25,8 +25,6 @@ A Meteor client addon for finding stashes on anarchy servers. This mod is design
 Once in-game, you can enable the `StashHunter` module through the Meteor Client GUI. Use the following commands to manage the addon:
 
 -   `.stashhunter help`: Displays help for the stashhunter command.
--   `.clearstashes`: Deletes all saved stash locations.
--   `.clearplayers`: Deletes all tracked player data.
 
 The HUD can be enabled and configured from the Meteor Client HUD settings.
 
