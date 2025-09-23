@@ -272,7 +272,7 @@ public class StashHunterModule extends Module {
         tickCounter++;
         ElytraController.onTick();
 
-        if (autoElytraRepair.justFinishedRepair()) {
+        if (autoElytraRepair != null && autoElytraRepair.justFinishedRepair()) {
             ElytraController.climbToAltitude();
         }
 
