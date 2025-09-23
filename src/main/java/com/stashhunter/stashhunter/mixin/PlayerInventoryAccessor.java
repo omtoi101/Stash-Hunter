@@ -6,6 +6,6 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 
 @Mixin(PlayerInventory.class)
 public interface PlayerInventoryAccessor {
-    @Accessor("selectedSlot")
+    @Accessor
     void setSelectedSlot(int slot);
 }
