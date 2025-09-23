@@ -44,7 +44,8 @@ public class ElytraController {
     private enum NavigationMode {
         NORMAL,           // Following waypoints normally
         EDGE_FOLLOWING,   // Following chunk boundary
-        TRAIL_FOLLOWING   // Following new chunk trail
+        TRAIL_FOLLOWING,  // Following new chunk trail
+        CLIMBING          // Climbing to target altitude
     }
 
     public static void start(int x1, int z1, int x2, int z2, int stripWidth) {
@@ -198,6 +199,27 @@ public class ElytraController {
             case TRAIL_FOLLOWING:
                 handleTrailFollowing();
                 break;
+            case CLIMBING:
+                handleClimbing();
+                break;
+        }
+    }
+
+    public static void climbToAltitude() {
+        if (MeteorClient.mc.player == null) return;
+        navigationMode = NavigationMode.CLIMBING;
+        Vec3d playerPos = MeteorClient.mc.player.getPos();
+        currentTarget = new Vec3d(playerPos.x, Config.flightAltitude, playerPos.z);
+        Logger.log("Climbing to altitude: " + Config.flightAltitude);
+    }
+
+    private static void handleClimbing() {
+        if (MeteorClient.mc.player == null) return;
+        if (MeteorClient.mc.player.getPos().y >= Config.flightAltitude - 2) {
+            navigationMode = NavigationMode.NORMAL;
+            Logger.log("Reached target altitude, resuming normal navigation.");
+        } else {
+            controlFlight(currentTarget);
         }
     }
 

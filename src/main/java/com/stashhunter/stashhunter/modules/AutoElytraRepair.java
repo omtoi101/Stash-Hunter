@@ -78,6 +78,7 @@ public class AutoElytraRepair extends Module {
     private int timer = 0;
     private int resumingStep = 0;
     private RepairState nextState = null;
+    private boolean justFinishedRepairing = false;
 
     private enum RepairState {
         MONITORING,          // Normal operation, checking elytra durability
@@ -85,6 +86,7 @@ public class AutoElytraRepair extends Module {
         DESCENDING,          // Flying to landing spot
         LANDING,             // Final landing approach
         REPAIRING,           // On ground, cycling through elytras for repair
+        REPAIRING_IN_PROGRESS, // Actively using XP bottles
         RESUMING,            // Taking off and resuming flight
         EMERGENCY_DISCONNECT, // Critical failure, preparing to disconnect
         WAITING
@@ -129,6 +131,9 @@ public class AutoElytraRepair extends Module {
                 break;
             case REPAIRING:
                 handleRepairing();
+                break;
+            case REPAIRING_IN_PROGRESS:
+                handleRepairingInProgress();
                 break;
             case RESUMING:
                 handleResuming();
@@ -313,17 +318,14 @@ public class AutoElytraRepair extends Module {
             return;
         }
 
-        // Check if this elytra is fully repaired or good enough
-        if (!needsRepair(elytra)) {
-            info("Elytra in slot " + slotIndex + " is sufficiently repaired");
+        // Check if this elytra is already fully repaired
+        if (isFullyRepaired(elytra)) {
+            info("Elytra in slot " + slotIndex + " is fully repaired.");
             currentRepairSlot++;
-
-            // Wait a bit before moving to next elytra
-            timer = 20; // Wait 1 second (20 ticks)
-            currentState = RepairState.WAITING;
-            nextState = RepairState.REPAIRING;
+            // Move to the next elytra immediately
+            currentState = RepairState.REPAIRING;
         } else {
-            // Find and use experience bottles
+            // Find experience bottles in the hotbar
             int bottleSlot = -1;
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = mc.player.getInventory().getStack(i);
@@ -334,88 +336,112 @@ public class AutoElytraRepair extends Module {
             }
 
             if (bottleSlot != -1) {
+                // Found bottles, start the repair process
                 selectHotbarSlot(bottleSlot);
                 mc.player.setPitch(90);
-                mc.options.useKey.setPressed(true);
-                timer = 5; // Wait 0.25 seconds
-                currentState = RepairState.WAITING;
-                nextState = RepairState.REPAIRING;
+                currentState = RepairState.REPAIRING_IN_PROGRESS;
+                mc.options.useKey.setPressed(true); // Start throwing
+                info("Starting repair for elytra in slot " + slotIndex);
             } else {
-                warning("No experience bottles found. Cannot repair elytra.");
-                currentState = RepairState.RESUMING;
+                warning("No experience bottles found. Cannot continue repair.");
+                currentState = RepairState.RESUMING; // No bottles left, give up
             }
         }
     }
 
+    private void handleRepairingInProgress() {
+        // Continue holding the use key
+        mc.options.useKey.setPressed(true);
+
+        // Get current elytra being repaired
+        int slotIndex = elytraSlots.get(currentRepairSlot);
+        ItemStack elytra = mc.player.getInventory().getStack(slotIndex);
+
+        // Check if we ran out of bottles in the selected slot
+        if (mc.player.getInventory().getStack(mc.player.getInventory().getSelectedSlot()).getItem() != Items.EXPERIENCE_BOTTLE) {
+             mc.options.useKey.setPressed(false); // Stop throwing
+             warning("Ran out of experience bottles in hotbar slot.");
+             currentState = RepairState.REPAIRING; // Go back to find more bottles or move to next elytra
+             return;
+        }
+
+        // Check if the elytra is now fully repaired
+        if (isFullyRepaired(elytra)) {
+            mc.options.useKey.setPressed(false); // Stop throwing
+            info("Finished repairing elytra in slot " + slotIndex);
+            currentRepairSlot++;
+            currentState = RepairState.REPAIRING; // Move to the next elytra
+        }
+
+        // Also check for timeout here as a safety measure
+        if (System.currentTimeMillis() - repairStartTime > repairTimeout.get() * 1000L) {
+            mc.options.useKey.setPressed(false); // Stop throwing
+            warning("Repair timeout reached during repair-in-progress.");
+            currentState = RepairState.RESUMING;
+        }
+    }
+
     private void handleResuming() {
-        // Disable AutoExp
-        // AutoExp autoExp = Modules.get().get(AutoExp.class);
-        // if (autoExp != null && autoExp.isActive()) {
-        //     autoExp.toggle();
-        //     info("Disabled AutoExp after repair completion");
-        // }
-
-        // Ensure best elytra is equipped
-        selectBestElytra();
-
-        // Take off and resume flight
+        // This method now uses a state machine to make takeoff more reliable
         switch (resumingStep) {
             case 0:
-                // Jump to start takeoff
-                mc.options.jumpKey.setPressed(true);
-                timer = 10; // Wait 0.5 seconds
-                currentState = RepairState.WAITING;
-                nextState = RepairState.RESUMING;
+                // Ensure best elytra is equipped
+                selectBestElytra();
+                info("Beginning takeoff sequence...");
                 resumingStep++;
                 break;
             case 1:
-                mc.options.jumpKey.setPressed(false);
-                timer = 20; // Wait 1 second
-                currentState = RepairState.WAITING;
-                nextState = RepairState.RESUMING;
-                resumingStep++;
+                // Jump to gain height
+                mc.options.jumpKey.setPressed(true);
+                // Wait until we are in the air
+                if (!mc.player.isOnGround()) {
+                    mc.options.jumpKey.setPressed(false);
+                    resumingStep++;
+                }
                 break;
             case 2:
-                if (mc.player.getEquippedStack(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
-                    mc.player.startGliding();
-                    info("Restarted elytra gliding");
+                // Wait until we start falling, then activate elytra
+                if (mc.player.getVelocity().y < -0.1) {
+                    if (mc.player.getEquippedStack(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
+                        mc.player.startGliding();
+                        info("Elytra gliding activated.");
+                        resumingStep++;
+                    } else {
+                        // Something went wrong, abort
+                        error("No elytra equipped during takeoff, aborting resume.");
+                        currentState = RepairState.MONITORING;
+                        resumingStep = 0;
+                    }
                 }
-                timer = 40; // Wait 2 seconds
-                currentState = RepairState.WAITING;
-                nextState = RepairState.RESUMING;
-                resumingStep++;
                 break;
             case 3:
-                // Re-enable ElytraFly module
+                // Re-enable ElytraFly and finish
                 ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
                 if (elytraFly != null && !elytraFly.isActive()) {
                     elytraFly.toggle();
-                    info("Re-enabled ElytraFly module");
+                    info("Re-enabled ElytraFly module.");
                 }
+
+                // Notify completion
+                if (notifyRepairs.get() && !Config.discordWebhookUrl.isEmpty()) {
+                    DiscordEmbed embed = new DiscordEmbed(
+                        "Elytra Repair Complete",
+                        "Successfully repaired elytras and resumed flight.\n" +
+                        "Position: " + mc.player.getBlockPos().toShortString() + "\n" +
+                        "Status: Resuming stash hunting operations",
+                        0x00FF00
+                    );
+                    DiscordWebhook.sendMessage("", embed);
+                }
+
+                // Final cleanup
+                resetRepairState();
                 resumingStep = 0;
+                justFinishedRepairing = true; // Set the flag for StashHunterModule
                 currentState = RepairState.MONITORING;
+                info("Repair sequence complete. Stash hunter will resume automatically.");
                 break;
         }
-
-        // Resume stash hunter if it was active
-        if (wasStashHunterActive && !ElytraController.isActive()) {
-            // ElytraController will resume automatically when conditions are right
-            info("Repair sequence complete. Stash hunter will resume automatically.");
-        }
-
-        if (notifyRepairs.get() && !Config.discordWebhookUrl.isEmpty()) {
-            DiscordEmbed embed = new DiscordEmbed(
-                "Elytra Repair Complete",
-                "Successfully repaired elytras and resumed flight.\n" +
-                "Position: " + mc.player.getBlockPos().toShortString() + "\n" +
-                "Status: Resuming stash hunting operations",
-                0x00FF00
-            );
-            DiscordWebhook.sendMessage("", embed);
-        }
-
-        resetRepairState();
-        currentState = RepairState.MONITORING;
     }
 
     private void handleEmergencyDisconnect() {
@@ -498,29 +524,8 @@ public class AutoElytraRepair extends Module {
         return false;
     }
 
-    private boolean isElytraInOffhand(ItemStack targetElytra) {
-        ItemStack offhand = mc.player.getInventory().getStack(40); // Offhand slot
-        return offhand.getItem() == Items.ELYTRA && offhand.getDamage() == targetElytra.getDamage();
-    }
-
-    private void moveElytraToOffhand(int fromSlot) {
-        // Click on the elytra in inventory
-        mc.interactionManager.clickSlot(
-            mc.player.currentScreenHandler.syncId,
-            fromSlot < 9 ? fromSlot + 36 : fromSlot, // Convert to screen handler slot
-            0,
-            SlotActionType.PICKUP,
-            mc.player
-        );
-
-        // Click on offhand slot
-        mc.interactionManager.clickSlot(
-            mc.player.currentScreenHandler.syncId,
-            45, // Offhand slot in screen handler
-            0,
-            SlotActionType.PICKUP,
-            mc.player
-        );
+    private boolean isFullyRepaired(ItemStack elytra) {
+        return elytra.getDamage() == 0;
     }
 
     private void selectBestElytra() {
@@ -620,6 +625,14 @@ public class AutoElytraRepair extends Module {
 
     public String getCurrentStateName() {
         return currentState.name();
+    }
+
+    public boolean justFinishedRepair() {
+        if (justFinishedRepairing) {
+            justFinishedRepairing = false; // Reset after checking
+            return true;
+        }
+        return false;
     }
 
     private void selectHotbarSlot(int slot) {
