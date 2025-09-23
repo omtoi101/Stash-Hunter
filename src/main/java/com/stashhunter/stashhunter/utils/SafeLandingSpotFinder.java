@@ -156,11 +156,15 @@ public class SafeLandingSpotFinder {
                 return false;
             }
 
-            // Check that the two blocks above are air (space for player)
-            BlockPos abovePos1 = pos.up();
-            BlockPos abovePos2 = pos.up(2);
+            // Check for water at player level
+            BlockPos playerFeetPos = pos.up();
+            BlockPos playerHeadPos = pos.up(2);
+            if (world.getBlockState(playerFeetPos).getBlock() == Blocks.WATER || world.getBlockState(playerHeadPos).getBlock() == Blocks.WATER) {
+                return false;
+            }
 
-            if (!world.getBlockState(abovePos1).isAir() || !world.getBlockState(abovePos2).isAir()) {
+            // Check that the two blocks above are air (space for player)
+            if (!world.getBlockState(playerFeetPos).isAir() || !world.getBlockState(playerHeadPos).isAir()) {
                 return false;
             }
 
