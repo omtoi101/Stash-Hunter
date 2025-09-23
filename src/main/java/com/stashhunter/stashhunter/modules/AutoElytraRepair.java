@@ -104,6 +104,7 @@ public class AutoElytraRepair extends Module {
 
     @Override
     public void onDeactivate() {
+        mc.options.forwardKey.setPressed(false);
         if (currentState != RepairState.MONITORING) {
             // Emergency cleanup
             resumeNormalOperation();
@@ -264,6 +265,7 @@ public class AutoElytraRepair extends Module {
 
         if (mc.player.isOnGround()) {
             // Successfully landed
+            mc.options.forwardKey.setPressed(false);
             info("Successfully landed at " + mc.player.getBlockPos().toShortString());
             currentState = RepairState.REPAIRING;
             repairStartTime = System.currentTimeMillis();
@@ -445,6 +447,7 @@ public class AutoElytraRepair extends Module {
     }
 
     private void handleEmergencyDisconnect() {
+        mc.options.forwardKey.setPressed(false);
         error("Emergency disconnect initiated. Saving state and disconnecting...");
 
         // Save current trip state
@@ -575,6 +578,11 @@ public class AutoElytraRepair extends Module {
     private void flyToPosition(Vec3d target) {
         if (mc.player == null) return;
 
+        // Ensure we are gliding
+        if (!mc.player.isGliding()) {
+            mc.player.startGliding();
+        }
+
         Vec3d playerPos = mc.player.getPos();
         double dx = target.x - playerPos.x;
         double dz = target.z - playerPos.z;
@@ -592,6 +600,9 @@ public class AutoElytraRepair extends Module {
             mc.player.setYaw((float) yaw);
             mc.player.setPitch((float) pitch);
         }
+
+        // Move forward
+        mc.options.forwardKey.setPressed(true);
     }
 
     private void resetRepairState() {
