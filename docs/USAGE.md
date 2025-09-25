@@ -9,7 +9,7 @@ The `.stashhunter` command (which can be shortened to `.sh`) is the main command
 ### Sub-commands
 
 -   `.stashhunter start <x1> <z1> <x2> <z2> [stripWidth]`
-    -   **Description**: Starts the automated scanning process in a defined rectangular area.
+    -   **Description**: Starts the automated scanning process in a defined rectangular area. This mode is ideal for systematically searching a specific region.
     -   **Arguments**:
         -   `<x1> <z1>`: The coordinates of the starting corner of the area.
         -   `<x2> <z2>`: The coordinates of the opposite corner of the area.
@@ -24,8 +24,12 @@ The `.stashhunter` command (which can be shortened to `.sh`) is the main command
         ```
         This command will scan a 20,000 x 20,000 area around you, with a strip width of 200 blocks.
 
+-   `.stashhunter trail`
+    -   **Description**: Activates the fully automated chunk trail following mode. In this mode, the addon will automatically detect and follow trails of newly generated chunks, allowing for autonomous exploration to find player activity.
+    -   **Note**: This command does not require coordinates, as it dynamically follows chunk trails.
+
 -   `.stashhunter stop`
-    -   **Description**: Stops the current scanning operation.
+    -   **Description**: Stops the current scanning or trail-following operation.
 
 -   `.stashhunter status`
     -   **Description**: Shows the current status of the Stash-Hunter, including whether it's active, the current progress (waypoints), and the current target coordinates.

@@ -45,7 +45,7 @@ These settings control the behavior of the new chunk detection and trail-followi
 | `netherOldChunksDetector`      | Detects old chunks in the Nether based on missing new blocks.                                           | true          |
 | `endOldChunksDetector`         | Detects old chunks in the End based on biome types.                                                     | true          |
 | `Chunk Detection Mode`         | The mode for detecting new chunks. `BlockExploitMode` is recommended for some servers.                  | Normal        |
-| `dynamic-trail-detection`      | Enables the automatic following of new chunk trails.                                                    | true          |
+| `chunk-trail-following`        | When enabled, the Auto Elytra feature will automatically follow trails of new chunks, creating a fully automated exploration system. | true          |
 | `LiquidExploit`                | Estimates new chunks based on flowing liquids.                                                          | false         |
 | `BlockUpdateExploit`           | Estimates new chunks based on block updates.                                                            | false         |
 | `RemoveOnModuleDisabled`       | Clears cached chunk data when the module is disabled.                                                   | true          |

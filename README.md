@@ -5,7 +5,8 @@ A Meteor client addon for finding stashes on anarchy servers. This mod is design
 ## Features
 
 - **Stash Finding Module**: The core of the addon, which actively searches for and records potential stash locations.
-- **Dynamic Chunk Trail Searching**: Automatically follows trails of newly generated chunks to find player activity.
+- **Auto Elytra**: A fully automated feature that manages elytra flight, ensuring continuous and efficient exploration.
+- **Chunk Trail Following Algorithm**: A sophisticated algorithm that automatically follows trails of newly generated chunks to locate player activity and bases.
 - **Stuck Detector**: A utility to detect if the player character is stuck, which can be useful during automated exploration.
 - **Customizable Commands**:
     - `.stashhunter`: The main command to configure the Stash-Hunter module.

@@ -8,7 +8,7 @@ The `StashHunterModule` is the core of this addon. It is a highly configurable m
 
 ### Key Features:
 
--   **Automated Elytra Flight**: The module uses `ElytraController` to fly automatically over a specified area, scanning for valuable blocks.
+-   **Auto Elytra**: A fully automated feature that manages elytra flight for continuous and efficient exploration. It handles takeoff, landing, and maintaining altitude, allowing for seamless travel across vast distances without manual intervention.
 -   **Configurable Scanning**: You can configure various parameters for scanning, such as:
     -   `scan-radius`: The radius around the player to scan for blocks.
     -   `block-detection-threshold`: The minimum number of valuable blocks to trigger a stash detection.
@@ -27,7 +27,7 @@ The `StashHunterModule` is the core of this addon. It is a highly configurable m
 
 ## NewerNewChunks Module
 
-The `NewerNewChunks` module is a powerful tool for identifying newly generated chunks, which can indicate recent player activity. This module is essential for the "dynamic chunk trail searching" feature.
+The `NewerNewChunks` module is a powerful tool for identifying newly generated chunks, which can indicate recent player activity. This module is essential for the "chunktrail following algorithm" feature.
 
 ### Key Features:
 
@@ -36,7 +36,7 @@ The `NewerNewChunks` module is a powerful tool for identifying newly generated c
     -   **LiquidExploit**: Identifies new chunks by looking for flowing liquids, which often indicates recent world generation.
     -   **BlockUpdateExploit**: Detects block updates that can signify new chunk generation.
 -   **Old Chunk Detection**: The module can also identify chunks generated in older versions of Minecraft, helping to distinguish between old and new areas.
--   **Dynamic Trail Following**: When enabled, the `ElytraController` will automatically follow trails of new chunks. This is a powerful way to find bases and other points of interest.
+-   **Chunk Trail Following Algorithm**: A sophisticated algorithm that, when enabled, directs the `Auto Elytra` feature to automatically follow trails of new chunks. This creates a fully automated system for discovering player activity, bases, and other points of interest by tracking the paths of recent world generation.
 -   **Configurable Rendering**: You can customize the color and rendering style of different types of chunks (new, old, etc.) to make them easily visible.
 
 ## Stuck Detector Module
