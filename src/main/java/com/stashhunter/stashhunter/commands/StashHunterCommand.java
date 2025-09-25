@@ -1,7 +1,9 @@
 package com.stashhunter.stashhunter.commands;
 
+import com.stashhunter.stashhunter.modules.AutoElytraRepair;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import meteordevelopment.meteorclient.systems.modules.Modules;
 import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -149,6 +151,8 @@ public class StashHunterCommand extends Command {
                 info("§7/stashhunter resume [timestamp] §f- Resume the latest or a specific trip");
                 info("§7/stashhunter list §f- List all saved trips");
                 info("§7/stashhunter status §f- Show current status and progress");
+                info("§7/stashhunter repair §f- Show elytra repair status");
+                info("§7/stashhunter repair toggle §f- Toggle auto elytra repair");
                 info("§7/stashhunter help §f- Show this help message");
                 info("");
                 info("§eCoordinate Examples:");
@@ -160,6 +164,52 @@ public class StashHunterCommand extends Command {
                 info("§7Use §f~<number>§7 for relative coordinates with offset");
                 return SINGLE_SUCCESS;
             })
+        );
+
+        // Repair status command
+        builder.then(literal("repair")
+            .executes(context -> {
+                AutoElytraRepair repairModule = Modules.get().get(AutoElytraRepair.class);
+                if (repairModule == null) {
+                    error("Auto Elytra Repair module not found.");
+                    return SINGLE_SUCCESS;
+                }
+
+                if (!repairModule.isActive()) {
+                    info("Auto Elytra Repair: §cDisabled");
+                } else if (repairModule.isRepairing()) {
+                    info("Auto Elytra Repair: §eActive - " + repairModule.getCurrentStateName());
+                } else {
+                    info("Auto Elytra Repair: §aEnabled - Monitoring");
+                }
+
+                // Show current elytra status
+                if (MeteorClient.mc.player != null) {
+                    net.minecraft.item.ItemStack chestSlot = MeteorClient.mc.player.getEquippedStack(net.minecraft.entity.EquipmentSlot.CHEST);
+                    if (chestSlot.getItem() == net.minecraft.item.Items.ELYTRA) {
+                        int durability = chestSlot.getMaxDamage() - chestSlot.getDamage();
+                        int maxDurability = chestSlot.getMaxDamage();
+                        info("Current Elytra: " + durability + "/" + maxDurability + " durability");
+                    } else {
+                        info("No Elytra currently equipped");
+                    }
+                }
+
+                return SINGLE_SUCCESS;
+            })
+            .then(literal("toggle")
+                .executes(context -> {
+                    AutoElytraRepair repairModule = Modules.get().get(AutoElytraRepair.class);
+                    if (repairModule == null) {
+                        error("Auto Elytra Repair module not found.");
+                        return SINGLE_SUCCESS;
+                    }
+
+                    repairModule.toggle();
+                    info("Auto Elytra Repair: " + (repairModule.isActive() ? "§aEnabled" : "§cDisabled"));
+                    return SINGLE_SUCCESS;
+                })
+            )
         );
 
         // Default help when no arguments
