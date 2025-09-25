@@ -21,7 +21,7 @@ public class Config {
     public static String discordWebhookUrl = "";
     public static int blockDetectionThreshold = 10; // Increased from 8 to reduce false positives
     public static int scanRadius = 64; // Reduced from 128 to avoid natural structures
-    public static int flightAltitude = 320;
+    public static int flightAltitude = 160;
     public static int scanInterval = 40;
     public static boolean playerDetection = true;
     public static boolean notifyOnDeath = true;
@@ -144,7 +144,7 @@ public class Config {
                 discordWebhookUrl = properties.getProperty("discordWebhookUrl", "");
                 blockDetectionThreshold = getIntProperty("blockDetectionThreshold", 10);
                 scanRadius = getIntProperty("scanRadius", 64);
-                flightAltitude = getIntProperty("flightAltitude", 320);
+                flightAltitude = getIntProperty("flightAltitude", 160);
                 scanInterval = getIntProperty("scanInterval", 40);
                 playerDetection = getBoolProperty("playerDetection", true);
                 notifyOnDeath = getBoolProperty("notifyOnDeath", true);
