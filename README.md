@@ -1,6 +1,10 @@
 # Stash-Hunter
 
-A Meteor client addon for finding stashes on anarchy servers. This mod is designed to automatically fly with an elytra scanning chunks for clusters of valuable blocks while avoiding all generated structures. The mod now features chunk trail tracking algorithms for optimal base finding and autonomous elytra repair for long distance scanning.
+
+A Meteor client addon for finding stashes on anarchy servers. 
+This mod is designed to automatically fly with an elytra scanning chunks for clusters of valuable blocks while avoiding all generated structures. 
+The mod now features chunk trail tracking algorithms for optimal base finding and autonomous elytra repair for long distance scanning.
+
 
 ## Features
 
