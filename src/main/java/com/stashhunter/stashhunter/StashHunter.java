@@ -1,16 +1,12 @@
 package com.stashhunter.stashhunter;
 
-import com.stashhunter.stashhunter.utils.Config;
-import com.stashhunter.stashhunter.commands.StashHunterCommand;
-import com.stashhunter.stashhunter.commands.ClearStashesCommand;
 import com.stashhunter.stashhunter.commands.ClearPlayersCommand;
+import com.stashhunter.stashhunter.commands.ClearStashesCommand;
+import com.stashhunter.stashhunter.commands.StashHunterCommand;
 import com.stashhunter.stashhunter.events.PlayerDisconnectEvent;
 import com.stashhunter.stashhunter.hud.StashHunterHud;
-import com.stashhunter.stashhunter.modules.AltitudeLossDetector;
-import com.stashhunter.stashhunter.modules.NewerNewChunks;
-import com.stashhunter.stashhunter.modules.StashHunterModule;
-import com.stashhunter.stashhunter.modules.StuckDetector;
-import com.stashhunter.stashhunter.modules.AutoElytraRepair;
+import com.stashhunter.stashhunter.modules.*;
+import com.stashhunter.stashhunter.utils.Config;
 import com.mojang.logging.LogUtils;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.addons.GithubRepo;
@@ -21,6 +17,7 @@ import meteordevelopment.meteorclient.systems.hud.HudGroup;
 import meteordevelopment.meteorclient.systems.modules.Category;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.Logger;
 
 public class StashHunter extends MeteorAddon {
@@ -41,6 +38,16 @@ public class StashHunter extends MeteorAddon {
         Modules.get().add(new AltitudeLossDetector());
         Modules.get().add(new NewerNewChunks());
         Modules.get().add(new AutoElytraRepair());
+
+        boolean baritoneLoaded = checkModLoaded("baritone", "baritone-meteor");
+        boolean xaeroWorldMapLoaded = checkModLoaded("xaeroworldmap");
+        boolean xaeroPlusLoaded = checkModLoaded("xaeroplus");
+
+        if (xaeroWorldMapLoaded && xaeroPlusLoaded) {
+            if (baritoneLoaded) {
+                Modules.get().add(new TrailFollower());
+            }
+        }
 
         // Commands
         Commands.add(new StashHunterCommand());
@@ -69,5 +76,14 @@ public class StashHunter extends MeteorAddon {
     @Override
     public GithubRepo getRepo() {
         return new GithubRepo("omtoi", "stash-hunter");
+    }
+
+    private boolean checkModLoaded(String... modIds) {
+        for (String modId : modIds) {
+            if (FabricLoader.getInstance().isModLoaded(modId)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
