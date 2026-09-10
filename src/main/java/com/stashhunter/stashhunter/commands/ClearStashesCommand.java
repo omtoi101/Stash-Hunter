@@ -4,7 +4,7 @@ import com.stashhunter.stashhunter.modules.StashHunterModule;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import meteordevelopment.meteorclient.commands.Command;
 import meteordevelopment.meteorclient.systems.modules.Modules;
-import net.minecraft.command.CommandSource;
+import net.minecraft.client.multiplayer.ClientSuggestionProvider;
 
 import static com.mojang.brigadier.Command.SINGLE_SUCCESS;
 
@@ -14,7 +14,7 @@ public class ClearStashesCommand extends Command {
     }
 
     @Override
-    public void build(LiteralArgumentBuilder<CommandSource> builder) {
+    public void build(LiteralArgumentBuilder<ClientSuggestionProvider> builder) {
         builder.executes(context -> {
             Modules.get().get(StashHunterModule.class).clearReportedStashes();
             com.stashhunter.stashhunter.utils.Logger.log("Cleared the list of reported stashes.");

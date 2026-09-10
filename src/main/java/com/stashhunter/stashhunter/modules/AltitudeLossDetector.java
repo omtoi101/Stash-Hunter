@@ -46,7 +46,7 @@ public class AltitudeLossDetector extends Module {
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
-        if (mc.player == null || mc.world == null) {
+        if (mc.player == null || mc.level == null) {
             return;
         }
 
@@ -74,12 +74,12 @@ public class AltitudeLossDetector extends Module {
     }
 
     private void handleStuck() {
-        info("Detected rapid altitude loss at " + mc.player.getBlockPos().toShortString());
+        info("Detected rapid altitude loss at " + mc.player.blockPosition().toShortString());
 
         if (autoFix.get()) {
             fixInProgress = true;
             info("Attempting to fix by holding jump...");
-            KeyHold.hold(mc.options.jumpKey, 100, (v) -> {
+            KeyHold.hold(mc.options.keyJump, 100, (v) -> {
                 info("Jump complete.");
                 fixInProgress = false;
                 fixCooldown = 200;

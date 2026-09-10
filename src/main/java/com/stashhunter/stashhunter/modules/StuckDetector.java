@@ -11,9 +11,9 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.item.Items;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.Vec3;
 
 public class StuckDetector extends Module {
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
@@ -53,7 +53,7 @@ public class StuckDetector extends Module {
         .build()
     );
 
-    private Vec3d lastPosition;
+    private Vec3 lastPosition;
     private int stationaryTicks = 0;
     private boolean fixInProgress = false;
     private int fixCooldown = 0;
@@ -72,7 +72,7 @@ public class StuckDetector extends Module {
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
-        if (mc.player == null || mc.world == null) {
+        if (mc.player == null || mc.level == null) {
             return;
         }
 
@@ -86,20 +86,20 @@ public class StuckDetector extends Module {
         }
 
         // Check if player is gliding
-        if (!mc.player.isGliding()) {
+        if (!mc.player.isFallFlying()) {
             stationaryTicks = 0; // Reset if not gliding
             return;
         }
 
         if (lastPosition != null) {
-            double distance = mc.player.getPos().distanceTo(lastPosition);
+            double distance = mc.player.position().distanceTo(lastPosition);
             if (distance < 0.1) {
                 stationaryTicks++;
             } else {
                 stationaryTicks = 0;
             }
         }
-        lastPosition = mc.player.getPos();
+        lastPosition = mc.player.position();
 
         // 20 ticks per second
         if (stationaryTicks > detectionThreshold.get() * 20) {
@@ -109,14 +109,14 @@ public class StuckDetector extends Module {
     }
 
     private void handleStuck() {
-        info("Detected elytra rubber-banding at " + mc.player.getBlockPos().toShortString());
+        info("Detected elytra rubber-banding at " + mc.player.blockPosition().toShortString());
 
         // Send Discord notification
         if (!discordWebhookUrl.get().isEmpty()) {
             DiscordEmbed embed = new DiscordEmbed(
                 "Elytra Stuck Detected!",
                 "Player " + mc.player.getName().getString() + " is stuck in an elytra rubber-band loop at " +
-                mc.player.getBlockPos().toShortString() + ".\n" +
+                mc.player.blockPosition().toShortString() + ".\n" +
                 (autoFix.get() ? "Attempting to fix automatically." : "Manual intervention may be required."),
                 0xFF0000
             );
@@ -125,7 +125,7 @@ public class StuckDetector extends Module {
 
         if (autoFix.get()) {
             fixInProgress = true;
-            final Vec3d positionWhenStuck = mc.player.getPos(); // Capture position for later check
+            final Vec3 positionWhenStuck = mc.player.position(); // Capture position for later check
 
             new Thread(() -> {
                 try {
@@ -140,12 +140,12 @@ public class StuckDetector extends Module {
                         info("ElytraFly re-enabled. Monitoring for recovery...");
                         Thread.sleep(2000); // Wait 2 seconds to see if we start moving
 
-                        if (mc.player.getPos().distanceTo(positionWhenStuck) < 1.0) {
+                        if (mc.player.position().distanceTo(positionWhenStuck) < 1.0) {
                             info("Fix 1 seems to have failed. Attempting Fix 2: Stopping vanilla flight...");
-                            mc.player.stopGliding();
+                            mc.player.stopFallFlying();
 
                             info("Attempting Fix 3: Holding jump...");
-                            KeyHold.hold(mc.options.jumpKey, 5, (v) -> {
+                            KeyHold.hold(mc.options.keyJump, 5, (v) -> {
                                 info("Jump complete.");
                                 fixInProgress = false;
                                 fixCooldown = 200;
@@ -159,7 +159,7 @@ public class StuckDetector extends Module {
                     } else {
                         // ElytraFly not active, go straight to stopping flight
                         info("ElytraFly not active. Attempting to get unstuck by stopping flight...");
-                        mc.player.stopGliding();
+                        mc.player.stopFallFlying();
                         fixInProgress = false;
                         fixCooldown = 200;
                     }

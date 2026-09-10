@@ -1,10 +1,10 @@
 package com.stashhunter.stashhunter.mixin;
 
-import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.world.entity.player.Inventory;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
-@Mixin(PlayerInventory.class)
+@Mixin(Inventory.class)
 public interface PlayerInventoryAccessor {
     @Accessor
     void setSelectedSlot(int slot);

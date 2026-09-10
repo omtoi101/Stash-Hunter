@@ -1,14 +1,14 @@
 package com.stashhunter.stashhunter.events;
 
 import meteordevelopment.orbit.ICancellable;
-import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.world.entity.player.Player;
 
 public class PlayerDeathEvent implements ICancellable {
     private static final PlayerDeathEvent INSTANCE = new PlayerDeathEvent();
 
-    public PlayerEntity player;
+    public Player player;
 
-    public static PlayerDeathEvent get(PlayerEntity player) {
+    public static PlayerDeathEvent get(Player player) {
     INSTANCE.setCancelled(false);
     INSTANCE.player = player;
     com.stashhunter.stashhunter.utils.Logger.log("Player death event triggered for: " + player.getName().getString());

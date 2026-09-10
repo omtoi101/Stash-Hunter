@@ -5,11 +5,11 @@ import com.stashhunter.stashhunter.utils.TripManager;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.item.Items;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.Items;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -19,21 +19,21 @@ import java.util.HashSet;
 
 public class ElytraController {
     private static final NewerNewChunks newerNewChunks = Modules.get().get(NewerNewChunks.class);
-    private static List<Vec3d> waypoints = new ArrayList<>();
+    private static List<Vec3> waypoints = new ArrayList<>();
     private static int currentWaypoint = 0;
     private static boolean active = false;
     private static boolean justCompleted = false;
-    private static Vec3d currentTarget = null;
+    private static Vec3 currentTarget = null;
     private static long lastWaypointTime = 0;
 
     // Navigation state for edge following
     private static NavigationMode navigationMode = NavigationMode.NORMAL;
-    private static Vec3d lastKnownGoodPosition = null;
+    private static Vec3 lastKnownGoodPosition = null;
     private static int edgeFollowDirection = 90; // 90 for right, -90 for left
     private static long edgeFollowStartTime = 0;
     private static final long MAX_EDGE_FOLLOW_TIME = 30000; // 30 seconds max edge following
     private static Set<ChunkPos> visitedChunks = new HashSet<>();
-    private static Vec3d boundaryDirection = null;
+    private static Vec3 boundaryDirection = null;
 
     // Trail analysis state
     private static List<ChunkPos> recentNewChunks = new ArrayList<>();
@@ -87,11 +87,11 @@ public class ElytraController {
 
         for (int x = minX; x <= maxX; x += stripWidth) {
             if (forward) {
-                waypoints.add(new Vec3d(x, Config.flightAltitude, minZ));
-                waypoints.add(new Vec3d(x, Config.flightAltitude, maxZ));
+                waypoints.add(new Vec3(x, Config.flightAltitude, minZ));
+                waypoints.add(new Vec3(x, Config.flightAltitude, maxZ));
             } else {
-                waypoints.add(new Vec3d(x, Config.flightAltitude, maxZ));
-                waypoints.add(new Vec3d(x, Config.flightAltitude, minZ));
+                waypoints.add(new Vec3(x, Config.flightAltitude, maxZ));
+                waypoints.add(new Vec3(x, Config.flightAltitude, minZ));
             }
             forward = !forward;
         }
@@ -111,8 +111,7 @@ public class ElytraController {
         }
 
         if (MeteorClient.mc.player != null) {
-            MeteorClient.mc.player.sendMessage(
-                net.minecraft.text.Text.of("§aStash hunter flight stopped"), false);
+            MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§aStash hunter flight stopped"));
         }
     }
 
@@ -152,9 +151,8 @@ public class ElytraController {
     private static void initiateFlight() {
         if (!waypoints.isEmpty()) {
             if (MeteorClient.mc.player != null &&
-                MeteorClient.mc.player.getEquippedStack(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) {
-                MeteorClient.mc.player.sendMessage(
-                    net.minecraft.text.Text.of("§cPlease equip an Elytra before starting!"), false);
+                MeteorClient.mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) {
+                MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§cPlease equip an Elytra before starting!"));
                 stop();
                 return;
             }
@@ -173,15 +171,14 @@ public class ElytraController {
             return;
         }
 
-        Vec3d playerPos = MeteorClient.mc.player.getPos();
-        ChunkPos currentChunkPos = new ChunkPos(new BlockPos((int)playerPos.x, (int)playerPos.y, (int)playerPos.z));
+        Vec3 playerPos = MeteorClient.mc.player.position();
+        ChunkPos currentChunkPos = new ChunkPos((int)playerPos.x >> 4, (int)playerPos.z >> 4);
         visitedChunks.add(currentChunkPos);
 
         // Check if we've completed all waypoints
         if (currentWaypoint >= waypoints.size() && navigationMode == NavigationMode.NORMAL) {
             if (MeteorClient.mc.player != null) {
-                MeteorClient.mc.player.sendMessage(
-                    net.minecraft.text.Text.of("§aCompleted scanning area!"), false);
+                MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§aCompleted scanning area!"));
             }
             justCompleted = true;
             stop();
@@ -208,14 +205,14 @@ public class ElytraController {
     public static void climbToAltitude() {
         if (MeteorClient.mc.player == null) return;
         navigationMode = NavigationMode.CLIMBING;
-        Vec3d playerPos = MeteorClient.mc.player.getPos();
-        currentTarget = new Vec3d(playerPos.x, Config.flightAltitude, playerPos.z);
+        Vec3 playerPos = MeteorClient.mc.player.position();
+        currentTarget = new Vec3(playerPos.x, Config.flightAltitude, playerPos.z);
         Logger.log("Climbing to altitude: " + Config.flightAltitude);
     }
 
     private static void handleClimbing() {
         if (MeteorClient.mc.player == null) return;
-        if (MeteorClient.mc.player.getPos().y >= Config.flightAltitude - 2) {
+        if (MeteorClient.mc.player.position().y >= Config.flightAltitude - 2) {
             navigationMode = NavigationMode.NORMAL;
             Logger.log("Reached target altitude, resuming normal navigation.");
         } else {
@@ -226,8 +223,8 @@ public class ElytraController {
     private static void handleNormalNavigation() {
         if (currentWaypoint >= waypoints.size()) return;
 
-        Vec3d playerPos = MeteorClient.mc.player.getPos();
-        Vec3d target = waypoints.get(currentWaypoint);
+        Vec3 playerPos = MeteorClient.mc.player.position();
+        Vec3 target = waypoints.get(currentWaypoint);
         currentTarget = target;
 
         double horizontalDistance = Math.sqrt(
@@ -256,7 +253,7 @@ public class ElytraController {
     }
 
     private static void handleEdgeFollowing() {
-        Vec3d playerPos = MeteorClient.mc.player.getPos();
+        Vec3 playerPos = MeteorClient.mc.player.position();
 
         // Check if we've been edge following too long
         if (System.currentTimeMillis() - edgeFollowStartTime > MAX_EDGE_FOLLOW_TIME) {
@@ -271,8 +268,8 @@ public class ElytraController {
 
         // Follow the edge by maintaining direction parallel to the boundary
         if (boundaryDirection != null) {
-            Vec3d edgeTarget = playerPos.add(boundaryDirection.multiply(50)); // Look 50 blocks ahead along edge
-            currentTarget = new Vec3d(edgeTarget.x, Config.flightAltitude, edgeTarget.z);
+            Vec3 edgeTarget = playerPos.add(boundaryDirection.scale(50)); // Look 50 blocks ahead along edge
+            currentTarget = new Vec3(edgeTarget.x, Config.flightAltitude, edgeTarget.z);
             controlFlight(currentTarget);
 
             // Check if we can return to normal navigation
@@ -286,7 +283,7 @@ public class ElytraController {
     }
 
     private static void handleTrailFollowing() {
-        Vec3d playerPos = MeteorClient.mc.player.getPos();
+        Vec3 playerPos = MeteorClient.mc.player.position();
 
         // Similar to edge following but specifically for new chunk boundaries
         if (System.currentTimeMillis() - edgeFollowStartTime > MAX_EDGE_FOLLOW_TIME) {
@@ -295,8 +292,8 @@ public class ElytraController {
         }
 
         if (boundaryDirection != null) {
-            Vec3d trailTarget = playerPos.add(boundaryDirection.multiply(50));
-            currentTarget = new Vec3d(trailTarget.x, Config.flightAltitude, trailTarget.z);
+            Vec3 trailTarget = playerPos.add(boundaryDirection.scale(50));
+            currentTarget = new Vec3(trailTarget.x, Config.flightAltitude, trailTarget.z);
             controlFlight(currentTarget);
 
             // Continue following the trail of new chunks
@@ -312,13 +309,13 @@ public class ElytraController {
     private static class ChunkBoundaryInfo {
         boolean hasNewChunks = false;
         boolean hasUnloadedArea = false;
-        Vec3d boundaryDirection = null;
+        Vec3 boundaryDirection = null;
         String description = "";
         TrailInfo trailInfo = null; // Added trail analysis
     }
 
     private static class TrailInfo {
-        Vec3d direction;
+        Vec3 direction;
         double confidence; // 0.0 to 1.0
         int length; // number of chunks in trail
         ChunkPos startChunk;
@@ -326,19 +323,19 @@ public class ElytraController {
         String type; // "corridor", "line", "scattered", etc.
     }
 
-    private static TrailInfo analyzeNewChunkTrail(Vec3d playerPos, List<ChunkPos> newChunks) {
+    private static TrailInfo analyzeNewChunkTrail(Vec3 playerPos, List<ChunkPos> newChunks) {
         if (newChunks == null || newChunks.size() < 3) {
             return null; // Need at least 3 chunks to form a trail
         }
 
-        ChunkPos playerChunk = new ChunkPos(new BlockPos((int)playerPos.x, (int)playerPos.y, (int)playerPos.z));
+        ChunkPos playerChunk = new ChunkPos((int)playerPos.x >> 4, (int)playerPos.z >> 4);
 
         // Find new chunks within analysis radius
         List<ChunkPos> nearbyNewChunks = new ArrayList<>();
         for (ChunkPos chunk : newChunks) {
             double distance = Math.sqrt(
-                Math.pow(chunk.x - playerChunk.x, 2) +
-                Math.pow(chunk.z - playerChunk.z, 2)
+                Math.pow(chunk.x() - playerChunk.x(), 2) +
+                Math.pow(chunk.z() - playerChunk.z(), 2)
             );
             if (distance <= TRAIL_ANALYSIS_RADIUS) {
                 nearbyNewChunks.add(chunk);
@@ -370,7 +367,7 @@ public class ElytraController {
         return bestTrail;
     }
 
-    private static TrailInfo analyzeLinearPattern(List<ChunkPos> chunks, Vec3d playerPos) {
+    private static TrailInfo analyzeLinearPattern(List<ChunkPos> chunks, Vec3 playerPos) {
         // Look for chunks that form roughly straight lines
         for (int i = 0; i < chunks.size() - 2; i++) {
             for (int j = i + 1; j < chunks.size() - 1; j++) {
@@ -389,9 +386,9 @@ public class ElytraController {
                         trail.length = 3;
 
                         // Calculate direction from first to last chunk
-                        double dx = c3.x - c1.x;
-                        double dz = c3.z - c1.z;
-                        trail.direction = new Vec3d(dx, 0, dz).normalize();
+                        double dx = c3.x() - c1.x();
+                        double dz = c3.z() - c1.z();
+                        trail.direction = new Vec3(dx, 0, dz).normalize();
 
                         trail.startChunk = c1;
                         trail.endChunk = c3;
@@ -404,16 +401,16 @@ public class ElytraController {
         return null;
     }
 
-    private static TrailInfo analyzeDirectionalPattern(List<ChunkPos> chunks, Vec3d playerPos) {
+    private static TrailInfo analyzeDirectionalPattern(List<ChunkPos> chunks, Vec3 playerPos) {
         // Look for chunks that show consistent directional movement
         if (chunks.size() < 4) return null;
 
         // Sort chunks by distance from player
         chunks.sort(Comparator.comparingDouble(c ->
-            Math.pow(c.x * 16 - playerPos.x, 2) + Math.pow(c.z * 16 - playerPos.z, 2)
+            Math.pow(c.x() * 16 - playerPos.x, 2) + Math.pow(c.z() * 16 - playerPos.z, 2)
         ));
 
-        Vec3d avgDirection = Vec3d.ZERO;
+        Vec3 avgDirection = Vec3.ZERO;
         int validDirections = 0;
 
         // Calculate average direction between consecutive chunks
@@ -421,15 +418,15 @@ public class ElytraController {
             ChunkPos from = chunks.get(i);
             ChunkPos to = chunks.get(i + 1);
 
-            Vec3d direction = new Vec3d(to.x - from.x, 0, to.z - from.z);
-            if (direction.lengthSquared() > 0) {
+            Vec3 direction = new Vec3(to.x() - from.x(), 0, to.z() - from.z());
+            if (direction.lengthSqr() > 0) {
                 avgDirection = avgDirection.add(direction.normalize());
                 validDirections++;
             }
         }
 
         if (validDirections >= 2) {
-            Vec3d finalDirection = avgDirection.multiply(1.0 / validDirections);
+            Vec3 finalDirection = avgDirection.scale(1.0 / validDirections);
             double consistency = calculateDirectionConsistency(chunks, finalDirection);
 
             if (consistency > 0.6) {
@@ -452,15 +449,15 @@ public class ElytraController {
         // Calculate how close three points are to forming a straight line
         // Using the cross product method to find deviation from straight line
 
-        Vec3d v1 = new Vec3d(c2.x - c1.x, 0, c2.z - c1.z);
-        Vec3d v2 = new Vec3d(c3.x - c2.x, 0, c3.z - c2.z);
+        Vec3 v1 = new Vec3(c2.x() - c1.x(), 0, c2.z() - c1.z());
+        Vec3 v2 = new Vec3(c3.x() - c2.x(), 0, c3.z() - c2.z());
 
-        if (v1.lengthSquared() < 0.01 || v2.lengthSquared() < 0.01) {
+        if (v1.lengthSqr() < 0.01 || v2.lengthSqr() < 0.01) {
             return 0; // Points too close together
         }
 
         // Calculate angle between vectors
-        double dot = v1.normalize().dotProduct(v2.normalize());
+        double dot = v1.normalize().dot(v2.normalize());
         dot = Math.max(-1.0, Math.min(1.0, dot)); // Clamp to valid range
 
         double angle = Math.acos(Math.abs(dot));
@@ -469,7 +466,7 @@ public class ElytraController {
         return Math.max(0, linearity);
     }
 
-    private static double calculateDirectionConsistency(List<ChunkPos> chunks, Vec3d targetDirection) {
+    private static double calculateDirectionConsistency(List<ChunkPos> chunks, Vec3 targetDirection) {
         double totalConsistency = 0;
         int comparisons = 0;
 
@@ -477,9 +474,9 @@ public class ElytraController {
             ChunkPos from = chunks.get(i);
             ChunkPos to = chunks.get(i + 1);
 
-            Vec3d direction = new Vec3d(to.x - from.x, 0, to.z - from.z);
-            if (direction.lengthSquared() > 0) {
-                double dot = direction.normalize().dotProduct(targetDirection.normalize());
+            Vec3 direction = new Vec3(to.x() - from.x(), 0, to.z() - from.z());
+            if (direction.lengthSqr() > 0) {
+                double dot = direction.normalize().dot(targetDirection.normalize());
                 totalConsistency += Math.max(0, dot); // Only positive correlations
                 comparisons++;
             }
@@ -488,7 +485,7 @@ public class ElytraController {
         return comparisons > 0 ? totalConsistency / comparisons : 0;
     }
 
-    private static ChunkBoundaryInfo checkForBoundaries(Vec3d playerPos) {
+    private static ChunkBoundaryInfo checkForBoundaries(Vec3 playerPos) {
         ChunkBoundaryInfo info = new ChunkBoundaryInfo();
 
         if (newerNewChunks == null || !newerNewChunks.isActive()) {
@@ -496,7 +493,7 @@ public class ElytraController {
         }
 
         List<ChunkPos> newChunks = newerNewChunks.getNewChunks();
-        Vec3d forwardVec = Vec3d.fromPolar(0, MeteorClient.mc.player.getYaw()).normalize();
+        Vec3 forwardVec = Vec3.directionFromRotation(0, MeteorClient.mc.player.getYRot()).normalize();
 
         // First, analyze if there's a meaningful trail in the area
         TrailInfo trailInfo = analyzeNewChunkTrail(playerPos, newChunks);
@@ -511,8 +508,8 @@ public class ElytraController {
 
         // If no good trail, check for immediate obstacles to avoid
         for (int distance = 16; distance <= 64; distance += 16) {
-            Vec3d checkPos = playerPos.add(forwardVec.multiply(distance));
-            ChunkPos checkChunk = new ChunkPos(new BlockPos((int)checkPos.x, (int)checkPos.y, (int)checkPos.z));
+            Vec3 checkPos = playerPos.add(forwardVec.scale(distance));
+            ChunkPos checkChunk = new ChunkPos((int)checkPos.x >> 4, (int)checkPos.z >> 4);
 
             // Check if chunk is new (AVOID these unless they form a trail)
             if (newChunks != null && newChunks.contains(checkChunk)) {
@@ -520,18 +517,18 @@ public class ElytraController {
                 info.description = "New chunk ahead - avoiding (no clear trail detected)";
 
                 // Calculate avoidance direction (perpendicular to forward)
-                info.boundaryDirection = new Vec3d(-forwardVec.z, 0, forwardVec.x);
+                info.boundaryDirection = new Vec3(-forwardVec.z, 0, forwardVec.x);
                 break;
             }
 
             // Check if chunk is unloaded
-            if (MeteorClient.mc.world != null) {
-                boolean isLoaded = MeteorClient.mc.world.isChunkLoaded(checkChunk.x, checkChunk.z);
+            if (MeteorClient.mc.level != null) {
+                boolean isLoaded = MeteorClient.mc.level.hasChunk(checkChunk.x(), checkChunk.z());
                 if (!isLoaded) {
                     info.hasUnloadedArea = true;
                     info.description = "Unloaded area ahead - following boundary";
 
-                    info.boundaryDirection = new Vec3d(-forwardVec.z, 0, forwardVec.x);
+                    info.boundaryDirection = new Vec3(-forwardVec.z, 0, forwardVec.x);
                     break;
                 }
             }
@@ -544,13 +541,12 @@ public class ElytraController {
         navigationMode = NavigationMode.EDGE_FOLLOWING;
         edgeFollowStartTime = System.currentTimeMillis();
         boundaryDirection = boundaryInfo.boundaryDirection;
-        lastKnownGoodPosition = MeteorClient.mc.player.getPos();
+        lastKnownGoodPosition = MeteorClient.mc.player.position();
 
         Logger.log("Switching to edge following: " + boundaryInfo.description);
 
         if (MeteorClient.mc.player != null) {
-            MeteorClient.mc.player.sendMessage(
-                net.minecraft.text.Text.of("§eEdge following activated: " + boundaryInfo.description), false);
+            MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§eEdge following activated: " + boundaryInfo.description));
         }
     }
 
@@ -558,20 +554,19 @@ public class ElytraController {
         navigationMode = NavigationMode.TRAIL_FOLLOWING;
         edgeFollowStartTime = System.currentTimeMillis();
         boundaryDirection = boundaryInfo.boundaryDirection;
-        lastKnownGoodPosition = MeteorClient.mc.player.getPos();
+        lastKnownGoodPosition = MeteorClient.mc.player.position();
 
         Logger.log("New chunk boundary detected - following trail for potential stash locations");
 
         if (MeteorClient.mc.player != null) {
-            MeteorClient.mc.player.sendMessage(
-                net.minecraft.text.Text.of("§6Following new chunk boundary - potential player trail detected"), false);
+            MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§6Following new chunk boundary - potential player trail detected"));
         }
     }
 
-    private static void controlFlight(Vec3d target) {
+    private static void controlFlight(Vec3 target) {
         if (MeteorClient.mc.player == null) return;
 
-        Vec3d playerPos = MeteorClient.mc.player.getPos();
+        Vec3 playerPos = MeteorClient.mc.player.position();
         double dx = target.x - playerPos.x;
         double dz = target.z - playerPos.z;
         double horizontalDistance = Math.sqrt(dx * dx + dz * dz);
@@ -583,12 +578,12 @@ public class ElytraController {
 
             pitch = Math.max(-30.0, Math.min(30.0, pitch));
 
-            if (MeteorClient.mc.player.getEquippedStack(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
+            if (MeteorClient.mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
                 pitch = Math.max(-15.0, Math.min(5.0, pitch));
             }
 
-            float currentYaw = MeteorClient.mc.player.getYaw();
-            float currentPitch = MeteorClient.mc.player.getPitch();
+            float currentYaw = MeteorClient.mc.player.getYRot();
+            float currentPitch = MeteorClient.mc.player.getXRot();
 
             float yawDiff = (float) (yaw - currentYaw);
             while (yawDiff > 180) yawDiff -= 360;
@@ -597,24 +592,24 @@ public class ElytraController {
             float newYaw = currentYaw + yawDiff * 0.1f;
             float newPitch = currentPitch + ((float) pitch - currentPitch) * 0.1f;
 
-            MeteorClient.mc.player.setYaw(newYaw);
-            MeteorClient.mc.player.setPitch(newPitch);
+            MeteorClient.mc.player.setYRot(newYaw);
+            MeteorClient.mc.player.setXRot(newPitch);
         }
 
-        if (MeteorClient.mc.player.getEquippedStack(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
-            boolean isGliding = MeteorClient.mc.player.isGliding();
+        if (MeteorClient.mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
+            boolean isGliding = MeteorClient.mc.player.isFallFlying();
 
             if (isGliding) {
-                Vec3d forward = new Vec3d(
-                    -Math.sin(Math.toRadians(MeteorClient.mc.player.getYaw())),
-                    -Math.sin(Math.toRadians(MeteorClient.mc.player.getPitch())) * 0.3,
-                    Math.cos(Math.toRadians(MeteorClient.mc.player.getYaw()))
-                ).normalize().multiply(0.8);
+                Vec3 forward = new Vec3(
+                    -Math.sin(Math.toRadians(MeteorClient.mc.player.getYRot())),
+                    -Math.sin(Math.toRadians(MeteorClient.mc.player.getXRot())) * 0.3,
+                    Math.cos(Math.toRadians(MeteorClient.mc.player.getYRot()))
+                ).normalize().scale(0.8);
 
-                MeteorClient.mc.player.setVelocity(forward);
+                MeteorClient.mc.player.setDeltaMovement(forward);
             } else {
-                if (MeteorClient.mc.player.getVelocity().y < -0.5 && !MeteorClient.mc.player.isOnGround()) {
-                    MeteorClient.mc.player.startGliding();
+                if (MeteorClient.mc.player.getDeltaMovement().y < -0.5 && !MeteorClient.mc.player.onGround()) {
+                    MeteorClient.mc.player.startFallFlying();
                 }
             }
         }
@@ -626,14 +621,13 @@ public class ElytraController {
             return;
         }
 
-        Vec3d waypoint = waypoints.get(currentWaypoint);
+        Vec3 waypoint = waypoints.get(currentWaypoint);
         currentTarget = waypoint;
         lastWaypointTime = System.currentTimeMillis();
 
         if (MeteorClient.mc.player != null) {
-            MeteorClient.mc.player.sendMessage(
-                net.minecraft.text.Text.of("§bFlying to waypoint " + (currentWaypoint + 1) + "/" + waypoints.size() +
-                ": " + (int)waypoint.x + ", " + (int)waypoint.z), false);
+            MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§bFlying to waypoint " + (currentWaypoint + 1) + "/" + waypoints.size() +
+                ": " + (int)waypoint.x + ", " + (int)waypoint.z));
         }
 
         currentWaypoint++;
@@ -643,7 +637,7 @@ public class ElytraController {
         return active;
     }
 
-    public static Vec3d getCurrentTarget() {
+    public static Vec3 getCurrentTarget() {
         return currentTarget;
     }
 

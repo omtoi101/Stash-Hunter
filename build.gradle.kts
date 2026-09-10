@@ -1,11 +1,16 @@
 plugins {
-    id("fabric-loom") version "1.11-SNAPSHOT"
+    // Fully-qualified id, not the short "fabric-loom" legacy alias: that one resolves to
+    // Loom's old remap-always plugin class, which still demands a mappings dependency even
+    // though Minecraft has shipped unobfuscated since 26.1 and none exists to give it.
+    id("net.fabricmc.fabric-loom") version "1.17-SNAPSHOT"
 }
 
+val archivesBaseName = providers.gradleProperty("archives_base_name").get()
+
 base {
-    archivesName = properties["archives_base_name"] as String
-    version = properties["mod_version"] as String
-    group = properties["maven_group"] as String
+    archivesName = archivesBaseName
+    version = providers.gradleProperty("mod_version").get()
+    group = providers.gradleProperty("maven_group").get()
 }
 
 repositories {
@@ -26,23 +31,34 @@ repositories {
 
 dependencies {
     // Fabric
-    minecraft("com.mojang:minecraft:${properties["minecraft_version"] as String}")
-    mappings("net.fabricmc:yarn:${properties["yarn_mappings"] as String}:v2")
-    modImplementation("net.fabricmc:fabric-loader:${properties["loader_version"] as String}")
-    modImplementation("net.fabricmc.fabric-api:fabric-api:${properties["fabric_version"] as String}")
+    // No mappings(...) call, and plain implementation(...) instead of modImplementation(...):
+    // Minecraft has shipped fully unobfuscated since 26.1 (Mojang announced Oct 2025), so Loom
+    // no longer remaps anything and Mojang no longer publishes client_mappings at all (verified
+    // against piston-meta for 26.2). modImplementation's remap-aware resolution would otherwise
+    // still try to pull a 'mappings' dependency that no longer exists. Matches the official
+    // fabric-example-mod and meteor-addon-template 26.2 branches.
+    minecraft("com.mojang:minecraft:${providers.gradleProperty("minecraft_version").get()}")
+    implementation("net.fabricmc:fabric-loader:${providers.gradleProperty("loader_version").get()}")
+    implementation("net.fabricmc.fabric-api:fabric-api:${providers.gradleProperty("fabric_version").get()}")
 
     // Meteor
-    modImplementation("meteordevelopment:meteor-client:${properties["minecraft_version"] as String}-SNAPSHOT")
+    implementation("meteordevelopment:meteor-client:${providers.gradleProperty("minecraft_version").get()}-SNAPSHOT")
 
     // GSON
     implementation("com.google.code.gson:gson:2.10.1")
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(providers.gradleProperty("jdk_version").get().toInt())
+    }
 }
 
 tasks {
     processResources {
         val propertyMap = mapOf(
             "version" to project.version,
-            "mc_version" to project.property("minecraft_version"),
+            "mc_version" to providers.gradleProperty("minecraft_version").get(),
         )
 
         inputs.properties(propertyMap)
@@ -55,21 +71,15 @@ tasks {
     }
 
     jar {
-        inputs.property("archivesName", project.base.archivesName.get())
+        inputs.property("archivesName", archivesBaseName)
 
         from("LICENSE") {
-            rename { "${it}_${inputs.properties["archivesName"]}" }
+            rename { "${it}_${archivesBaseName}" }
         }
-    }
-
-    java {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
     }
 
     withType<JavaCompile> {
         options.encoding = "UTF-8"
-        options.release = 21
         options.compilerArgs.add("-Xlint:deprecation")
         options.compilerArgs.add("-Xlint:unchecked")
     }

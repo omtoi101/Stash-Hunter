@@ -11,11 +11,11 @@ import meteordevelopment.meteorclient.systems.modules.combat.AutoEXP;
 import meteordevelopment.meteorclient.systems.modules.movement.Scaffold;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.Vec3;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -80,7 +80,7 @@ public class AutoElytraRepair extends Module {
 
     // Movement detection for repair sequence
     private int stopWaitTimer = 0;
-    private Vec3d lastPlayerPosition = null;
+    private Vec3 lastPlayerPosition = null;
     private int stationaryTicks = 0;
     private static final int REQUIRED_STATIONARY_TICKS = 20; // 1 second of being stationary
 
@@ -128,7 +128,7 @@ public class AutoElytraRepair extends Module {
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
-        if (mc.player == null || mc.world == null) {
+        if (mc.player == null || mc.level == null) {
             return;
         }
 
@@ -165,7 +165,7 @@ public class AutoElytraRepair extends Module {
 
     private void handleMonitoring() {
         if (!ElytraController.isActive()) return;
-        ItemStack chestSlot = mc.player.getEquippedStack(EquipmentSlot.CHEST);
+        ItemStack chestSlot = mc.player.getItemBySlot(EquipmentSlot.CHEST);
         if (chestSlot.getItem() != Items.ELYTRA) return;
 
         if (needsRepair(chestSlot)) {
@@ -187,7 +187,7 @@ public class AutoElytraRepair extends Module {
         originalAutoTakeoffState = takeoffState != null ? takeoffState : false;
         setModuleSetting(elytraFly, "autoPilot", false);
         // Immediately release forward to stop autopilot movement without GUI
-        mc.options.forwardKey.setPressed(false);
+        mc.options.keyUp.setDown(false);
         // Clear ElytraFly internal forward flag if present
         try {
             Field modeField = elytraFly.getClass().getDeclaredField("currentMode");
@@ -205,12 +205,12 @@ public class AutoElytraRepair extends Module {
 
         info("Stopped autopilot. Waiting for player to stop moving...");
         currentState = RepairState.WAITING_FOR_STOP;
-        lastPlayerPosition = mc.player.getPos();
+        lastPlayerPosition = mc.player.position();
         stationaryTicks = 0;
     }
 
     private void handleWaitingForStop() {
-        Vec3d currentPos = mc.player.getPos();
+        Vec3 currentPos = mc.player.position();
 
         // Check if player has moved significantly
         if (lastPlayerPosition != null) {
@@ -267,7 +267,7 @@ public class AutoElytraRepair extends Module {
                 setModuleSetting(elytraFly, "autoHover", true);
                 setModuleSetting(elytraFly, "autoPilot", false);
                 // Ensure forward key is released now that autopilot is off
-                mc.options.forwardKey.setPressed(false);
+                mc.options.keyUp.setDown(false);
                 try {
                     Field modeField = elytraFly.getClass().getDeclaredField("currentMode");
                     modeField.setAccessible(true);
@@ -294,7 +294,7 @@ public class AutoElytraRepair extends Module {
             if (decelWaiting) {
                 // If player is essentially stopped, end wait early
                 try {
-                    double vsq = mc.player.getVelocity().lengthSquared();
+                    double vsq = mc.player.getDeltaMovement().lengthSqr();
                     if (vsq < 0.0001) {
                         // Player is stopped
                         decelWaiting = false;
@@ -347,17 +347,17 @@ public class AutoElytraRepair extends Module {
             return;
         }
 
-        if (!mc.world.getBlockState(mc.player.getBlockPos().down()).isAir()) {
+        if (!mc.level.getBlockState(mc.player.blockPosition().below()).isAir()) {
             info("Block placed successfully.");
             // Calculate safe hover altitude above the placed block (block top + 0.6)
-            double blockTopY = mc.player.getBlockPos().down().getY() + 1;
+            double blockTopY = mc.player.blockPosition().below().getY() + 1;
             targetRepairAltitude = blockTopY + 0.6;
             positioningStartMs = System.currentTimeMillis();
 
             // Ensure elytra engaged before positioning
-            if (!mc.player.isGliding()) {
-                if (mc.player.isOnGround()) KeyHold.hold(mc.options.jumpKey, 4, null);
-                try { mc.player.startGliding(); } catch (Exception ignored) {}
+            if (!mc.player.isFallFlying()) {
+                if (mc.player.onGround()) KeyHold.hold(mc.options.keyJump, 4, null);
+                try { mc.player.startFallFlying(); } catch (Exception ignored) {}
             }
 
             currentState = RepairState.POSITIONING_FOR_REPAIR;
@@ -386,10 +386,10 @@ public class AutoElytraRepair extends Module {
         }
 
         // Keep gliding and pitch up to climb gently
-        if (!mc.player.isGliding()) {
-            try { mc.player.startGliding(); } catch (Exception ignored) {}
+        if (!mc.player.isFallFlying()) {
+            try { mc.player.startFallFlying(); } catch (Exception ignored) {}
         }
-        mc.player.setPitch(-20);
+        mc.player.setXRot(-20);
     }
 
     private void handleRepairing() {
@@ -407,14 +407,14 @@ public class AutoElytraRepair extends Module {
             return;
         }
 
-        ItemStack chestElytra = mc.player.getEquippedStack(EquipmentSlot.CHEST);
+        ItemStack chestElytra = mc.player.getItemBySlot(EquipmentSlot.CHEST);
         if (chestElytra.getItem() != Items.ELYTRA) {
             warning("No elytra equipped during repair.");
             currentState = RepairState.RESUMING_FLIGHT;
             return;
         }
 
-        if (chestElytra.getDamage() == 0) {
+        if (chestElytra.getDamageValue() == 0) {
             info("Equipped elytra repaired. Resuming flight.");
             currentState = RepairState.RESUMING_FLIGHT;
             return;
@@ -426,14 +426,14 @@ public class AutoElytraRepair extends Module {
     }
 
     private void handleRepairingInProgress() {
-        ItemStack currentElytra = mc.player.getEquippedStack(EquipmentSlot.CHEST);
+        ItemStack currentElytra = mc.player.getItemBySlot(EquipmentSlot.CHEST);
         if (currentElytra.getItem() != Items.ELYTRA) {
             warning("Elytra was unequipped during repair!");
             currentState = RepairState.REPAIRING;
             return;
         }
 
-        if (currentElytra.getDamage() == 0) {
+        if (currentElytra.getDamageValue() == 0) {
             info("Equipped elytra repaired.");
             currentState = RepairState.REPAIRING;
             return;
@@ -447,9 +447,9 @@ public class AutoElytraRepair extends Module {
 
     private void handleResumingFlight() {
         resumeNormalOperation();
-        KeyHold.hold(mc.options.jumpKey, 10, null);
-        mc.options.jumpKey.setPressed(false);
-        KeyHold.hold(mc.options.jumpKey, 10, null);
+        KeyHold.hold(mc.options.keyJump, 10, null);
+        mc.options.keyJump.setDown(false);
+        KeyHold.hold(mc.options.keyJump, 10, null);
         ElytraController.resume();
         info("Resuming flight.");
         justFinishedRepairing = true;
@@ -460,33 +460,33 @@ public class AutoElytraRepair extends Module {
                 climbingToCruise = true;
                 climbStartTimeMs = System.currentTimeMillis();
             }
-            mc.player.setPitch(-30);
+            mc.player.setXRot(-30);
             if (originalAutoPilotState) {
                 decelInitiated = true;
             }
             // Check timeout
             if (System.currentTimeMillis() - climbStartTimeMs > 10_000L) {
                 warning("Climb to Y=200 timeout reached (10s). Continuing.");
-                mc.player.setPitch(0);
+                mc.player.setXRot(0);
                 // Ensure autopilot resumes forward movement
                 ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
                 if (elytraFly != null && originalAutoPilotState) {
                     setModuleSetting(elytraFly, "autoPilot", true);
                 }
-                mc.options.forwardKey.setPressed(true);
+                mc.options.keyUp.setDown(true);
                 ElytraController.resume();
                 resetRepairState();
                 currentState = RepairState.MONITORING;
             }
         } else {
             info("Cruise altitude reached. Repair sequence complete.");
-            mc.player.setPitch(0);
+            mc.player.setXRot(0);
             // Ensure autopilot resumes forward movement
             ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
             if (elytraFly != null && originalAutoPilotState) {
                 setModuleSetting(elytraFly, "autoPilot", true);
             }
-            mc.options.forwardKey.setPressed(true);
+            mc.options.keyUp.setDown(true);
             ElytraController.resume();
             resetRepairState();
             currentState = RepairState.MONITORING;
@@ -497,8 +497,8 @@ public class AutoElytraRepair extends Module {
         resumeNormalOperation();
         error("Emergency disconnect initiated...");
         if (ElytraController.isActive()) ElytraController.pause();
-        if (mc.getNetworkHandler() != null) {
-            mc.getNetworkHandler().getConnection().disconnect(net.minecraft.text.Text.of("Emergency disconnect: Elytra repair failed"));
+        if (mc.getConnection() != null) {
+            mc.getConnection().getConnection().disconnect(net.minecraft.network.chat.Component.literal("Emergency disconnect: Elytra repair failed"));
         }
         this.toggle();
     }
@@ -538,8 +538,8 @@ public class AutoElytraRepair extends Module {
     }
 
     private void resumeNormalOperation() {
-        mc.options.sneakKey.setPressed(false);
-        mc.options.forwardKey.setPressed(false);
+        mc.options.keyShift.setDown(false);
+        mc.options.keyUp.setDown(false);
 
         ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
         if (elytraFly != null) {
@@ -582,13 +582,13 @@ public class AutoElytraRepair extends Module {
     // Private helpers
     private boolean needsRepair(ItemStack elytra) {
         if (elytra.getItem() != Items.ELYTRA) return false;
-        return (elytra.getMaxDamage() - elytra.getDamage()) <= repairThreshold.get();
+        return (elytra.getMaxDamage() - elytra.getDamageValue()) <= repairThreshold.get();
     }
 
     private void findElytraSlots() {
         elytraSlots.clear();
-        for (int i = 0; i < mc.player.getInventory().size(); i++) {
-            ItemStack stack = mc.player.getInventory().getStack(i);
+        for (int i = 0; i < mc.player.getInventory().getContainerSize(); i++) {
+            ItemStack stack = mc.player.getInventory().getItem(i);
             if (stack.getItem() == Items.ELYTRA) elytraSlots.add(i);
         }
         info("Found " + elytraSlots.size() + " elytras in inventory");
@@ -596,8 +596,8 @@ public class AutoElytraRepair extends Module {
 
     private boolean hasRepairableElytras() {
         for (int slot : elytraSlots) {
-            ItemStack elytra = mc.player.getInventory().getStack(slot);
-            if (elytra.getItem() == Items.ELYTRA && elytra.getDamage() > 0) return true;
+            ItemStack elytra = mc.player.getInventory().getItem(slot);
+            if (elytra.getItem() == Items.ELYTRA && elytra.getDamageValue() > 0) return true;
         }
         return false;
     }

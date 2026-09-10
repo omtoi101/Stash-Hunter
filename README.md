@@ -210,7 +210,7 @@ The `StashHunterHud` provides real-time information about the status of the Stas
 
 To build this project from source, you will need:
 
--   Java 21 or later
+-   Java 25 or later
 -   Git
 
 Follow these steps:
@@ -235,7 +235,7 @@ Follow these steps:
 
 ## License
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for more details.
+This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for more details.
 
 ## Credits
 
