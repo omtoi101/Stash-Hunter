@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v26.2.1] - 2026-09-11
+
 ### Added
 
 - **Optional Baritone pathfinding integration** (`com.stashhunter.stashhunter.baritone`): when the [Baritone](https://github.com/MeteorDevelopment/baritone) mod (26.2 branch) is also installed, `ElytraController` hands its flight and landing targets to Baritone's elytra and ground pathfinding (`IElytraProcess`/`ICustomGoalProcess`) for more precise, obstacle-aware movement execution. Baritone only replaces movement *execution* - the existing grid/trail-following exploration strategy (`NewerNewChunks`, `WorldScanner`) is unchanged.
