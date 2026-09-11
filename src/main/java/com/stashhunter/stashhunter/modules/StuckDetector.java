@@ -1,9 +1,11 @@
 package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.baritone.BaritoneBridge;
 import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.DiscordEmbed;
 import com.stashhunter.stashhunter.utils.DiscordWebhook;
+import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.KeyHold;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
@@ -83,6 +85,19 @@ public class StuckDetector extends Module {
 
         if (fixInProgress) {
             return;
+        }
+
+        // Additional trigger: if Baritone is driving navigation but unexpectedly dropped its
+        // path well short of the target, treat that the same as being stuck. This doesn't
+        // reimplement any of Baritone's own path-repair logic - it only asks "did Baritone give
+        // up on its goal?" and reuses the existing recovery below if so.
+        if (BaritoneBridge.isModLoaded() && ElytraController.isActive()) {
+            Vec3 target = ElytraController.getCurrentTarget();
+            if (target != null && !BaritoneBridge.isPathing() && !BaritoneBridge.hasPath()
+                && mc.player.position().distanceTo(target) > 5.0) {
+                handleStuck();
+                return;
+            }
         }
 
         // Check if player is gliding

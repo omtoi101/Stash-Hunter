@@ -1,6 +1,7 @@
 package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.baritone.BaritoneBridge;
 import com.stashhunter.stashhunter.utils.KeyHold;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
@@ -78,6 +79,11 @@ public class AltitudeLossDetector extends Module {
 
         if (autoFix.get()) {
             fixInProgress = true;
+
+            // If Baritone is mid-path, cancel it first so its own movement inputs don't fight
+            // the jump-hold recovery below.
+            BaritoneBridge.cancel();
+
             info("Attempting to fix by holding jump...");
             KeyHold.hold(mc.options.keyJump, 100, (v) -> {
                 info("Jump complete.");

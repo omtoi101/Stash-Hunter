@@ -394,9 +394,6 @@ public class NewerNewChunks extends Module {
 	public NewerNewChunks() {
 		super(StashHunter.CATEGORY,"NewerNewChunks", "Detects new chunks by scanning chunk section palettes (1.18+ only), liquid flow, and block ticking packets.");
 	}
-	public List<ChunkPos> getOldChunks() {
-		return new ArrayList<>(oldChunks);
-	}
 	public List<ChunkPos> getNewChunks() {
 		return new ArrayList<>(newChunks);
 	}
@@ -735,7 +732,10 @@ public class NewerNewChunks extends Module {
 				if (overworldOldChunksDetector.get() && mc.level.dimension() == Level.OVERWORLD && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
 					for (int i = 0; i < 17; i++) {
 						LevelChunkSection section = sections[i];
-						if (section != null && !!section.hasOnlyAir()) {
+						// Bug fix: was "!!section.hasOnlyAir()" (double negation cancels out), which
+						// only ever scanned sections that were pure air - the detectors below need
+						// sections that actually have content, i.e. NOT only air.
+						if (section != null && !section.hasOnlyAir()) {
 							for (int x = 0; x < 16; x++) {
 								for (int y = 0; y < 16; y++) {
 									for (int z = 0; z < 16; z++) {
@@ -755,7 +755,8 @@ public class NewerNewChunks extends Module {
 				if (netherOldChunksDetector.get() && mc.level.dimension() == Level.NETHER && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
 					for (int i = 0; i < 8; i++) {
 						LevelChunkSection section = sections[i];
-						if (section != null && !!section.hasOnlyAir()) {
+						// See the double-negation fix note in the overworld detector above.
+						if (section != null && !section.hasOnlyAir()) {
 							for (int x = 0; x < 16; x++) {
 								for (int y = 0; y < 16; y++) {
 									for (int z = 0; z < 16; z++) {
@@ -772,8 +773,8 @@ public class NewerNewChunks extends Module {
 				}
 
 				if (endOldChunksDetector.get() && mc.level.dimension() == Level.END && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
-					// Simplified End chunk detection - just check if chunk has old generation patterns
-					// The palette-based biome detection is not reliable in current versions
+					// Heuristic, best-effort End chunk detection: checks for old generation
+					// patterns instead of biome palettes, which aren't reliably accessible here.
 					try {
 						// Look for old End generation patterns instead of biome palettes
 						boolean hasOldEndStructure = false;
@@ -796,18 +797,20 @@ public class NewerNewChunks extends Module {
 				}
 
 				if (PaletteExploit.get()) {
-					// Palette-based detection - simplified to avoid API compatibility issues
+					// Heuristic, best-effort palette-based detection - avoids relying on direct
+					// palette-index access, which isn't a stable public API surface.
 					boolean firstchunkappearsnew = false;
 					int loops = 0;
 					int newChunkQuantifier = 0;
 					int oldChunkQuantifier = 0;
 					try {
 						for (LevelChunkSection section : sections) {
-							if (section != null && !!section.hasOnlyAir()) {
+							// See the double-negation fix note in the overworld detector above.
+							if (section != null && !section.hasOnlyAir()) {
 								var blockStatesContainer = section.getStates();
 
-								// Simple detection based on block state container patterns
-								// This is a simplified approach that doesn't rely on direct palette access
+								// Heuristic, best-effort detection based on block state container
+								// patterns rather than direct palette access.
 								int uniqueBlockTypes = 0;
 								Set<Block> blocksFound = new HashSet<>();
 

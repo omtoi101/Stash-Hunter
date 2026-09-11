@@ -1,7 +1,7 @@
 package com.stashhunter.stashhunter.utils;
 
+import com.stashhunter.stashhunter.baritone.BaritoneBridge;
 import com.stashhunter.stashhunter.modules.NewerNewChunks;
-import com.stashhunter.stashhunter.utils.TripManager;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
@@ -25,6 +25,10 @@ public class ElytraController {
     private static boolean justCompleted = false;
     private static Vec3 currentTarget = null;
     private static long lastWaypointTime = 0;
+
+    // Set to the target most recently handed to Baritone's elytra pathing, so driveTowards()
+    // can tell "no path issued yet for this target" apart from "Baritone dropped its path".
+    private static BlockPos baritoneTargetPos = null;
 
     // Navigation state for edge following
     private static NavigationMode navigationMode = NavigationMode.NORMAL;
@@ -71,12 +75,6 @@ public class ElytraController {
         generateGridWaypoints(x1, z1, x2, z2, stripWidth);
     }
 
-    private static void generateChunkBasedWaypoints(List<ChunkPos> oldChunks) {
-        // This method is now unused - we don't want to restrict flight to only old chunks
-        // Old chunks indicate where players have been, but we want to explore systematically
-        // while avoiding new chunks dynamically
-    }
-
     private static void generateGridWaypoints(int x1, int z1, int x2, int z2, int stripWidth) {
         int minX = Math.min(x1, x2);
         int maxX = Math.max(x1, x2);
@@ -104,6 +102,8 @@ public class ElytraController {
         visitedChunks.clear();
         lastKnownGoodPosition = null;
         boundaryDirection = null;
+        baritoneTargetPos = null;
+        BaritoneBridge.cancel();
 
         ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
         if (elytraFly != null && elytraFly.isActive()) {
@@ -146,6 +146,22 @@ public class ElytraController {
         navigationMode = NavigationMode.NORMAL;
 
         initiateFlight();
+
+        // If we resumed already within precision-landing range of the current waypoint, let
+        // Baritone walk/land the player exactly on it instead of relying on the coarser elytra
+        // approach - elytra flight tends to overshoot at short range.
+        if (Config.useBaritonePathing && BaritoneBridge.isModLoaded()
+            && MeteorClient.mc.player != null && currentWaypoint < waypoints.size()) {
+            Vec3 waypoint = waypoints.get(currentWaypoint);
+            Vec3 playerPos = MeteorClient.mc.player.position();
+            double horizontalDistance = Math.sqrt(
+                Math.pow(waypoint.x - playerPos.x, 2) +
+                Math.pow(waypoint.z - playerPos.z, 2)
+            );
+            if (horizontalDistance < 20.0) {
+                BaritoneBridge.startGroundPath(BlockPos.containing(waypoint.x, waypoint.y, waypoint.z));
+            }
+        }
     }
 
     private static void initiateFlight() {
@@ -216,7 +232,7 @@ public class ElytraController {
             navigationMode = NavigationMode.NORMAL;
             Logger.log("Reached target altitude, resuming normal navigation.");
         } else {
-            controlFlight(currentTarget);
+            driveTowards(currentTarget);
         }
     }
 
@@ -248,7 +264,7 @@ public class ElytraController {
             switchToEdgeFollowing(boundaryInfo);
         } else {
             // Normal flight
-            controlFlight(target);
+            driveTowards(target);
         }
     }
 
@@ -270,7 +286,7 @@ public class ElytraController {
         if (boundaryDirection != null) {
             Vec3 edgeTarget = playerPos.add(boundaryDirection.scale(50)); // Look 50 blocks ahead along edge
             currentTarget = new Vec3(edgeTarget.x, Config.flightAltitude, edgeTarget.z);
-            controlFlight(currentTarget);
+            driveTowards(currentTarget);
 
             // Check if we can return to normal navigation
             ChunkBoundaryInfo boundaryInfo = checkForBoundaries(playerPos);
@@ -294,7 +310,7 @@ public class ElytraController {
         if (boundaryDirection != null) {
             Vec3 trailTarget = playerPos.add(boundaryDirection.scale(50));
             currentTarget = new Vec3(trailTarget.x, Config.flightAltitude, trailTarget.z);
-            controlFlight(currentTarget);
+            driveTowards(currentTarget);
 
             // Continue following the trail of new chunks
             ChunkBoundaryInfo boundaryInfo = checkForBoundaries(playerPos);
@@ -561,6 +577,42 @@ public class ElytraController {
         if (MeteorClient.mc.player != null) {
             MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§6Following new chunk boundary - potential player trail detected"));
         }
+    }
+
+    /**
+     * Movement-execution entry point: hands {@code target} to Baritone's elytra pathing when
+     * it's available and enabled, falling back to the built-in {@link #controlFlight(Vec3)}
+     * otherwise - either because Baritone isn't installed, or because it dropped the path it
+     * was given before actually reaching the target. This is purely an execution-layer choice;
+     * the caller's target-selection logic (grid/trail following etc.) is unchanged either way.
+     */
+    private static void driveTowards(Vec3 target) {
+        if (!Config.useBaritonePathing || !BaritoneBridge.isElytraPathingReady()) {
+            baritoneTargetPos = null;
+            controlFlight(target);
+            return;
+        }
+
+        BlockPos targetPos = BlockPos.containing(target.x, target.y, target.z);
+
+        if (!targetPos.equals(baritoneTargetPos)) {
+            // New target - (re)issue the path.
+            if (BaritoneBridge.startElytraPath(targetPos)) {
+                baritoneTargetPos = targetPos;
+            } else {
+                controlFlight(target);
+            }
+            return;
+        }
+
+        if (!BaritoneBridge.isPathing() && !BaritoneBridge.hasPath()) {
+            // Baritone dropped the path before we arrived - fall back to the built-in controller
+            // for this stretch. StuckDetector also watches for this and can trigger recovery.
+            controlFlight(target);
+            return;
+        }
+
+        // Baritone is actively driving movement toward targetPos - nothing to do this tick.
     }
 
     private static void controlFlight(Vec3 target) {

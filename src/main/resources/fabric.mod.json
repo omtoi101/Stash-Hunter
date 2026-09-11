@@ -31,5 +31,8 @@
     "meteor-client": "*",
     "fabric-networking-api-v1": "*",
     "fabric-api-base": "*"
+  },
+  "recommends": {
+    "baritone-meteor": "*"
   }
 }
