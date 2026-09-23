@@ -8,7 +8,7 @@ import meteordevelopment.meteorclient.systems.hud.HudElement;
 import meteordevelopment.meteorclient.systems.hud.HudElementInfo;
 import meteordevelopment.meteorclient.systems.hud.HudRenderer;
 import meteordevelopment.meteorclient.utils.render.color.Color;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.phys.Vec3;
 
 public class StashHunterHud extends HudElement {
     public static final HudElementInfo<StashHunterHud> INFO = new HudElementInfo<>(
@@ -42,9 +42,9 @@ public class StashHunterHud extends HudElement {
         String progressInfo = "";
 
         if (ElytraController.isActive()) {
-            Vec3d target = ElytraController.getCurrentTarget();
+            Vec3 target = ElytraController.getCurrentTarget();
             if (target != null) {
-                double distance = MeteorClient.mc.player.getPos().distanceTo(target);
+                double distance = MeteorClient.mc.player.position().distanceTo(target);
                 targetInfo = String.format("Target: %d, %d (%.1fm)",
                     (int)target.x, (int)target.z, distance);
                 maxWidth = Math.max(maxWidth, renderer.textWidth(targetInfo));

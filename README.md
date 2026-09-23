@@ -1,5 +1,6 @@
-# Stash-Hunter
+# StashhunterPort by _og3
 
+> Fork/port of [Stash-Hunter](https://github.com/omtoi101/Stash-Hunter) by omtoi, ported to Minecraft 26.2 and the latest Meteor Client, maintained by _og3. Licensed under the Apache License 2.0, same as upstream.
 
 A Meteor client addon for finding stashes on anarchy servers. 
 This mod is designed to automatically fly with an elytra scanning chunks for clusters of valuable blocks while avoiding all generated structures. 
@@ -11,6 +12,7 @@ The mod now features chunk trail tracking algorithms for optimal base finding an
 - **Stash Finding Module**: The core of the addon, which actively searches for and records potential stash locations.
 - **Auto Elytra Repair**: A fully automated feature that manages elytra flight and automatic repair with xp bottles, ensuring continuous and efficient exploration.
 - **Chunk Trail Following Algorithm**: A sophisticated algorithm that automatically follows trails of newly generated chunks to locate player activity and bases.
+- **Optional Baritone Pathing**: When the [Baritone](https://github.com/MeteorDevelopment/baritone) mod (26.2 branch) is also installed, Stash Hunter hands its flight/landing targets to Baritone's elytra and ground pathfinding for more precise, obstacle-aware movement execution - the built-in flight controller is used automatically as a fallback if Baritone isn't installed. Toggle with the `use-baritone-pathing` setting.
 - **Stuck Detector**: A utility to detect if the player character is stuck, which can be useful during automated exploration.
 - **Customizable Commands**:
     - `.stashhunter`: The main command to configure the Stash-Hunter module.
@@ -23,7 +25,8 @@ The mod now features chunk trail tracking algorithms for optimal base finding an
 1.  Download the latest version of Stash-Hunter from the [Releases](https://github.com/omtoi101/stash-hunter/releases) page.
 2.  Make sure you have [Meteor Client](https://meteorclient.com/) installed.
 3.  Place the downloaded `.jar` file into your `mods` folder.
-4.  Launch Minecraft with Fabric.
+4.  *(Optional)* Install the [Baritone](https://github.com/MeteorDevelopment/baritone) Fabric mod (26.2 branch) for more precise pathfinding during flight and landing. Stash Hunter works fine without it, using its built-in flight controller instead.
+5.  Launch Minecraft with Fabric.
 
 ## Usage
 
@@ -96,6 +99,7 @@ These settings control the core functionality of the stash finding process.
 | `player-detection`             | Whether to notify when another player is detected nearby.                                               | true          |
 | `notify-on-death`              | Whether to send a Discord notification if you die.                                                      | true          |
 | `notify-on-completion`         | Whether to send a Discord notification when the scanning of a defined area is complete.                 | true          |
+| `use-baritone-pathing`         | Use [Baritone](https://github.com/MeteorDevelopment/baritone) (if installed) for precise flight/ground path execution instead of the built-in flight controller. Has no effect if Baritone isn't installed. | true          |
 
 ### Stuck Detector Module
 
@@ -210,7 +214,7 @@ The `StashHunterHud` provides real-time information about the status of the Stas
 
 To build this project from source, you will need:
 
--   Java 21 or later
+-   Java 25 or later
 -   Git
 
 Follow these steps:
@@ -233,9 +237,13 @@ Follow these steps:
 
 3.  The compiled `.jar` file will be located in the `build/libs/` directory.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a history of notable changes.
+
 ## License
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for more details.
+This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for more details.
 
 ## Credits
 

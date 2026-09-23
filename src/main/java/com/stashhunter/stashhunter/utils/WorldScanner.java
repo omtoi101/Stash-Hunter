@@ -1,8 +1,8 @@
 package com.stashhunter.stashhunter.utils;
 
-import net.minecraft.block.Block;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
 
 import java.util.HashMap;
 import java.util.List;
@@ -48,8 +48,8 @@ public class WorldScanner {
     public static Map<Block, Integer> countBlocks(List<BlockPos> blockPositions) {
         Map<Block, Integer> counts = new HashMap<>();
 
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.world == null || blockPositions == null) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null || blockPositions == null) {
             return counts;
         }
 
@@ -57,7 +57,7 @@ public class WorldScanner {
             if (blockPos == null) continue;
 
             try {
-                Block block = mc.world.getBlockState(blockPos).getBlock();
+                Block block = mc.level.getBlockState(blockPos).getBlock();
                 if (block != null) {
                     counts.put(block, counts.getOrDefault(block, 0) + 1);
                 }
@@ -98,7 +98,7 @@ public class WorldScanner {
      */
     public static BlockPos calculateCenter(List<BlockPos> blocks) {
         if (blocks == null || blocks.isEmpty()) {
-            return BlockPos.ORIGIN;
+            return BlockPos.ZERO;
         }
 
         long totalX = 0, totalY = 0, totalZ = 0;
@@ -114,7 +114,7 @@ public class WorldScanner {
         }
 
         if (validBlocks == 0) {
-            return BlockPos.ORIGIN;
+            return BlockPos.ZERO;
         }
 
         return new BlockPos(
@@ -138,7 +138,7 @@ public class WorldScanner {
                 BlockPos pos1 = blocks.get(i);
                 BlockPos pos2 = blocks.get(j);
                 if (pos1 != null && pos2 != null) {
-                    double distance = Math.sqrt(pos1.getSquaredDistance(pos2));
+                    double distance = Math.sqrt(pos1.distSqr(pos2));
                     maxDistance = Math.max(maxDistance, distance);
                 }
             }
@@ -156,7 +156,7 @@ public class WorldScanner {
         }
 
         return blocks.stream()
-            .filter(pos -> pos != null && center.isWithinDistance(pos, radius))
+            .filter(pos -> pos != null && center.closerThan(pos, radius))
             .toList();
     }
 

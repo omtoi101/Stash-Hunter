@@ -10,8 +10,8 @@ import java.util.List;
 import java.util.Properties;
 
 import meteordevelopment.meteorclient.MeteorClient;
-import net.minecraft.block.Block;
-import net.minecraft.block.Blocks;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 
 public class Config {
     private static final File CONFIG_FILE = new File(MeteorClient.FOLDER, "stash-hunter.properties");
@@ -39,32 +39,26 @@ public class Config {
     public static int stuckDetectorThreshold = 3;
     public static boolean stuckDetectorAutoFix = true;
 
+    // Use Baritone (if installed) for flight/ground path execution instead of the built-in
+    // flight controller. Purely a manual override - ElytraController falls back automatically
+    // when Baritone isn't installed regardless of this setting.
+    public static boolean useBaritonePathing = true;
+
 
     // Storage containers only (for stash finding)
+    // As of 26.x, colored variants (shulker boxes, beds) are no longer individual Blocks
+    // constants - they live behind a ColorCollection<Block>, hence the .asList() spreads.
     public static List<Block> storageBlocks = new ArrayList<>(Arrays.asList(
         Blocks.CHEST,
         Blocks.TRAPPED_CHEST,
         Blocks.BARREL,
 
         // All shulker boxes
-        Blocks.SHULKER_BOX,
-        Blocks.BLACK_SHULKER_BOX,
-        Blocks.BLUE_SHULKER_BOX,
-        Blocks.BROWN_SHULKER_BOX,
-        Blocks.CYAN_SHULKER_BOX,
-        Blocks.GRAY_SHULKER_BOX,
-        Blocks.GREEN_SHULKER_BOX,
-        Blocks.LIGHT_BLUE_SHULKER_BOX,
-        Blocks.LIGHT_GRAY_SHULKER_BOX,
-        Blocks.LIME_SHULKER_BOX,
-        Blocks.MAGENTA_SHULKER_BOX,
-        Blocks.ORANGE_SHULKER_BOX,
-        Blocks.PINK_SHULKER_BOX,
-        Blocks.PURPLE_SHULKER_BOX,
-        Blocks.RED_SHULKER_BOX,
-        Blocks.WHITE_SHULKER_BOX,
-        Blocks.YELLOW_SHULKER_BOX
+        Blocks.SHULKER_BOX
     ));
+    static {
+        storageBlocks.addAll(Blocks.DYED_SHULKER_BOX.asList());
+    }
 
     // All stash-indicating blocks (for full stash detection)
     public static List<Block> stashBlocks = new ArrayList<>(Arrays.asList(
@@ -75,22 +69,6 @@ public class Config {
 
         // All shulker boxes
         Blocks.SHULKER_BOX,
-        Blocks.BLACK_SHULKER_BOX,
-        Blocks.BLUE_SHULKER_BOX,
-        Blocks.BROWN_SHULKER_BOX,
-        Blocks.CYAN_SHULKER_BOX,
-        Blocks.GRAY_SHULKER_BOX,
-        Blocks.GREEN_SHULKER_BOX,
-        Blocks.LIGHT_BLUE_SHULKER_BOX,
-        Blocks.LIGHT_GRAY_SHULKER_BOX,
-        Blocks.LIME_SHULKER_BOX,
-        Blocks.MAGENTA_SHULKER_BOX,
-        Blocks.ORANGE_SHULKER_BOX,
-        Blocks.PINK_SHULKER_BOX,
-        Blocks.PURPLE_SHULKER_BOX,
-        Blocks.RED_SHULKER_BOX,
-        Blocks.WHITE_SHULKER_BOX,
-        Blocks.YELLOW_SHULKER_BOX,
 
         // Functional blocks that indicate a stash
         Blocks.FURNACE,
@@ -103,24 +81,6 @@ public class Config {
         Blocks.DAMAGED_ANVIL,
         Blocks.CRAFTING_TABLE,
 
-        // Beds (indicate player presence)
-        Blocks.WHITE_BED,
-        Blocks.ORANGE_BED,
-        Blocks.MAGENTA_BED,
-        Blocks.LIGHT_BLUE_BED,
-        Blocks.YELLOW_BED,
-        Blocks.LIME_BED,
-        Blocks.PINK_BED,
-        Blocks.GRAY_BED,
-        Blocks.LIGHT_GRAY_BED,
-        Blocks.CYAN_BED,
-        Blocks.PURPLE_BED,
-        Blocks.BLUE_BED,
-        Blocks.BROWN_BED,
-        Blocks.GREEN_BED,
-        Blocks.RED_BED,
-        Blocks.BLACK_BED,
-
         // Valuable/rare blocks
         Blocks.BEACON,
         Blocks.CONDUIT,
@@ -130,6 +90,11 @@ public class Config {
         Blocks.DISPENSER,
         Blocks.DROPPER
     ));
+    static {
+        // Shulker boxes (indicate a stash) and beds (indicate player presence)
+        stashBlocks.addAll(Blocks.DYED_SHULKER_BOX.asList());
+        stashBlocks.addAll(Blocks.BED.asList());
+    }
 
     // Get the appropriate block list based on mode
     public static List<Block> getActiveBlockList() {
@@ -161,6 +126,8 @@ public class Config {
                 stuckDetectorWebhookUrl = properties.getProperty("stuckDetectorWebhookUrl", "");
                 stuckDetectorThreshold = getIntProperty("stuckDetectorThreshold", 3);
                 stuckDetectorAutoFix = getBoolProperty("stuckDetectorAutoFix", true);
+
+                useBaritonePathing = getBoolProperty("useBaritonePathing", true);
 
             } catch (IOException e) {
                 System.err.println("Failed to load Stash-Hunter config: " + e.getMessage());
@@ -200,6 +167,8 @@ public class Config {
                 properties.setProperty("stuckDetectorWebhookUrl", stuckDetectorWebhookUrl);
                 properties.setProperty("stuckDetectorThreshold", String.valueOf(stuckDetectorThreshold));
                 properties.setProperty("stuckDetectorAutoFix", String.valueOf(stuckDetectorAutoFix));
+
+                properties.setProperty("useBaritonePathing", String.valueOf(useBaritonePathing));
 
                 properties.store(fos, "Stash-Hunter Configuration - Auto-generated");
             }

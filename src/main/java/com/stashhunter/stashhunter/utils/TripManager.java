@@ -4,7 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import meteordevelopment.meteorclient.MeteorClient;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.phys.Vec3;
 
 import java.io.File;
 import java.io.FileReader;
@@ -18,7 +18,7 @@ import java.util.List;
 public class TripManager {
     private static final File TRIPS_FILE = new File(MeteorClient.FOLDER, "stashhunter_trips.json");
     private static final Gson GSON = new GsonBuilder()
-        .registerTypeAdapter(Vec3d.class, new Vec3dAdapter())
+        .registerTypeAdapter(Vec3.class, new Vec3dAdapter())
         .setPrettyPrinting()
         .create();
 
@@ -45,7 +45,7 @@ public class TripManager {
         return new ArrayList<>();
     }
 
-    public static void addTrip(List<Vec3d> waypoints, int currentWaypoint) {
+    public static void addTrip(List<Vec3> waypoints, int currentWaypoint) {
         List<TripData> trips = loadTrips();
         trips.add(new TripData(System.currentTimeMillis(), waypoints, currentWaypoint));
         saveTrips(trips);
@@ -66,10 +66,10 @@ public class TripManager {
 
     public static class TripData {
         public final long timestamp;
-        public final List<Vec3d> waypoints;
+        public final List<Vec3> waypoints;
         public final int currentWaypoint;
 
-        public TripData(long timestamp, List<Vec3d> waypoints, int currentWaypoint) {
+        public TripData(long timestamp, List<Vec3> waypoints, int currentWaypoint) {
             this.timestamp = timestamp;
             this.waypoints = waypoints;
             this.currentWaypoint = currentWaypoint;

@@ -1,6 +1,7 @@
 package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.baritone.BaritoneBridge;
 import com.stashhunter.stashhunter.events.PlayerDeathEvent;
 import com.stashhunter.stashhunter.events.PlayerDisconnectEvent;
 import com.stashhunter.stashhunter.utils.Config;
@@ -16,18 +17,18 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.waypoints.Waypoint;
 import meteordevelopment.meteorclient.systems.waypoints.Waypoints;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.chunk.Chunk;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.network.chat.Component;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.LevelChunk;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -220,8 +221,19 @@ public class StashHunterModule extends Module {
         .build()
     );
 
+    private final Setting<Boolean> useBaritonePathing = sgGeneral.add(new BoolSetting.Builder()
+        .name("use-baritone-pathing")
+        .description("Use Baritone (if installed) for precise flight/ground path execution instead of the built-in flight controller.")
+        .defaultValue(Config.useBaritonePathing)
+        .onChanged(v -> {
+            Config.useBaritonePathing = v;
+            Config.save();
+        })
+        .build()
+    );
+
     // State
-    private final Map<PlayerEntity, Long> reportedPlayers = new ConcurrentHashMap<>();
+    private final Map<Player, Long> reportedPlayers = new ConcurrentHashMap<>();
     private final List<BlockPos> reportedStashes = new ArrayList<>();
     private int tickCounter = 0;
     private int lastHealthCheck = -1; // Track health for death detection
@@ -239,6 +251,11 @@ public class StashHunterModule extends Module {
         reportedPlayers.clear();
         reportedStashes.clear();
         lastHealthCheck = -1; // Reset health tracking
+
+        if (useBaritonePathing.get() && !BaritoneBridge.isModLoaded()) {
+            info("Baritone is not installed - falling back to the built-in flight controller. " +
+                "Install the Baritone Fabric mod (26.2) for precise pathfinding.");
+        }
     }
 
     @Override
@@ -276,15 +293,15 @@ public class StashHunterModule extends Module {
             ElytraController.climbToAltitude();
         }
 
-        if (mc.player == null || mc.world == null) {
+        if (mc.player == null || mc.level == null) {
             return;
         }
 
 // Enhanced Elytra check with repair integration
 if (ElytraController.isActive()) {
-    ItemStack chestSlot = mc.player.getEquippedStack(EquipmentSlot.CHEST);
+    ItemStack chestSlot = mc.player.getItemBySlot(EquipmentSlot.CHEST);
     boolean elytraMissing = chestSlot.isEmpty() ||
-        (chestSlot.getItem() == Items.ELYTRA && chestSlot.isDamaged() && chestSlot.getDamage() >= chestSlot.getMaxDamage() - 1);
+        (chestSlot.getItem() == Items.ELYTRA && chestSlot.isDamaged() && chestSlot.getDamageValue() >= chestSlot.getMaxDamage() - 1);
 
     // Check if auto repair is handling the situation
     if (autoElytraRepair != null && autoElytraRepair.isActive() && autoElytraRepair.isRepairing()) {
@@ -309,8 +326,8 @@ if (ElytraController.isActive()) {
             DiscordWebhook.sendMessage("@everyone", embed);
 
             // Disconnect from server
-            if (mc.getNetworkHandler() != null) {
-                mc.getNetworkHandler().getConnection().disconnect(Text.of("Ran out of elytras or all elytras broken."));
+            if (mc.getConnection() != null) {
+                mc.getConnection().getConnection().disconnect(Component.literal("Ran out of elytras or all elytras broken."));
             }
 
             // Stop elytra controller
@@ -332,9 +349,9 @@ if (ElytraController.isActive()) {
         // Handle re-engagement
         if (reEngagingElytraTicks > 0) {
             reEngagingElytraTicks--;
-            mc.options.jumpKey.setPressed(true);
+            mc.options.keyJump.setDown(true);
         } else {
-            mc.options.jumpKey.setPressed(false);
+            mc.options.keyJump.setDown(false);
         }
 
         // Death detection - check if player health dropped to 0 or respawned
@@ -345,7 +362,7 @@ if (ElytraController.isActive()) {
             if (lastHealthCheck > 0 && currentHealth <= 0) {
                 DiscordEmbed embed = new DiscordEmbed(
                     "Bot Died!",
-                    "Death location: " + mc.player.getBlockPos().toShortString() +
+                    "Death location: " + mc.player.blockPosition().toShortString() +
                     "\nLast health: " + lastHealthCheck + " → 0",
                     0xFF0000
                 );
@@ -357,7 +374,7 @@ if (ElytraController.isActive()) {
             if (lastHealthCheck <= 0 && currentHealth > 0) {
                 DiscordEmbed embed = new DiscordEmbed(
                     "Bot Respawned",
-                    "Respawn location: " + mc.player.getBlockPos().toShortString() +
+                    "Respawn location: " + mc.player.blockPosition().toShortString() +
                     "\nHealth restored: " + currentHealth,
                     0x00FF00
                 );
@@ -375,7 +392,7 @@ if (ElytraController.isActive()) {
 
         // Player detection logic
         if (playerDetection.get()) {
-            for (PlayerEntity player : mc.world.getPlayers()) {
+            for (Player player : mc.level.players()) {
                 if (player == null || player.equals(mc.player)) {
                     continue;
                 }
@@ -387,7 +404,7 @@ if (ElytraController.isActive()) {
                         DiscordEmbed embed = new DiscordEmbed(
                             "Player Detected!",
                             "Player: " + player.getName().getString() +
-                            "\nCoordinates: " + player.getBlockPos().toShortString() +
+                            "\nCoordinates: " + player.blockPosition().toShortString() +
                             "\nDistance: " + String.format("%.1f", mc.player.distanceTo(player)) + " blocks",
                             0xFFFF00
                         );
@@ -415,7 +432,7 @@ if (ElytraController.isActive()) {
                 "Scanning Completed!",
                 "Stash hunter has finished scanning the designated area.\n" +
                 "Total waypoints completed: " + ElytraController.getTotalWaypoints() +
-                "\nFinal location: " + (mc.player != null ? mc.player.getBlockPos().toShortString() : "Unknown"),
+                "\nFinal location: " + (mc.player != null ? mc.player.blockPosition().toShortString() : "Unknown"),
                 0x0099FF
             );
             DiscordWebhook.sendMessage("@everyone", embed);
@@ -424,19 +441,19 @@ if (ElytraController.isActive()) {
     }
 
     private void scanForBlocks() {
-        if (mc.player == null || mc.world == null) return;
+        if (mc.player == null || mc.level == null) return;
 
         List<BlockPos> valuableBlocksInRange = new ArrayList<>();
-        BlockPos playerPos = mc.player.getBlockPos();
+        BlockPos playerPos = mc.player.blockPosition();
 
         // Get chunks within scan radius
         int chunkRadius = (scanRadius.get() / 16) + 1;
-        ChunkPos playerChunk = new ChunkPos(playerPos);
+        ChunkPos playerChunk = new ChunkPos(playerPos.getX() >> 4, playerPos.getZ() >> 4);
 
         for (int x = -chunkRadius; x <= chunkRadius; x++) {
             for (int z = -chunkRadius; z <= chunkRadius; z++) {
-                ChunkPos chunkPos = new ChunkPos(playerChunk.x + x, playerChunk.z + z);
-                Chunk chunk = mc.world.getChunk(chunkPos.x, chunkPos.z);
+                ChunkPos chunkPos = new ChunkPos(playerChunk.x() + x, playerChunk.z() + z);
+                LevelChunk chunk = mc.level.getChunk(chunkPos.x(), chunkPos.z());
 
                 if (chunk != null) {
                     scanChunk(chunk, playerPos, valuableBlocksInRange);
@@ -476,7 +493,7 @@ if (ElytraController.isActive()) {
 
                 for (BlockPos unprocessedBlock : unprocessed) {
                     for (BlockPos clusterBlock : cluster) {
-                        if (unprocessedBlock.isWithinDistance(clusterBlock, maxDistance)) {
+                        if (unprocessedBlock.closerThan(clusterBlock, maxDistance)) {
                             cluster.add(unprocessedBlock);
                             toRemove.add(unprocessedBlock);
                             foundNew = true;
@@ -499,7 +516,7 @@ if (ElytraController.isActive()) {
 
         // Check if we've already reported a base near this location
         boolean alreadyReported = reportedStashes.stream()
-            .anyMatch(reportedStash -> reportedStash.isWithinDistance(stashPos, 100));
+            .anyMatch(reportedStash -> reportedStash.closerThan(stashPos, 100));
 
         if (alreadyReported) {
             return;
@@ -562,7 +579,7 @@ if (ElytraController.isActive()) {
         Map<Block, Integer> counts = new HashMap<>();
         for (BlockPos pos : blocks) {
             try {
-                Block block = mc.world.getBlockState(pos).getBlock();
+                Block block = mc.level.getBlockState(pos).getBlock();
                 counts.put(block, counts.getOrDefault(block, 0) + 1);
             } catch (Exception e) {
                 // Ignore errors when accessing block states
@@ -579,35 +596,20 @@ if (ElytraController.isActive()) {
     }
 
     private boolean isShulkerBox(Block block) {
-        return block == Blocks.SHULKER_BOX ||
-               block == Blocks.BLACK_SHULKER_BOX ||
-               block == Blocks.BLUE_SHULKER_BOX ||
-               block == Blocks.BROWN_SHULKER_BOX ||
-               block == Blocks.CYAN_SHULKER_BOX ||
-               block == Blocks.GRAY_SHULKER_BOX ||
-               block == Blocks.GREEN_SHULKER_BOX ||
-               block == Blocks.LIGHT_BLUE_SHULKER_BOX ||
-               block == Blocks.LIGHT_GRAY_SHULKER_BOX ||
-               block == Blocks.LIME_SHULKER_BOX ||
-               block == Blocks.MAGENTA_SHULKER_BOX ||
-               block == Blocks.ORANGE_SHULKER_BOX ||
-               block == Blocks.PINK_SHULKER_BOX ||
-               block == Blocks.PURPLE_SHULKER_BOX ||
-               block == Blocks.RED_SHULKER_BOX ||
-               block == Blocks.WHITE_SHULKER_BOX ||
-               block == Blocks.YELLOW_SHULKER_BOX;
+        // Colored shulker boxes moved behind a ColorCollection<Block> as of 26.x.
+        return block == Blocks.SHULKER_BOX || Blocks.DYED_SHULKER_BOX.asList().contains(block);
     }
 
-    private void scanChunk(Chunk chunk, BlockPos playerPos, List<BlockPos> valuableBlocks) {
+    private void scanChunk(LevelChunk chunk, BlockPos playerPos, List<BlockPos> valuableBlocks) {
         List<Block> activeBlocks = Config.getActiveBlockList();
 
         // Scan through all block entities in the chunk first (most efficient)
-        chunk.getBlockEntityPositions().forEach(pos -> {
-            if (pos.isWithinDistance(playerPos, scanRadius.get())) {
+        chunk.getBlockEntitiesPos().forEach(pos -> {
+            if (pos.closerThan(playerPos, scanRadius.get())) {
                 try {
-                    BlockState blockState = mc.world.getBlockState(pos);
+                    BlockState blockState = mc.level.getBlockState(pos);
                     if (activeBlocks.contains(blockState.getBlock())) {
-                        valuableBlocks.add(pos.toImmutable());
+                        valuableBlocks.add(pos.immutable());
                     }
                 } catch (Exception e) {
                     // Ignore errors when accessing block states
@@ -619,23 +621,23 @@ if (ElytraController.isActive()) {
         if (!storageOnlyMode.get()) {
             int limitedScanRadius = Math.min(scanRadius.get(), 32); // Much smaller radius for full scanning
 
-            for (int x = chunk.getPos().getStartX(); x <= chunk.getPos().getEndX(); x += 2) { // Skip every other block
-                for (int z = chunk.getPos().getStartZ(); z <= chunk.getPos().getEndZ(); z += 2) {
+            for (int x = chunk.getPos().getMinBlockX(); x <= chunk.getPos().getMaxBlockX(); x += 2) { // Skip every other block
+                for (int z = chunk.getPos().getMinBlockZ(); z <= chunk.getPos().getMaxBlockZ(); z += 2) {
                     if (Math.sqrt(Math.pow(x - playerPos.getX(), 2) + Math.pow(z - playerPos.getZ(), 2)) > limitedScanRadius) {
                         continue;
                     }
 
                     // Scan only common stash building heights
-                    int minY = Math.max(mc.world.getBottomY(), -64);
-                    int maxY = Math.min(mc.world.getHeight(), 80); // Focus on common stash heights
+                    int minY = Math.max(mc.level.getMinY(), -64);
+                    int maxY = Math.min(mc.level.getHeight(), 80); // Focus on common stash heights
 
                     for (int y = minY; y < maxY; y += 2) { // Skip every other Y level for performance
                         BlockPos pos = new BlockPos(x, y, z);
-                        if (pos.isWithinDistance(playerPos, limitedScanRadius)) {
+                        if (pos.closerThan(playerPos, limitedScanRadius)) {
                             try {
-                                BlockState blockState = mc.world.getBlockState(pos);
+                                BlockState blockState = mc.level.getBlockState(pos);
                                 if (activeBlocks.contains(blockState.getBlock())) {
-                                    valuableBlocks.add(pos.toImmutable());
+                                    valuableBlocks.add(pos.immutable());
                                 }
                             } catch (Exception e) {
                                 // Ignore errors when accessing block states
@@ -648,7 +650,7 @@ if (ElytraController.isActive()) {
     }
 
     private BlockPos calculateStashCenter(List<BlockPos> blocks) {
-        if (blocks.isEmpty()) return mc.player.getBlockPos();
+        if (blocks.isEmpty()) return mc.player.blockPosition();
 
         int totalX = 0, totalY = 0, totalZ = 0;
         for (BlockPos pos : blocks) {

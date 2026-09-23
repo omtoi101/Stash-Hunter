@@ -9,7 +9,7 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import meteordevelopment.meteorclient.commands.Command;
 import meteordevelopment.meteorclient.MeteorClient;
-import net.minecraft.command.CommandSource;
+import net.minecraft.client.multiplayer.ClientSuggestionProvider;
 
 import static com.mojang.brigadier.Command.SINGLE_SUCCESS;
 
@@ -19,7 +19,7 @@ public class StashHunterCommand extends Command {
     }
 
     @Override
-    public void build(LiteralArgumentBuilder<CommandSource> builder) {
+    public void build(LiteralArgumentBuilder<ClientSuggestionProvider> builder) {
         // Start scanning with coordinates and optional strip width using a greedy string
         builder.then(literal("start")
             .then(argument("args", StringArgumentType.greedyString())
@@ -185,9 +185,9 @@ public class StashHunterCommand extends Command {
 
                 // Show current elytra status
                 if (MeteorClient.mc.player != null) {
-                    net.minecraft.item.ItemStack chestSlot = MeteorClient.mc.player.getEquippedStack(net.minecraft.entity.EquipmentSlot.CHEST);
-                    if (chestSlot.getItem() == net.minecraft.item.Items.ELYTRA) {
-                        int durability = chestSlot.getMaxDamage() - chestSlot.getDamage();
+                    net.minecraft.world.item.ItemStack chestSlot = MeteorClient.mc.player.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST);
+                    if (chestSlot.getItem() == net.minecraft.world.item.Items.ELYTRA) {
+                        int durability = chestSlot.getMaxDamage() - chestSlot.getDamageValue();
                         int maxDurability = chestSlot.getMaxDamage();
                         info("Current Elytra: " + durability + "/" + maxDurability + " durability");
                     } else {

@@ -1,7 +1,7 @@
 package com.stashhunter.stashhunter.utils;
 
 import meteordevelopment.meteorclient.MeteorClient;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
 
 public class Utils {
     public static boolean isPlayerAt(BlockPos pos, int tolerance) {
