@@ -1,6 +1,6 @@
-# StashhunterPort by _og3
+# Stashhunter by omtoi & _og3
 
-> Fork/port of [Stash-Hunter](https://github.com/omtoi101/Stash-Hunter) by omtoi, ported to Minecraft 26.2 and the latest Meteor Client, maintained by _og3. Licensed under the Apache License 2.0, same as upstream.
+Ported to Minecraft 26.2 and the latest Meteor Client, maintained by _og3. Licensed under the Apache License 2.0, same as upstream.
 
 A Meteor client addon for finding stashes on anarchy servers. 
 This mod is designed to automatically fly with an elytra scanning chunks for clusters of valuable blocks while avoiding all generated structures. 
