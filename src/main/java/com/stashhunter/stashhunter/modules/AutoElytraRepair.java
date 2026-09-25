@@ -2,6 +2,8 @@ package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
 import com.stashhunter.stashhunter.utils.Config;
+import com.stashhunter.stashhunter.utils.DiscordEmbed;
+import com.stashhunter.stashhunter.utils.DiscordWebhook;
 import com.stashhunter.stashhunter.utils.KeyHold;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import meteordevelopment.meteorclient.events.world.TickEvent;
@@ -424,6 +426,7 @@ public class AutoElytraRepair extends Module {
             return;
         }
 
+        notifyDiscord("Elytra Repair Finished", "Repair sequence complete. Resuming flight.", 0x00FF00);
         if (reachedAltitude) info("Cruise altitude reached. Repair sequence complete.");
         else warning("Climb to Y=" + Config.flightAltitude + " timeout reached (10s). Continuing.");
 
@@ -442,6 +445,7 @@ public class AutoElytraRepair extends Module {
     private void handleEmergencyDisconnect() {
         resumeNormalOperation();
         error("Emergency disconnect initiated...");
+        notifyDiscord("Elytra Repair Failed", "Emergency disconnect: elytra repair failed.", 0xFF0000);
         if (ElytraController.isActive()) ElytraController.pause();
         if (mc.getConnection() != null) {
             mc.getConnection().getConnection().disconnect(net.minecraft.network.chat.Component.literal("Emergency disconnect: Elytra repair failed"));
@@ -452,6 +456,7 @@ public class AutoElytraRepair extends Module {
     private void initiateRepairSequence() {
         currentState = RepairState.STOPPING_AUTOPILOT;
         info("Elytra durability low. Stopping autopilot for repair sequence.");
+        notifyDiscord("Elytra Repair Started", "Elytra durability low at " + mc.player.blockPosition().toShortString() + ". Starting repair sequence.", 0xFFAA00);
     }
 
     private void resetRepairState() {
@@ -518,6 +523,10 @@ public class AutoElytraRepair extends Module {
     private boolean needsRepair(ItemStack elytra) {
         if (elytra.getItem() != Items.ELYTRA) return false;
         return (elytra.getMaxDamage() - elytra.getDamageValue()) <= repairThreshold.get();
+    }
+
+    private void notifyDiscord(String title, String description, int color) {
+        if (notifyRepairs.get()) DiscordWebhook.sendMessage("", new DiscordEmbed(title, description, color));
     }
 
     private void debugLog(String message) {

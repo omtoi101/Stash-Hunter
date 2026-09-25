@@ -37,6 +37,7 @@ public class StashHunterModule extends Module {
     // Settings
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
 
+    @SuppressWarnings("unused") // value is read via Config.discordWebhookUrl
     private final Setting<String> discordWebhookUrl = sgGeneral.add(new StringSetting.Builder()
         .name("discord-webhook-url")
         .description("The Discord webhook URL to send notifications to.")
@@ -148,6 +149,7 @@ public class StashHunterModule extends Module {
         .build()
     );
 
+    @SuppressWarnings("unused") // value is read via Config.flightAltitude
     private final Setting<Integer> flightAltitude = sgGeneral.add(new IntSetting.Builder()
         .name("flight-altitude")
         .description("The altitude to fly at.")
@@ -460,7 +462,7 @@ public class StashHunterModule extends Module {
 
         if (valuableBlocksInRange.size() >= blockDetectionThreshold.get()) {
             // Group blocks into clusters to separate actual stashes from natural structures
-            List<List<BlockPos>> clusters = clusterBlocks(valuableBlocksInRange, Config.maxClusterDistance);
+            List<List<BlockPos>> clusters = clusterBlocks(valuableBlocksInRange, maxClusterDistance.get());
 
             for (List<BlockPos> cluster : clusters) {
                 if (cluster.size() >= blockDetectionThreshold.get()) {
@@ -540,12 +542,12 @@ public class StashHunterModule extends Module {
         }
 
         // Volume check - natural structures tend to be very large
-        if (volume > Config.maxVolumeThreshold) {
+        if (volume > maxVolumeThreshold.get()) {
             return true;
         }
 
         // Density check - natural structures have very low density
-        if (density < Config.minDensityThreshold) {
+        if (density < minDensityThreshold.get()) {
             return true;
         }
 
@@ -656,7 +658,7 @@ public class StashHunterModule extends Module {
         info(logMessage);
 
         // Only send Discord notification if density meets threshold
-        if (density >= Config.notificationDensityThreshold) {
+        if (density >= notificationDensityThreshold.get()) {
             String description = String.format(
                 "Coordinates: %s%s\n" +
                 "Found %d valuable blocks\n" +
@@ -682,7 +684,7 @@ public class StashHunterModule extends Module {
         } else {
             // Log that we skipped notification due to low density
             info("Skipped Discord notification for low density stash (density: " + String.format("%.6f", density) +
-                 ", threshold: " + String.format("%.6f", Config.notificationDensityThreshold) + ")");
+                 ", threshold: " + String.format("%.6f", notificationDensityThreshold.get()) + ")");
         }
     }
 
