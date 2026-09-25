@@ -1,14 +1,12 @@
 package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
-import com.stashhunter.stashhunter.events.PlayerDeathEvent;
 import com.stashhunter.stashhunter.events.PlayerDisconnectEvent;
 import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.DiscordEmbed;
 import com.stashhunter.stashhunter.utils.DiscordWebhook;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.WorldScanner;
-import com.stashhunter.stashhunter.modules.AutoElytraRepair;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.settings.*;
@@ -19,7 +17,6 @@ import meteordevelopment.orbit.EventHandler;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.client.KeyMapping;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -33,6 +30,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class StashHunterModule extends Module {
@@ -221,14 +219,14 @@ public class StashHunterModule extends Module {
     );
 
     // State
-    private final Map<Player, Long> reportedPlayers = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> reportedPlayers = new ConcurrentHashMap<>();
     private final List<BlockPos> reportedStashes = new ArrayList<>();
     private int tickCounter = 0;
-    private int lastHealthCheck = -1; // Track health for death detection
+    private float lastHealth = -1; // Track health for death detection, -1 = not sampled yet
     private int elytraBrokenTicks = 0;
     private int reEngagingElytraTicks = 0;
     private boolean wasElytraBroken = false;
-    private final AutoElytraRepair autoElytraRepair = Modules.get().get(AutoElytraRepair.class);
+    private boolean holdingJump = false;
 
     public StashHunterModule() {
         super(StashHunter.CATEGORY, "stash-hunter", "Automatically finds stashes by flying around and scanning for valuable blocks.");
@@ -238,12 +236,25 @@ public class StashHunterModule extends Module {
     public void onActivate() {
         reportedPlayers.clear();
         reportedStashes.clear();
-        lastHealthCheck = -1; // Reset health tracking
+        lastHealth = -1; // Reset health tracking
     }
 
     @Override
     public void onDeactivate() {
         ElytraController.stop();
+        setHoldingJump(false);
+    }
+
+    // Looked up lazily: this module is registered before AutoElytraRepair, so it isn't available at construction time.
+    private AutoElytraRepair autoElytraRepair() {
+        return Modules.get().get(AutoElytraRepair.class);
+    }
+
+    // Only release the jump key if we pressed it, so the player (and other modules) can still use it.
+    private void setHoldingJump(boolean hold) {
+        if (hold == holdingJump) return;
+        holdingJump = hold;
+        mc.options.keyJump.setDown(hold);
     }
 
     public void clearReportedStashes() {
@@ -272,6 +283,7 @@ public class StashHunterModule extends Module {
         tickCounter++;
         ElytraController.onTick();
 
+        AutoElytraRepair autoElytraRepair = autoElytraRepair();
         if (autoElytraRepair != null && autoElytraRepair.justFinishedRepair()) {
             ElytraController.climbToAltitude();
         }
@@ -280,61 +292,61 @@ public class StashHunterModule extends Module {
             return;
         }
 
-// Enhanced Elytra check with repair integration
-if (ElytraController.isActive()) {
-    ItemStack chestSlot = mc.player.getItemBySlot(EquipmentSlot.CHEST);
-    boolean elytraMissing = chestSlot.isEmpty() ||
-        (chestSlot.getItem() == Items.ELYTRA && chestSlot.isDamaged() && chestSlot.getDamageValue() >= chestSlot.getMaxDamage() - 1);
+        // Enhanced Elytra check with repair integration
+        if (ElytraController.isActive()) {
+            ItemStack chestSlot = mc.player.getItemBySlot(EquipmentSlot.CHEST);
+            boolean elytraMissing = chestSlot.isEmpty() ||
+                (chestSlot.getItem() == Items.ELYTRA && chestSlot.isDamaged() && chestSlot.getDamageValue() >= chestSlot.getMaxDamage() - 1);
 
-    // Check if auto repair is handling the situation
-    if (autoElytraRepair != null && autoElytraRepair.isActive() && autoElytraRepair.isRepairing()) {
-        // Auto repair is active, let it handle elytra management
-        return; // Skip normal elytra checks
-    }
-
-    if (elytraMissing) {
-        wasElytraBroken = true;
-        elytraBrokenTicks++;
-
-        // Give auto repair system time to activate before panicking
-        int timeoutTicks = autoElytraRepair != null && autoElytraRepair.isActive() ? 200 : 40;
-
-        if (elytraBrokenTicks > timeoutTicks) {
-            // Send Discord notification
-            DiscordEmbed embed = new DiscordEmbed(
-                "Out of Elytras!",
-                "The bot has run out of elytras or all elytras are broken beyond repair, and will now disconnect.",
-                0xFF0000
-            );
-            DiscordWebhook.sendMessage("@everyone", embed);
-
-            // Disconnect from server
-            if (mc.getConnection() != null) {
-                mc.getConnection().getConnection().disconnect(Component.literal("Ran out of elytras or all elytras broken."));
+            // Check if auto repair is handling the situation
+            if (autoElytraRepair != null && autoElytraRepair.isActive() && autoElytraRepair.isRepairing()) {
+                // Auto repair is active, let it handle elytra management
+                return; // Skip normal elytra checks
             }
 
-            // Stop elytra controller
-            ElytraController.stop();
+            if (elytraMissing) {
+                wasElytraBroken = true;
+                elytraBrokenTicks++;
 
-            // Deactivate the module
-            toggle();
-            return;
+                // Give auto repair system time to activate before panicking
+                int timeoutTicks = autoElytraRepair != null && autoElytraRepair.isActive() ? 200 : 40;
+
+                if (elytraBrokenTicks > timeoutTicks) {
+                    // Send Discord notification
+                    DiscordEmbed embed = new DiscordEmbed(
+                        "Out of Elytras!",
+                        "The bot has run out of elytras or all elytras are broken beyond repair, and will now disconnect.",
+                        0xFF0000
+                    );
+                    DiscordWebhook.sendMessage("@everyone", embed);
+
+                    // Disconnect from server
+                    if (mc.getConnection() != null) {
+                        mc.getConnection().getConnection().disconnect(Component.literal("Ran out of elytras or all elytras broken."));
+                    }
+
+                    // Stop elytra controller
+                    ElytraController.stop();
+
+                    // Deactivate the module
+                    toggle();
+                    return;
+                }
+            } else {
+                elytraBrokenTicks = 0;
+                if (wasElytraBroken) {
+                    wasElytraBroken = false;
+                    reEngagingElytraTicks = 100; // 5 seconds
+                }
+            }
         }
-    } else {
-        elytraBrokenTicks = 0;
-        if (wasElytraBroken) {
-            wasElytraBroken = false;
-            reEngagingElytraTicks = 100; // 5 seconds
-        }
-    }
-}
 
         // Handle re-engagement
         if (reEngagingElytraTicks > 0) {
             reEngagingElytraTicks--;
-            mc.options.keyJump.setDown(true);
+            setHoldingJump(true);
         } else {
-            mc.options.keyJump.setDown(false);
+            setHoldingJump(false);
         }
 
         // Death detection - check if player health dropped to 0 or respawned
@@ -342,19 +354,19 @@ if (ElytraController.isActive()) {
             float currentHealth = mc.player.getHealth();
 
             // If health went from positive to 0, player died
-            if (lastHealthCheck > 0 && currentHealth <= 0) {
+            if (lastHealth > 0 && currentHealth <= 0) {
                 DiscordEmbed embed = new DiscordEmbed(
                     "Bot Died!",
                     "Death location: " + mc.player.blockPosition().toShortString() +
-                    "\nLast health: " + lastHealthCheck + " → 0",
+                    "\nLast health: " + String.format("%.1f", lastHealth) + " → 0",
                     0xFF0000
                 );
                 DiscordWebhook.sendMessage("@everyone", embed);
                 info("Death detected and notified to Discord");
             }
 
-            // If we were at 0 health and now have health, we respawned
-            if (lastHealthCheck <= 0 && currentHealth > 0) {
+            // If we were dead (health 0, not the unsampled -1) and now have health, we respawned
+            if (lastHealth == 0 && currentHealth > 0) {
                 DiscordEmbed embed = new DiscordEmbed(
                     "Bot Respawned",
                     "Respawn location: " + mc.player.blockPosition().toShortString() +
@@ -365,7 +377,7 @@ if (ElytraController.isActive()) {
                 info("Respawn detected and notified to Discord");
             }
 
-            lastHealthCheck = (int)currentHealth;
+            lastHealth = currentHealth;
         }
 
         // Scan for blocks every scanInterval ticks
@@ -381,8 +393,10 @@ if (ElytraController.isActive()) {
                 }
 
                 if (mc.player.distanceTo(player) < 100) {
-                    if (!reportedPlayers.containsKey(player) ||
-                        System.currentTimeMillis() - reportedPlayers.get(player) > 300000) { // 5 minute cooldown
+                    // Keyed by UUID: the entity object is recreated whenever a player re-enters render distance
+                    UUID playerId = player.getUUID();
+                    if (!reportedPlayers.containsKey(playerId) ||
+                        System.currentTimeMillis() - reportedPlayers.get(playerId) > 300000) { // 5 minute cooldown
 
                         DiscordEmbed embed = new DiscordEmbed(
                             "Player Detected!",
@@ -392,7 +406,7 @@ if (ElytraController.isActive()) {
                             0xFFFF00
                         );
                         DiscordWebhook.sendMessage("", embed);
-                        reportedPlayers.put(player, System.currentTimeMillis());
+                        reportedPlayers.put(playerId, System.currentTimeMillis());
                     }
                 }
             }
@@ -495,7 +509,7 @@ if (ElytraController.isActive()) {
     }
 
     private void processCluster(List<BlockPos> cluster) {
-        BlockPos stashPos = calculateStashCenter(cluster);
+        BlockPos stashPos = WorldScanner.calculateCenter(cluster);
 
         // Check if we've already reported a base near this location
         boolean alreadyReported = reportedStashes.stream()
@@ -571,18 +585,6 @@ if (ElytraController.isActive()) {
         return counts;
     }
 
-    private int getTotalShulkerCount(Map<Block, Integer> blockCounts) {
-        return blockCounts.entrySet().stream()
-            .filter(entry -> isShulkerBox(entry.getKey()))
-            .mapToInt(Map.Entry::getValue)
-            .sum();
-    }
-
-    private boolean isShulkerBox(Block block) {
-        // Colored shulker boxes moved behind a ColorCollection<Block> as of 26.x.
-        return block == Blocks.SHULKER_BOX || Blocks.DYED_SHULKER_BOX.asList().contains(block);
-    }
-
     private void scanChunk(LevelChunk chunk, BlockPos playerPos, List<BlockPos> valuableBlocks) {
         List<Block> activeBlocks = Config.getActiveBlockList();
 
@@ -630,23 +632,6 @@ if (ElytraController.isActive()) {
                 }
             }
         }
-    }
-
-    private BlockPos calculateStashCenter(List<BlockPos> blocks) {
-        if (blocks.isEmpty()) return mc.player.blockPosition();
-
-        int totalX = 0, totalY = 0, totalZ = 0;
-        for (BlockPos pos : blocks) {
-            totalX += pos.getX();
-            totalY += pos.getY();
-            totalZ += pos.getZ();
-        }
-
-        return new BlockPos(
-            totalX / blocks.size(),
-            totalY / blocks.size(),
-            totalZ / blocks.size()
-        );
     }
 
     private void reportStash(BlockPos stashPos, List<BlockPos> valuableBlocks, double volume, double density) {

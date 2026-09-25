@@ -1,13 +1,11 @@
 package com.stashhunter.stashhunter.utils;
 
 import com.stashhunter.stashhunter.modules.NewerNewChunks;
-import com.stashhunter.stashhunter.utils.TripManager;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.Items;
-import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 
@@ -24,7 +22,6 @@ public class ElytraController {
     private static boolean active = false;
     private static boolean justCompleted = false;
     private static Vec3 currentTarget = null;
-    private static long lastWaypointTime = 0;
 
     // Navigation state for edge following
     private static NavigationMode navigationMode = NavigationMode.NORMAL;
@@ -36,8 +33,6 @@ public class ElytraController {
     private static Vec3 boundaryDirection = null;
 
     // Trail analysis state
-    private static List<ChunkPos> recentNewChunks = new ArrayList<>();
-    private static TrailInfo currentTrail = null;
     private static final int TRAIL_ANALYSIS_RADIUS = 5; // chunks to analyze around player
     private static final double MIN_TRAIL_CONFIDENCE = 0.6; // minimum confidence to follow a trail
 
@@ -53,7 +48,6 @@ public class ElytraController {
         currentWaypoint = 0;
         active = true;
         justCompleted = false;
-        lastWaypointTime = System.currentTimeMillis();
         navigationMode = NavigationMode.NORMAL;
         visitedChunks.clear();
         lastKnownGoodPosition = null;
@@ -69,12 +63,6 @@ public class ElytraController {
         // Always generate grid-based waypoints for systematic exploration
         // The bot will dynamically avoid new chunks during flight
         generateGridWaypoints(x1, z1, x2, z2, stripWidth);
-    }
-
-    private static void generateChunkBasedWaypoints(List<ChunkPos> oldChunks) {
-        // This method is now unused - we don't want to restrict flight to only old chunks
-        // Old chunks indicate where players have been, but we want to explore systematically
-        // while avoiding new chunks dynamically
     }
 
     private static void generateGridWaypoints(int x1, int z1, int x2, int z2, int stripWidth) {
@@ -142,7 +130,6 @@ public class ElytraController {
         currentWaypoint = tripData.currentWaypoint;
         active = true;
         justCompleted = false;
-        lastWaypointTime = System.currentTimeMillis();
         navigationMode = NavigationMode.NORMAL;
 
         initiateFlight();
@@ -233,7 +220,10 @@ public class ElytraController {
         );
 
         if (horizontalDistance < 20.0) {
-            flyToNextWaypoint();
+            currentWaypoint++;
+            if (currentWaypoint < waypoints.size()) {
+                flyToNextWaypoint();
+            }
             return;
         }
 
@@ -623,14 +613,11 @@ public class ElytraController {
 
         Vec3 waypoint = waypoints.get(currentWaypoint);
         currentTarget = waypoint;
-        lastWaypointTime = System.currentTimeMillis();
 
         if (MeteorClient.mc.player != null) {
             MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§bFlying to waypoint " + (currentWaypoint + 1) + "/" + waypoints.size() +
                 ": " + (int)waypoint.x + ", " + (int)waypoint.z));
         }
-
-        currentWaypoint++;
     }
 
     public static boolean isActive() {
@@ -661,7 +648,7 @@ public class ElytraController {
         String modeStr = switch (navigationMode) {
             case EDGE_FOLLOWING -> "Edge Following";
             case TRAIL_FOLLOWING -> "Trail Following";
-            default -> "Flying to waypoint " + currentWaypoint + "/" + waypoints.size();
+            default -> "Flying to waypoint " + (currentWaypoint + 1) + "/" + waypoints.size();
         };
 
         return modeStr;

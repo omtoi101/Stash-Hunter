@@ -11,8 +11,6 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.client.KeyMapping;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.Vec3;
 
 public class StuckDetector extends Module {
@@ -58,6 +56,18 @@ public class StuckDetector extends Module {
     private boolean fixInProgress = false;
     private int fixCooldown = 0;
 
+    // Auto-fix runs as a small tick-driven state machine so all game state is touched on the client thread.
+    private FixStage fixStage = FixStage.NONE;
+    private int fixTicks = 0;
+    private Vec3 positionWhenStuck;
+
+    private enum FixStage {
+        NONE,
+        REENABLE_ELYTRA_FLY,
+        CHECK_RECOVERY,
+        HOLDING_JUMP
+    }
+
     public StuckDetector() {
         super(StashHunter.CATEGORY, "stuck-detector", "Detects when you are stuck in an elytra rubber-band loop and tries to fix it.");
     }
@@ -68,6 +78,7 @@ public class StuckDetector extends Module {
         stationaryTicks = 0;
         fixInProgress = false;
         fixCooldown = 0;
+        fixStage = FixStage.NONE;
     }
 
     @EventHandler
@@ -76,12 +87,13 @@ public class StuckDetector extends Module {
             return;
         }
 
-        if (fixCooldown > 0) {
-            fixCooldown--;
+        if (fixInProgress) {
+            tickFix();
             return;
         }
 
-        if (fixInProgress) {
+        if (fixCooldown > 0) {
+            fixCooldown--;
             return;
         }
 
@@ -120,53 +132,62 @@ public class StuckDetector extends Module {
                 (autoFix.get() ? "Attempting to fix automatically." : "Manual intervention may be required."),
                 0xFF0000
             );
-            new Thread(() -> DiscordWebhook.sendMessage("", embed)).start();
+            DiscordWebhook.sendMessage(discordWebhookUrl.get(), "", embed);
         }
 
-        if (autoFix.get()) {
-            fixInProgress = true;
-            final Vec3 positionWhenStuck = mc.player.position(); // Capture position for later check
+        if (!autoFix.get()) return;
 
-            new Thread(() -> {
-                try {
-                    ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
-                    boolean wasActive = elytraFly.isActive();
+        fixInProgress = true;
+        positionWhenStuck = mc.player.position();
 
-                    if (wasActive) {
-                        info("Attempting Fix 1: Toggling ElytraFly module...");
-                        elytraFly.toggle();
-                        Thread.sleep(1000);
-                        elytraFly.toggle();
-                        info("ElytraFly re-enabled. Monitoring for recovery...");
-                        Thread.sleep(2000); // Wait 2 seconds to see if we start moving
+        ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
+        if (elytraFly != null && elytraFly.isActive()) {
+            info("Attempting Fix 1: Toggling ElytraFly module...");
+            elytraFly.toggle();
+            fixStage = FixStage.REENABLE_ELYTRA_FLY;
+            fixTicks = 20; // 1 second
+        } else {
+            // ElytraFly not active, go straight to stopping flight
+            info("ElytraFly not active. Attempting to get unstuck by stopping flight...");
+            mc.player.stopFallFlying();
+            finishFix();
+        }
+    }
 
-                        if (mc.player.position().distanceTo(positionWhenStuck) < 1.0) {
-                            info("Fix 1 seems to have failed. Attempting Fix 2: Stopping vanilla flight...");
-                            mc.player.stopFallFlying();
+    private void tickFix() {
+        if (fixStage == FixStage.HOLDING_JUMP || --fixTicks > 0) return;
 
-                            info("Attempting Fix 3: Holding jump...");
-                            KeyHold.hold(mc.options.keyJump, 5, (v) -> {
-                                info("Jump complete.");
-                                fixInProgress = false;
-                                fixCooldown = 200;
-                            });
+        switch (fixStage) {
+            case REENABLE_ELYTRA_FLY -> {
+                ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
+                if (elytraFly != null && !elytraFly.isActive()) elytraFly.toggle();
+                info("ElytraFly re-enabled. Monitoring for recovery...");
+                fixStage = FixStage.CHECK_RECOVERY;
+                fixTicks = 40; // Wait 2 seconds to see if we start moving
+            }
+            case CHECK_RECOVERY -> {
+                if (mc.player.position().distanceTo(positionWhenStuck) < 1.0) {
+                    info("Fix 1 seems to have failed. Attempting Fix 2: Stopping vanilla flight...");
+                    mc.player.stopFallFlying();
 
-                        } else {
-                            info("Fix 1 appears successful. No further action needed.");
-                            fixInProgress = false;
-                            fixCooldown = 200;
-                        }
-                    } else {
-                        // ElytraFly not active, go straight to stopping flight
-                        info("ElytraFly not active. Attempting to get unstuck by stopping flight...");
-                        mc.player.stopFallFlying();
-                        fixInProgress = false;
-                        fixCooldown = 200;
-                    }
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    info("Attempting Fix 3: Holding jump...");
+                    fixStage = FixStage.HOLDING_JUMP;
+                    KeyHold.hold(mc.options.keyJump, 5, () -> {
+                        info("Jump complete.");
+                        finishFix();
+                    });
+                } else {
+                    info("Fix 1 appears successful. No further action needed.");
+                    finishFix();
                 }
-            }).start();
+            }
+            default -> finishFix();
         }
+    }
+
+    private void finishFix() {
+        fixInProgress = false;
+        fixStage = FixStage.NONE;
+        fixCooldown = 200;
     }
 }

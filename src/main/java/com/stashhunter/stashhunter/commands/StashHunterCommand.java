@@ -2,7 +2,6 @@ package com.stashhunter.stashhunter.commands;
 
 import com.stashhunter.stashhunter.modules.AutoElytraRepair;
 import com.stashhunter.stashhunter.utils.ElytraController;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -10,8 +9,6 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import meteordevelopment.meteorclient.commands.Command;
 import meteordevelopment.meteorclient.MeteorClient;
 import net.minecraft.client.multiplayer.ClientSuggestionProvider;
-
-import static com.mojang.brigadier.Command.SINGLE_SUCCESS;
 
 public class StashHunterCommand extends Command {
     public StashHunterCommand() {
@@ -129,7 +126,7 @@ public class StashHunterCommand extends Command {
                 info("Stash-Hunter Status: " + status);
 
                 if (ElytraController.isActive()) {
-                    info("Current waypoint: " + ElytraController.getCurrentWaypoint() +
+                    info("Current waypoint: " + (ElytraController.getCurrentWaypoint() + 1) +
                         "/" + ElytraController.getTotalWaypoints());
 
                     if (ElytraController.getCurrentTarget() != null) {

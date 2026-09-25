@@ -1,6 +1,7 @@
 package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.KeyHold;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import meteordevelopment.meteorclient.events.world.TickEvent;
@@ -14,12 +15,9 @@ import meteordevelopment.orbit.EventHandler;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.List;
 
 public class AutoElytraRepair extends Module {
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
@@ -59,14 +57,10 @@ public class AutoElytraRepair extends Module {
     // Repair state
     private RepairState currentState = RepairState.MONITORING;
     private long repairStartTime = 0;
-    private int currentRepairSlot = 0;
-    private List<Integer> elytraSlots = new ArrayList<>();
-    private boolean wasStashHunterActive = false;
     private int timer = 0;
     private boolean justFinishedRepairing = false;
 
     // Scaffold-repair specific state
-    private double descentStartY = 0;
     private boolean scaffoldSetupDone = false;
     private boolean originalAutoPilotState = false;
     private boolean originalAutoHoverState = false;
@@ -182,25 +176,10 @@ public class AutoElytraRepair extends Module {
         }
 
         // Stop autopilot to allow player to slow down
-        originalAutoPilotState = getModuleSetting(elytraFly, "autoPilot");
-        Boolean takeoffState = getModuleSetting(elytraFly, "autoTakeOff");
-        originalAutoTakeoffState = takeoffState != null ? takeoffState : false;
+        originalAutoPilotState = getBoolSetting(elytraFly, "autoPilot", false);
+        originalAutoTakeoffState = getBoolSetting(elytraFly, "autoTakeOff", false);
         setModuleSetting(elytraFly, "autoPilot", false);
-        // Immediately release forward to stop autopilot movement without GUI
-        mc.options.keyUp.setDown(false);
-        // Clear ElytraFly internal forward flag if present
-        try {
-            Field modeField = elytraFly.getClass().getDeclaredField("currentMode");
-            modeField.setAccessible(true);
-            Object mode = modeField.get(elytraFly);
-            if (mode != null) {
-                try {
-                    Field lastF = mode.getClass().getDeclaredField("lastForwardPressed");
-                    lastF.setAccessible(true);
-                    lastF.setBoolean(mode, false);
-                } catch (NoSuchFieldException ignored) {}
-            }
-        } catch (Throwable ignored) {}
+        releaseForward(elytraFly);
         setModuleSetting(elytraFly, "autoTakeOff", true);
 
         info("Stopped autopilot. Waiting for player to stop moving...");
@@ -261,25 +240,10 @@ public class AutoElytraRepair extends Module {
             // If we haven't started the deceleration sequence yet, do so once.
             if (!decelInitiated) {
                 // Save/modify ElytraFly settings to slow the player down
-                originalAutoHoverState = getModuleSetting(elytraFly, "autoHover");
-                Boolean takeoffState2 = getModuleSetting(elytraFly, "autoTakeOff");
-                originalAutoTakeoffState = takeoffState2 != null ? takeoffState2 : false;
+                originalAutoHoverState = getBoolSetting(elytraFly, "autoHover", false);
                 setModuleSetting(elytraFly, "autoHover", true);
                 setModuleSetting(elytraFly, "autoPilot", false);
-                // Ensure forward key is released now that autopilot is off
-                mc.options.keyUp.setDown(false);
-                try {
-                    Field modeField = elytraFly.getClass().getDeclaredField("currentMode");
-                    modeField.setAccessible(true);
-                    Object mode = modeField.get(elytraFly);
-                    if (mode != null) {
-                        try {
-                            Field lastF = mode.getClass().getDeclaredField("lastForwardPressed");
-                            lastF.setAccessible(true);
-                            lastF.setBoolean(mode, false);
-                        } catch (NoSuchFieldException ignored) {}
-                    }
-                } catch (Throwable ignored) {}
+                releaseForward(elytraFly);
                 setModuleSetting(elytraFly, "autoTakeOff", true);
 
                 // Give ElytraFly some time to slow the player down before enabling scaffold placement
@@ -316,8 +280,8 @@ public class AutoElytraRepair extends Module {
             }
 
             // Now actually enable scaffold and auto exp together
-            originalScaffoldAirPlace = getModuleSetting(scaffold, "airPlace");
-            originalScaffoldAutoSwitch = getModuleSetting(scaffold, "autoSwitch");
+            originalScaffoldAirPlace = getBoolSetting(scaffold, "airPlace", false);
+            originalScaffoldAutoSwitch = getBoolSetting(scaffold, "autoSwitch", true);
             setModuleSetting(scaffold, "airPlace", true);
             setModuleSetting(scaffold, "autoSwitch", true);
 
@@ -372,7 +336,6 @@ public class AutoElytraRepair extends Module {
             info("Reached repair hover altitude (" + String.format("%.2f", y) + ")");
             currentState = RepairState.REPAIRING;
             repairStartTime = System.currentTimeMillis();
-            currentRepairSlot = 0;
             return;
         }
 
@@ -381,7 +344,6 @@ public class AutoElytraRepair extends Module {
             warning("Positioning timeout; proceeding with repair at current altitude.");
             currentState = RepairState.REPAIRING;
             repairStartTime = System.currentTimeMillis();
-            currentRepairSlot = 0;
             return;
         }
 
@@ -446,51 +408,35 @@ public class AutoElytraRepair extends Module {
     }
 
     private void handleResumingFlight() {
-        resumeNormalOperation();
-        KeyHold.hold(mc.options.keyJump, 10, null);
-        mc.options.keyJump.setDown(false);
-        KeyHold.hold(mc.options.keyJump, 10, null);
-        ElytraController.resume();
-        info("Resuming flight.");
-        justFinishedRepairing = true;
-        final double CRUISE_ALTITUDE = 200.0;
-        if (mc.player.getY() < CRUISE_ALTITUDE) {
-            if (!climbingToCruise) {
-                info("Climbing back to cruise altitude (Y=200), timeout 10s.");
-                climbingToCruise = true;
-                climbStartTimeMs = System.currentTimeMillis();
-            }
-            mc.player.setXRot(-30);
-            if (originalAutoPilotState) {
-                decelInitiated = true;
-            }
-            // Check timeout
-            if (System.currentTimeMillis() - climbStartTimeMs > 10_000L) {
-                warning("Climb to Y=200 timeout reached (10s). Continuing.");
-                mc.player.setXRot(0);
-                // Ensure autopilot resumes forward movement
-                ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
-                if (elytraFly != null && originalAutoPilotState) {
-                    setModuleSetting(elytraFly, "autoPilot", true);
-                }
-                mc.options.keyUp.setDown(true);
-                ElytraController.resume();
-                resetRepairState();
-                currentState = RepairState.MONITORING;
-            }
-        } else {
-            info("Cruise altitude reached. Repair sequence complete.");
-            mc.player.setXRot(0);
-            // Ensure autopilot resumes forward movement
-            ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
-            if (elytraFly != null && originalAutoPilotState) {
-                setModuleSetting(elytraFly, "autoPilot", true);
-            }
-            mc.options.keyUp.setDown(true);
+        if (!climbingToCruise) {
+            resumeNormalOperation();
+            KeyHold.hold(mc.options.keyJump, 10, null);
             ElytraController.resume();
-            resetRepairState();
-            currentState = RepairState.MONITORING;
+            info("Resuming flight. Climbing back to cruise altitude (Y=" + Config.flightAltitude + "), timeout 10s.");
+            climbingToCruise = true;
+            climbStartTimeMs = System.currentTimeMillis();
         }
+
+        boolean reachedAltitude = mc.player.getY() >= Config.flightAltitude;
+        boolean timedOut = System.currentTimeMillis() - climbStartTimeMs > 10_000L;
+        if (!reachedAltitude && !timedOut) {
+            mc.player.setXRot(-30);
+            return;
+        }
+
+        if (reachedAltitude) info("Cruise altitude reached. Repair sequence complete.");
+        else warning("Climb to Y=" + Config.flightAltitude + " timeout reached (10s). Continuing.");
+
+        mc.player.setXRot(0);
+        // Ensure autopilot resumes forward movement
+        ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
+        if (elytraFly != null && originalAutoPilotState) {
+            setModuleSetting(elytraFly, "autoPilot", true);
+        }
+        mc.options.keyUp.setDown(true);
+        resetRepairState();
+        justFinishedRepairing = true; // after the reset, which clears it
+        currentState = RepairState.MONITORING;
     }
 
     private void handleEmergencyDisconnect() {
@@ -504,25 +450,14 @@ public class AutoElytraRepair extends Module {
     }
 
     private void initiateRepairSequence() {
-        wasStashHunterActive = ElytraController.isActive();
-        descentStartY = mc.player.getY(); // retained for potential future use
         currentState = RepairState.STOPPING_AUTOPILOT;
         info("Elytra durability low. Stopping autopilot for repair sequence.");
     }
 
-    private void initiateEmergencyDisconnect(String reason) {
-        error("Initiating emergency disconnect: " + reason);
-        currentState = RepairState.EMERGENCY_DISCONNECT;
-    }
-
     private void resetRepairState() {
         repairStartTime = 0;
-        currentRepairSlot = 0;
-        elytraSlots.clear();
-        wasStashHunterActive = false;
         timer = 0;
         justFinishedRepairing = false;
-        descentStartY = 0;
         scaffoldSetupDone = false;
         originalAutoPilotState = true;
         originalAutoHoverState = true;
@@ -585,39 +520,35 @@ public class AutoElytraRepair extends Module {
         return (elytra.getMaxDamage() - elytra.getDamageValue()) <= repairThreshold.get();
     }
 
-    private void findElytraSlots() {
-        elytraSlots.clear();
-        for (int i = 0; i < mc.player.getInventory().getContainerSize(); i++) {
-            ItemStack stack = mc.player.getInventory().getItem(i);
-            if (stack.getItem() == Items.ELYTRA) elytraSlots.add(i);
-        }
-        info("Found " + elytraSlots.size() + " elytras in inventory");
-    }
-
-    private boolean hasRepairableElytras() {
-        for (int slot : elytraSlots) {
-            ItemStack elytra = mc.player.getInventory().getItem(slot);
-            if (elytra.getItem() == Items.ELYTRA && elytra.getDamageValue() > 0) return true;
-        }
-        return false;
-    }
-
-    private void selectBestElytraAndEquip() {
-        // Implementation from user's code
-    }
-
-    private boolean equipElytraToChestSlot(int slot) {
-        // Implementation from user's code
-        return true;
-    }
-
     private void debugLog(String message) {
         if (debugMode.get()) {
             info("[DEBUG] " + message);
         }
     }
 
+    // Release forward so autopilot movement stops, including ElytraFly's internal forward flag if present
+    private void releaseForward(ElytraFly elytraFly) {
+        mc.options.keyUp.setDown(false);
+        try {
+            Field modeField = elytraFly.getClass().getDeclaredField("currentMode");
+            modeField.setAccessible(true);
+            Object mode = modeField.get(elytraFly);
+            if (mode != null) {
+                try {
+                    Field lastF = mode.getClass().getDeclaredField("lastForwardPressed");
+                    lastF.setAccessible(true);
+                    lastF.setBoolean(mode, false);
+                } catch (NoSuchFieldException ignored) {}
+            }
+        } catch (Throwable ignored) {}
+    }
+
     // Reflection Helpers
+    private boolean getBoolSetting(Module module, String settingName, boolean fallback) {
+        Boolean value = getModuleSetting(module, settingName);
+        return value != null ? value : fallback;
+    }
+
     @SuppressWarnings("unchecked")
     private <T> T getModuleSetting(Module module, String settingName) {
         try {

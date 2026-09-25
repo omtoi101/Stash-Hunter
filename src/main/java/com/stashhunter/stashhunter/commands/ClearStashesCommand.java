@@ -6,8 +6,6 @@ import meteordevelopment.meteorclient.commands.Command;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import net.minecraft.client.multiplayer.ClientSuggestionProvider;
 
-import static com.mojang.brigadier.Command.SINGLE_SUCCESS;
-
 public class ClearStashesCommand extends Command {
     public ClearStashesCommand() {
         super("clear-stashes", "Clears the list of found stashes.");

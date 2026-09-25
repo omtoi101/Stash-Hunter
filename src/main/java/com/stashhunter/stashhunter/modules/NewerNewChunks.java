@@ -414,14 +414,15 @@ public class NewerNewChunks extends Module {
 		if (autoreload.get()) {
 			clearChunkData();
 		}
-		if (save.get() || load.get() && mc.level != null) {
+		autoreloadticks=0;
+		loadingticks=0;
+		worldchange=false;
+		justenabledsavedata=0;
+		if (mc.level == null) return;
+
+		if (save.get() || load.get()) {
 			world= mc.level.dimension().identifier().toString().replace(':', '_');
-			if (mc.hasSingleplayerServer()){
-				String[] array = mc.getSingleplayerServer().getWorldPath(LevelResource.ROOT).toString().replace(':', '_').split("/|\\\\");
-				serverip=array[array.length-2];
-			} else {
-				serverip = mc.getCurrentServer().ip.replace(':', '_');
-			}
+			updateServerIp();
 		}
 		if (save.get()){
 			try {
@@ -455,10 +456,14 @@ public class NewerNewChunks extends Module {
 		if (load.get()){
 			loadData();
 		}
-		autoreloadticks=0;
-		loadingticks=0;
-		worldchange=false;
-		justenabledsavedata=0;
+	}
+	private void updateServerIp() {
+		if (mc.hasSingleplayerServer()){
+			String[] array = mc.getSingleplayerServer().getWorldPath(LevelResource.ROOT).toString().replace(':', '_').split("/|\\\\");
+			serverip=array[array.length-2];
+		} else {
+			serverip = mc.getCurrentServer().ip.replace(':', '_');
+		}
 	}
 	@Override
 	public void onDeactivate() {
@@ -484,23 +489,21 @@ public class NewerNewChunks extends Module {
 	}
 	@EventHandler
 	private void onGameLeft(GameLeftEvent event) {
+		serverip = null; // re-resolved on the next world join
 		if (worldleaveremove.get()) {
 			clearChunkData();
 		}
 	}
 	@EventHandler
 	private void onPreTick(TickEvent.Pre event) {
+		if (mc.level == null) return;
 		world= mc.level.dimension().identifier().toString().replace(':', '_');
+		if (serverip == null) updateServerIp();
 
 		if (deletewarningTicks<=100) deletewarningTicks++;
 		else deletewarning=0;
 		if (deletewarning>=2){
-			if (mc.hasSingleplayerServer()){
-				String[] array = mc.getSingleplayerServer().getWorldPath(LevelResource.ROOT).toString().replace(':', '_').split("/|\\\\");
-				serverip=array[array.length-2];
-			} else {
-				serverip = mc.getCurrentServer().ip.replace(':', '_');
-			}
+			updateServerIp();
 			clearChunkData();
 			try {
 				Files.deleteIfExists(Paths.get("StashHunter", "NewChunks", serverip, world, "NewChunkData.txt"));
@@ -712,7 +715,7 @@ public class NewerNewChunks extends Module {
 		else if (!(event.packet instanceof ServerboundChunkBatchReceivedPacket) && !(event.packet instanceof ServerboundMovePlayerPacket) && event.packet instanceof ClientboundLevelChunkWithLightPacket packet && mc.level != null) {
 			ChunkPos oldpos = new ChunkPos(packet.getX(), packet.getZ());
 
-			if (mc.level.getChunk(packet.getX(), packet.getZ()) == null) {
+			if (mc.level.getChunkSource().getChunk(packet.getX(), packet.getZ(), false) == null) { // getChunk(x, z) never returns null, only an empty chunk
 				LevelChunk chunk = new LevelChunk(mc.level, oldpos);
 				try {
 					Map<Heightmap.Types, long[]> heightmaps = packet.getChunkData().getHeightmaps();
@@ -735,7 +738,7 @@ public class NewerNewChunks extends Module {
 				if (overworldOldChunksDetector.get() && mc.level.dimension() == Level.OVERWORLD && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
 					for (int i = 0; i < 17; i++) {
 						LevelChunkSection section = sections[i];
-						if (section != null && !!section.hasOnlyAir()) {
+						if (section != null && !section.hasOnlyAir()) {
 							for (int x = 0; x < 16; x++) {
 								for (int y = 0; y < 16; y++) {
 									for (int z = 0; z < 16; z++) {
@@ -755,7 +758,7 @@ public class NewerNewChunks extends Module {
 				if (netherOldChunksDetector.get() && mc.level.dimension() == Level.NETHER && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
 					for (int i = 0; i < 8; i++) {
 						LevelChunkSection section = sections[i];
-						if (section != null && !!section.hasOnlyAir()) {
+						if (section != null && !section.hasOnlyAir()) {
 							for (int x = 0; x < 16; x++) {
 								for (int y = 0; y < 16; y++) {
 									for (int z = 0; z < 16; z++) {
@@ -803,7 +806,7 @@ public class NewerNewChunks extends Module {
 					int oldChunkQuantifier = 0;
 					try {
 						for (LevelChunkSection section : sections) {
-							if (section != null && !!section.hasOnlyAir()) {
+							if (section != null && !section.hasOnlyAir()) {
 								var blockStatesContainer = section.getStates();
 
 								// Simple detection based on block state container patterns
