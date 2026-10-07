@@ -1,4 +1,4 @@
-# StashHunter by omtoi & _og3
+# Stash Hunter by omtoi & _og3
 
 Ported to Minecraft 26.2 and the latest Meteor Client, maintained by _og3. Licensed under the Apache License 2.0, same as upstream.
 
