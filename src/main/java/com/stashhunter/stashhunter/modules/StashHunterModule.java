@@ -251,7 +251,7 @@ public class StashHunterModule extends Module {
     public void onActivate() {
         reportedPlayers.clear();
         reportedStashes.clear();
-        lastHealthCheck = -1; // Reset health tracking
+        lastHealth = -1; // Reset health tracking
 
         if (useBaritonePathing.get() && !BaritoneBridge.isModLoaded()) {
             info("Baritone is not installed - falling back to the built-in flight controller. " +

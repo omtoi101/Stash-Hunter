@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "id": "stash-hunter",
   "version": "${version}",
-  "name": "StashhunterPort by _og3",
-  "description": "A Meteor client addon for finding stashes on anarchy servers. Fork/port of Stash-Hunter by omtoi, maintained by _og3.",
+  "name": "StashHunter",
+  "description": "A Meteor client addon for finding stashes on anarchy servers.",
   "authors": [
     "omtoi",
     "_og3"
   ],
   "contact": {
-    "sources": "https://github.com/papxx/StashhunterPort-by-_og3"
+    "sources": "https://github.com/omtoi101/Stash-Hunter"
   },
   "icon": "assets/template/icon.png",
   "environment": "client",
