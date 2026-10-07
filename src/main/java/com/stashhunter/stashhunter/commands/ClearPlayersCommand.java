@@ -6,8 +6,6 @@ import meteordevelopment.meteorclient.commands.Command;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import net.minecraft.client.multiplayer.ClientSuggestionProvider;
 
-import static com.mojang.brigadier.Command.SINGLE_SUCCESS;
-
 public class ClearPlayersCommand extends Command {
     public ClearPlayersCommand() {
         super("clear-players", "Clears the list of reported players.");

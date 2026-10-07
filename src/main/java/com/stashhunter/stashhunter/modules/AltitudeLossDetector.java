@@ -85,7 +85,7 @@ public class AltitudeLossDetector extends Module {
             BaritoneBridge.cancel();
 
             info("Attempting to fix by holding jump...");
-            KeyHold.hold(mc.options.keyJump, 100, (v) -> {
+            KeyHold.hold(mc.options.keyJump, 100, () -> {
                 info("Jump complete.");
                 fixInProgress = false;
                 fixCooldown = 200;

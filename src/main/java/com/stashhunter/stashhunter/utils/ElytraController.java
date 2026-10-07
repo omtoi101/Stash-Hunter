@@ -7,7 +7,6 @@ import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.Items;
-import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 
@@ -24,7 +23,6 @@ public class ElytraController {
     private static boolean active = false;
     private static boolean justCompleted = false;
     private static Vec3 currentTarget = null;
-    private static long lastWaypointTime = 0;
 
     // Set to the target most recently handed to Baritone's elytra pathing, so driveTowards()
     // can tell "no path issued yet for this target" apart from "Baritone dropped its path".
@@ -32,16 +30,12 @@ public class ElytraController {
 
     // Navigation state for edge following
     private static NavigationMode navigationMode = NavigationMode.NORMAL;
-    private static Vec3 lastKnownGoodPosition = null;
-    private static int edgeFollowDirection = 90; // 90 for right, -90 for left
     private static long edgeFollowStartTime = 0;
     private static final long MAX_EDGE_FOLLOW_TIME = 30000; // 30 seconds max edge following
     private static Set<ChunkPos> visitedChunks = new HashSet<>();
     private static Vec3 boundaryDirection = null;
 
     // Trail analysis state
-    private static List<ChunkPos> recentNewChunks = new ArrayList<>();
-    private static TrailInfo currentTrail = null;
     private static final int TRAIL_ANALYSIS_RADIUS = 5; // chunks to analyze around player
     private static final double MIN_TRAIL_CONFIDENCE = 0.6; // minimum confidence to follow a trail
 
@@ -57,10 +51,8 @@ public class ElytraController {
         currentWaypoint = 0;
         active = true;
         justCompleted = false;
-        lastWaypointTime = System.currentTimeMillis();
         navigationMode = NavigationMode.NORMAL;
         visitedChunks.clear();
-        lastKnownGoodPosition = null;
         boundaryDirection = null;
 
         generateWaypoints(x1, z1, x2, z2, stripWidth);
@@ -100,7 +92,6 @@ public class ElytraController {
         currentTarget = null;
         navigationMode = NavigationMode.NORMAL;
         visitedChunks.clear();
-        lastKnownGoodPosition = null;
         boundaryDirection = null;
         baritoneTargetPos = null;
         BaritoneBridge.cancel();
@@ -142,7 +133,6 @@ public class ElytraController {
         currentWaypoint = tripData.currentWaypoint;
         active = true;
         justCompleted = false;
-        lastWaypointTime = System.currentTimeMillis();
         navigationMode = NavigationMode.NORMAL;
 
         initiateFlight();
@@ -249,7 +239,10 @@ public class ElytraController {
         );
 
         if (horizontalDistance < 20.0) {
-            flyToNextWaypoint();
+            currentWaypoint++;
+            if (currentWaypoint < waypoints.size()) {
+                flyToNextWaypoint();
+            }
             return;
         }
 
@@ -327,15 +320,11 @@ public class ElytraController {
         boolean hasUnloadedArea = false;
         Vec3 boundaryDirection = null;
         String description = "";
-        TrailInfo trailInfo = null; // Added trail analysis
     }
 
     private static class TrailInfo {
         Vec3 direction;
         double confidence; // 0.0 to 1.0
-        int length; // number of chunks in trail
-        ChunkPos startChunk;
-        ChunkPos endChunk;
         String type; // "corridor", "line", "scattered", etc.
     }
 
@@ -399,15 +388,11 @@ public class ElytraController {
                         TrailInfo trail = new TrailInfo();
                         trail.confidence = linearity;
                         trail.type = "corridor";
-                        trail.length = 3;
 
                         // Calculate direction from first to last chunk
                         double dx = c3.x() - c1.x();
                         double dz = c3.z() - c1.z();
                         trail.direction = new Vec3(dx, 0, dz).normalize();
-
-                        trail.startChunk = c1;
-                        trail.endChunk = c3;
 
                         return trail;
                     }
@@ -450,9 +435,6 @@ public class ElytraController {
                 trail.direction = finalDirection.normalize();
                 trail.confidence = consistency;
                 trail.type = "directional";
-                trail.length = chunks.size();
-                trail.startChunk = chunks.get(0);
-                trail.endChunk = chunks.get(chunks.size() - 1);
 
                 return trail;
             }
@@ -515,7 +497,6 @@ public class ElytraController {
         TrailInfo trailInfo = analyzeNewChunkTrail(playerPos, newChunks);
         if (trailInfo != null && trailInfo.confidence >= MIN_TRAIL_CONFIDENCE) {
             info.hasNewChunks = true;
-            info.trailInfo = trailInfo;
             info.boundaryDirection = trailInfo.direction;
             info.description = String.format("Detected %s trail (confidence: %.1f)",
                 trailInfo.type, trailInfo.confidence);
@@ -557,7 +538,6 @@ public class ElytraController {
         navigationMode = NavigationMode.EDGE_FOLLOWING;
         edgeFollowStartTime = System.currentTimeMillis();
         boundaryDirection = boundaryInfo.boundaryDirection;
-        lastKnownGoodPosition = MeteorClient.mc.player.position();
 
         Logger.log("Switching to edge following: " + boundaryInfo.description);
 
@@ -570,7 +550,6 @@ public class ElytraController {
         navigationMode = NavigationMode.TRAIL_FOLLOWING;
         edgeFollowStartTime = System.currentTimeMillis();
         boundaryDirection = boundaryInfo.boundaryDirection;
-        lastKnownGoodPosition = MeteorClient.mc.player.position();
 
         Logger.log("New chunk boundary detected - following trail for potential stash locations");
 
@@ -675,14 +654,11 @@ public class ElytraController {
 
         Vec3 waypoint = waypoints.get(currentWaypoint);
         currentTarget = waypoint;
-        lastWaypointTime = System.currentTimeMillis();
 
         if (MeteorClient.mc.player != null) {
             MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§bFlying to waypoint " + (currentWaypoint + 1) + "/" + waypoints.size() +
                 ": " + (int)waypoint.x + ", " + (int)waypoint.z));
         }
-
-        currentWaypoint++;
     }
 
     public static boolean isActive() {
@@ -713,7 +689,7 @@ public class ElytraController {
         String modeStr = switch (navigationMode) {
             case EDGE_FOLLOWING -> "Edge Following";
             case TRAIL_FOLLOWING -> "Trail Following";
-            default -> "Flying to waypoint " + currentWaypoint + "/" + waypoints.size();
+            default -> "Flying to waypoint " + (currentWaypoint + 1) + "/" + waypoints.size();
         };
 
         return modeStr;

@@ -68,6 +68,6 @@ public class StashHunter extends MeteorAddon {
 
     @Override
     public GithubRepo getRepo() {
-        return new GithubRepo("omtoi", "stash-hunter");
+        return new GithubRepo("omtoi101", "Stash-Hunter");
     }
 }
