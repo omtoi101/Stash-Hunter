@@ -1,6 +1,8 @@
 package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.baritone.BaritoneBridge;
+import com.stashhunter.stashhunter.events.PlayerDeathEvent;
 import com.stashhunter.stashhunter.events.PlayerDisconnectEvent;
 import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.DiscordEmbed;
@@ -220,6 +222,17 @@ public class StashHunterModule extends Module {
         .build()
     );
 
+    private final Setting<Boolean> useBaritonePathing = sgGeneral.add(new BoolSetting.Builder()
+        .name("use-baritone-pathing")
+        .description("Use Baritone (if installed) for precise flight/ground path execution instead of the built-in flight controller.")
+        .defaultValue(Config.useBaritonePathing)
+        .onChanged(v -> {
+            Config.useBaritonePathing = v;
+            Config.save();
+        })
+        .build()
+    );
+
     // State
     private final Map<UUID, Long> reportedPlayers = new ConcurrentHashMap<>();
     private final List<BlockPos> reportedStashes = new ArrayList<>();
@@ -238,7 +251,12 @@ public class StashHunterModule extends Module {
     public void onActivate() {
         reportedPlayers.clear();
         reportedStashes.clear();
-        lastHealth = -1; // Reset health tracking
+        lastHealthCheck = -1; // Reset health tracking
+
+        if (useBaritonePathing.get() && !BaritoneBridge.isModLoaded()) {
+            info("Baritone is not installed - falling back to the built-in flight controller. " +
+                "Install the Baritone Fabric mod (26.2) for precise pathfinding.");
+        }
     }
 
     @Override

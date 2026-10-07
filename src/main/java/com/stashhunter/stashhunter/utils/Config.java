@@ -39,6 +39,11 @@ public class Config {
     public static int stuckDetectorThreshold = 3;
     public static boolean stuckDetectorAutoFix = true;
 
+    // Use Baritone (if installed) for flight/ground path execution instead of the built-in
+    // flight controller. Purely a manual override - ElytraController falls back automatically
+    // when Baritone isn't installed regardless of this setting.
+    public static boolean useBaritonePathing = true;
+
 
     // Storage containers only (for stash finding)
     // As of 26.x, colored variants (shulker boxes, beds) are no longer individual Blocks
@@ -122,6 +127,8 @@ public class Config {
                 stuckDetectorThreshold = getIntProperty("stuckDetectorThreshold", 3);
                 stuckDetectorAutoFix = getBoolProperty("stuckDetectorAutoFix", true);
 
+                useBaritonePathing = getBoolProperty("useBaritonePathing", true);
+
             } catch (IOException e) {
                 System.err.println("Failed to load Stash-Hunter config: " + e.getMessage());
                 e.printStackTrace();
@@ -160,6 +167,8 @@ public class Config {
                 properties.setProperty("stuckDetectorWebhookUrl", stuckDetectorWebhookUrl);
                 properties.setProperty("stuckDetectorThreshold", String.valueOf(stuckDetectorThreshold));
                 properties.setProperty("stuckDetectorAutoFix", String.valueOf(stuckDetectorAutoFix));
+
+                properties.setProperty("useBaritonePathing", String.valueOf(useBaritonePathing));
 
                 properties.store(fos, "Stash-Hunter Configuration - Auto-generated");
             }

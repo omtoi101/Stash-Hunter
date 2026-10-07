@@ -1,0 +1,7 @@
+{
+  "description": "A Meteor Client addon for finding stashes on anarchy servers by automatically flying with an elytra, scanning for clusters of valuable blocks while avoiding generated structures.",
+  "tags": ["World", "Exploit", "Automation", "Movement"],
+  "supported_versions": ["26.2"],
+  "icon": "https://raw.githubusercontent.com/Papxx/Stash-Hunter26.2-by-_og3/main/src/main/resources/assets/template/icon.png",
+  "homepage": "https://github.com/Papxx/Stash-Hunter26.2-by-_og3"
+}

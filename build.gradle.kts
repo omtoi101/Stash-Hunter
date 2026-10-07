@@ -14,13 +14,26 @@ base {
 }
 
 repositories {
-    maven {
-        name = "meteor-maven"
-        url = uri("https://maven.meteordev.org/releases")
-    }
-    maven {
-        name = "meteor-maven-snapshots"
-        url = uri("https://maven.meteordev.org/snapshots")
+    // exclusiveContent restricts Meteor's own groups (meteor-client, baritone, and meteor-client's
+    // "org.meteordev:starscript" transitive dependency) to these two repos only, so Gradle never
+    // also probes other declared/Loom-injected repos (e.g. Mojang's libraries.minecraft.net) for
+    // them - without this, a hiccup on any other repo in search order can hard-fail resolution
+    // even though these repos do have the artifact.
+    exclusiveContent {
+        forRepositories(
+            maven {
+                name = "meteor-maven"
+                url = uri("https://maven.meteordev.org/releases")
+            },
+            maven {
+                name = "meteor-maven-snapshots"
+                url = uri("https://maven.meteordev.org/snapshots")
+            }
+        )
+        filter {
+            includeGroup("meteordevelopment")
+            includeGroup("org.meteordev")
+        }
     }
     maven {
         name = "Fabric"
@@ -43,6 +56,18 @@ dependencies {
 
     // Meteor
     implementation("meteordevelopment:meteor-client:${providers.gradleProperty("minecraft_version").get()}-SNAPSHOT")
+
+    // Baritone (optional / soft dependency)
+    // compileOnly, not implementation: Baritone is a separate mod the end user installs
+    // themselves (see fabric.mod.json "recommends"). This addon only compiles against its
+    // API surface and gates every runtime call behind FabricLoader.isModLoaded("baritone-meteor")
+    // via com.stashhunter.stashhunter.baritone.BaritoneBridge, so it must start and run fine
+    // without Baritone present. Resolved from the meteor-maven-snapshots repo declared above
+    // (no artifact currently exists under /releases for this GAV - verify at
+    // https://maven.meteordev.org/snapshots/meteordevelopment/baritone/maven-metadata.xml
+    // if this ever stops resolving; fallback is building baritone-api from the
+    // MeteorDevelopment/baritone 26.2 branch locally and publishing to mavenLocal()).
+    compileOnly("meteordevelopment:baritone:${providers.gradleProperty("baritone_version").get()}")
 
     // GSON
     implementation("com.google.code.gson:gson:2.10.1")
