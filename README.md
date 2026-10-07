@@ -1,6 +1,6 @@
-# Stash Hunter by omtoi & _og3
+# Stash-Hunter
 
-Ported to Minecraft 26.2 and the latest Meteor Client, maintained by _og3. Licensed under the Apache License 2.0, same as upstream.
+Ported to Minecraft 26.2 and the latest Meteor Client. Licensed under the Apache License 2.0.
 
 A Meteor client addon for finding stashes on anarchy servers. 
 This mod is designed to automatically fly with an elytra scanning chunks for clusters of valuable blocks while avoiding all generated structures. 
@@ -22,7 +22,7 @@ The mod now features chunk trail tracking algorithms for optimal base finding an
 
 ## Installation
 
-1.  Download the latest version of Stash-Hunter from the [Releases](https://github.com/omtoi101/stash-hunter/releases) page.
+1.  Download the latest version of Stash-Hunter from the [Releases](https://github.com/omtoi101/Stash-Hunter/releases) page.
 2.  Make sure you have [Meteor Client](https://meteorclient.com/) installed.
 3.  Place the downloaded `.jar` file into your `mods` folder.
 4.  *(Optional)* Install the [Baritone](https://github.com/MeteorDevelopment/baritone) Fabric mod (26.2 branch) for more precise pathfinding during flight and landing. Stash Hunter works fine without it, using its built-in flight controller instead.
@@ -221,8 +221,8 @@ Follow these steps:
 
 1.  **Clone the repository:**
     ```sh
-    git clone https://github.com/omtoi101/stash-hunter.git
-    cd stash-hunter
+    git clone https://github.com/omtoi101/Stash-Hunter.git
+    cd Stash-Hunter
     ```
 
 2.  **Build the project:**
@@ -247,4 +247,5 @@ This project is licensed under the **Apache License 2.0**. See the [LICENSE](LIC
 
 ## Credits
 
--   **omtoi**: Original author.
+-   **omtoi**: Original author and maintainer.
+-   **\_og3**: Ported the project to Minecraft 26.2 and the latest Meteor Client.

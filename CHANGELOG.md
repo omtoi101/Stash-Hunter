@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Compilation failure in `ElytraController`**: `BlockPos` was used at three sites (the `baritoneTargetPos` field, `startGroundPath(...)`, and the landing-target call) but `net.minecraft.core.BlockPos` was never imported, so `compileJava` failed with `cannot find symbol` on all three. Added the missing import.
+- **Compilation failure in `StashHunterModule`**: `onActivate()` reset health tracking via `lastHealthCheck = -1;`, but no such field exists - the declared field is `lastHealth` (line 240). The leftover name from an earlier rename broke the build with `cannot find symbol: variable lastHealthCheck`. Corrected to `lastHealth`.
+
+### Changed
+
+- **Consolidated all repository and branding references onto the upstream monorepo `omtoi101/Stash-Hunter`**, removing the leftover fork identity ("StashhunterPort by _og3"):
+  - `fabric.mod.json`: mod `name` changed from `StashhunterPort by _og3` to `StashHunter`; the description no longer describes the project as a third-party fork; `contact.sources` now points at `omtoi101/Stash-Hunter`.
+  - `meteor-addon-list.json`: `homepage` and `icon` now point at `omtoi101/Stash-Hunter` instead of the fork repository, so the addon-scanner resolves the upstream project.
+  - `README.md`: title changed to `Stash-Hunter`; removed the "maintained by _og3" line; clone/Releases links and the `cd` example now use the canonical `omtoi101/Stash-Hunter` casing; `_og3` credited in the Credits section, matching the `authors` array.
+
+### Security
+
+- **Gradle distribution is now checksum-verified.** `gradle-wrapper.properties` had no `distributionSha256Sum`, so the wrapper downloaded the Gradle 9.6.1 distribution without verifying it - a supply-chain gap, since a tampered download would have been executed unopposed. Pinned the official SHA-256 (`9c0f7fae...a32c9e14`, taken from Gradle's published `gradle-9.6.1-bin.zip.sha256` and independently confirmed against the downloaded archive); the wrapper now aborts the build if the distribution does not match.
+- **Regenerated the committed `gradle-wrapper.jar`.** The checked-in jar was not the Gradle 9.6.1 wrapper: `gradle-wrapper.properties` had been hand-edited from `8.14.3` to `9.6.1` (commit `6a0d4f4`) without regenerating the jar, leaving an older wrapper in the tree. Re-running the `wrapper` task replaced `gradlew`, `gradlew.bat` and `gradle-wrapper.jar` with the genuine 9.6.1 artifacts (jar SHA-256 now `497c8c2a...194a9c7`), so all four wrapper files are consistent with the declared distribution version.
+
 ## [v26.2.1] - 2026-09-11
 
 ### Added
