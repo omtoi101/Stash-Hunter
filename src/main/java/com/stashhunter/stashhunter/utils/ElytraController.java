@@ -219,12 +219,10 @@ public class ElytraController {
         Vec3 target = waypoints.get(currentWaypoint);
         currentTarget = target;
 
-        double horizontalDistance = Math.sqrt(
-            Math.pow(target.x - playerPos.x, 2) +
-            Math.pow(target.z - playerPos.z, 2)
-        );
+        double dx = target.x - playerPos.x;
+        double dz = target.z - playerPos.z;
 
-        if (horizontalDistance < 20.0) {
+        if (dx * dx + dz * dz < 400.0) { // 20², equivalent to horizontalDistance < 20.0
             currentWaypoint++;
             if (currentWaypoint < waypoints.size()) {
                 flyToNextWaypoint();
