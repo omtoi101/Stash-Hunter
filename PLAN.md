@@ -6,7 +6,7 @@
 >
 > **Stand 2026-10-29:** Phasen 0–5 und die Punkte 33–43 sind erledigt bzw. bewertet
 > (Details jeweils im Abschnitt und im CHANGELOG). Offen sind nur noch 34 (braucht ein
-> echtes Icon) und die Feature-Ideen 44–47. Alles ist ungetestet in-game - siehe
+> echtes Icon) und die Feature-Ideen 44, 45 und 47 (46 erledigt, siehe dort). Alles ist ungetestet in-game - siehe
 > „Verifikation“.
 
 ## Projekt-Kontext
@@ -280,7 +280,8 @@
 
 - **Wichtig:** Der Welt-Seed ist client-seitig im **Multiplayer nicht verfügbar**
   (bewusst versteckt). Es gibt kein `mc.level.getSeed()`. Drei Wege: (a) manuelles
-  Seed-Setting, (b) Seed-Cracking, (c) seed-unabhängige Daten (Slime-Chunks seit 1.19).
+  Seed-Setting, (b) Seed-Cracking. (Slime-Chunks sind in Java Edition **nicht**
+  seed-unabhängig - das gilt nur für Bedrock; siehe 46.)
 - Singleplayer: Seed lesbar via `Minecraft.getSingleplayerServer().overworld().getSeed()`.
 - Seed-Cracking ist etabliert (Mod `SeedCrackerX`, Library `KaptainWutax/Seedfinding`).
 
@@ -302,9 +303,17 @@
       Thread (passt zu Phase 2), Fortschritt im HUD. Ergebnis automatisch in 44
       übernehmen.
 
-46. **Slime-Chunk-Overlay (gering, ohne Seed).**
-    - Seit 1.19 sind Slime-Chunks seed-unabhängig (fester „Slime-Seed") → ohne Seed
-      berechenbar. Overlay „Slime-Chunks" → potentielle Farm-/Base-Standorte.
+46. **Slime-Chunk-Overlay (gering).** — **Erledigt (2026-10-29)**, Build + Tests grün,
+    in-game ungetestet.
+    - Korrektur: Die ursprüngliche Annahme „seit 1.19 seed-unabhängig" stimmt nur für
+      Bedrock. In Java Edition (auch 26.2) ist es
+      `WorldgenRandom.seedSlimeChunk(x, z, worldSeed, 987234911L).nextInt(10) == 0`.
+    - Umsetzung: Modul `slime-chunks` (SlimeChunkOverlay) + reine Logik
+      `utils/SlimeChunks` (Unit-Test vergleicht gegen Vanilla). Seed im Singleplayer
+      automatisch vom Integrated Server, im Multiplayer über das Setting `world-seed`
+      (Zahl oder Text wie im „Welt erstellen"-Screen) - darauf kann 44 aufbauen.
+      Nur Overworld; Chunk-Menge wird nur bei Wechsel von Spieler-Chunk/Seed/Radius
+      neu berechnet.
 
 47. **Erz-/Terrain-Vorhersage (mit Seed, baut auf 44 auf).**
     - Diamant-/Erzverteilung + Biome vorhersagen → Scan-/Base-Ziele priorisieren,

@@ -227,6 +227,17 @@ Colours (sides / lines) can be set separately for each chunk type:
 | Chunks being updated from ≤ 1.17 | yellow |
 | Chunks from old versions | yellow-green |
 
+### Slime Chunks (`slime-chunks`)
+
+Marks slime chunks around you in the Overworld as green squares. In Java Edition they depend on the world seed, which servers don't send: in singleplayer the module uses the real seed, in multiplayer you have to enter it.
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `world-seed` | The world seed, as a number or as text (hashed like the Create World screen). Ignored in singleplayer. | empty |
+| `radius` | How many chunks around you to mark. | 16 |
+| `render-height` | Height of the squares. Slimes spawn below y=40. | 40 |
+| `shape-mode`, `side-color`, `line-color` | Look of the squares. | Both, green |
+
 ## Discord notifications
 
 Create a webhook in your Discord server (*Server Settings → Integrations → Webhooks*) and paste its URL into `discord-webhook-url`. Depending on your settings, you receive:

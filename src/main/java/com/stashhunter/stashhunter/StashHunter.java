@@ -10,6 +10,7 @@ import com.stashhunter.stashhunter.modules.NewerNewChunks;
 import com.stashhunter.stashhunter.modules.StashHunterModule;
 import com.stashhunter.stashhunter.modules.StuckDetector;
 import com.stashhunter.stashhunter.modules.AutoElytraRepair;
+import com.stashhunter.stashhunter.modules.SlimeChunkOverlay;
 import com.mojang.logging.LogUtils;
 import meteordevelopment.meteorclient.addons.GithubRepo;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
@@ -39,6 +40,7 @@ public class StashHunter extends MeteorAddon {
         Modules.get().add(new AltitudeLossDetector());
         Modules.get().add(new NewerNewChunks());
         Modules.get().add(new AutoElytraRepair());
+        Modules.get().add(new SlimeChunkOverlay());
 
         // Commands
         Commands.add(new StashHunterCommand());

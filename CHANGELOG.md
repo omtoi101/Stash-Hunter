@@ -70,6 +70,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Spotless** whitespace check (indentation, trailing whitespace, final newline; `./gradlew spotlessApply` fixes it) and a **Dependabot** config for Gradle plugins/libraries and GitHub Actions.
 - **`mention-everyone` setting** (default: off). Discord messages no longer ping `@everyone` unless enabled; `allowed_mentions` is set explicitly either way.
 - **`max-cluster-size` and `report-dedupe-radius` settings** for the stash clustering (see Fixed).
+- **`slime-chunks` module.** Marks slime chunks around you in the Overworld. Java Edition slime chunks depend on the world seed: singleplayer reads it from the integrated server, in multiplayer it has to be entered in `world-seed` (number or text, like the Create World screen). Unit-tested against vanilla's `WorldgenRandom.seedSlimeChunk`.
 
 ### Security
 
