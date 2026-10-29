@@ -248,4 +248,4 @@ This project is licensed under the **Apache License 2.0**. See the [LICENSE](LIC
 ## Credits
 
 -   **omtoi**: Original author and maintainer.
--   **\_og3**: Ported the project to Minecraft 26.2 and the latest Meteor Client.
+-   **\papxx**: Ported the project to Minecraft 26.2 and the latest Meteor Client.
