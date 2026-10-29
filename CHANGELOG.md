@@ -28,6 +28,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The same stash was reported again every 10 minutes** (another `@everyone` and a duplicate waypoint), because the reported list was wiped on a timer. It is now cleared only on dimension change and on leaving the server, and existing stash waypoints nearby also suppress a report - so toggling the module or reconnecting doesn't re-report either.
 - **Stash waypoints were always created in the Overworld.** The waypoint builder never set a dimension, so Nether/End stashes got an Overworld waypoint at the wrong coordinates. The current dimension is now set.
 - **`NewerNewChunks` used hard-coded section indices** (`< 17`, `== 4`, `< 8`) that assume vanilla heights; a dimension with fewer sections would throw on the connection thread. They are derived from the level now. The misleading comment claiming `getChunk(x, z, false)` never returns `null` was corrected - it returns `null` until the chunk is loaded, so the chunk analysis does run.
+- **Discord webhook treated every answer as success.** The response code was ignored, so rate limits (429), deleted webhooks (404) and bad tokens (401) failed silently, and the connection was not closed on errors. Now 429 waits for `retry_after`, 5xx and network errors retry with backoff (up to 4 attempts), other 4xx are logged once; the send queue is bounded (50) instead of growing without limit while Discord is down.
+- **Every slider step wrote the config file on the client thread.** `onChanged` now calls `Config.saveLater()`, which coalesces changes into one write after 1 s on a background thread.
+- **`AltitudeLossDetector` fired on stale or irrelevant drops.** After the 200-tick cooldown it compared against a Y from before the cooldown, and it also fired while walking or falling without an elytra. The reference is now kept fresh while not checking, only elytra flight (or an active bot flight) counts, and Baritone is only cancelled when the drop happened during the bot's own flight.
+- **Unreadable lines in `NewerNewChunks` data files aborted the whole load**, which was then retried every tick (only `IOException` was caught). Bad lines are now skipped and counted; lines are written as `[x, z]` explicitly instead of relying on `ChunkPos.toString()`.
+- **A corrupt `stashhunter_trips.json` threw out of `pause()`/`resume()`**, e.g. inside the death teardown, and the next `addTrip()` would have overwritten it. It is now moved to `stashhunter_trips.json.corrupt` with a warning. Waypoints with a missing or non-finite coordinate are rejected instead of silently becoming `(0, 0, 0)`, and unknown fields are skipped instead of aborting the read.
+- **The scan-completed flag could get stuck** when `notify-on-completion` was off, because the `&&` skipped consuming it; a later completion message then fired at the wrong time.
+- **`.stashhunter start`/`resume` without the module enabled started a flight that never moved**, since only `StashHunterModule` ticks `ElytraController`. The commands now enable the module. `ElytraController.start` rejects a `stripWidth <= 0` (endless waypoint loop), and the estimated waypoint count now includes the last strip.
 
 ### Removed
 
@@ -44,6 +51,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `fabric.mod.json`: mod `name` changed from `StashhunterPort by _og3` to `StashHunter`; the description no longer describes the project as a third-party fork; `contact.sources` now points at `omtoi101/Stash-Hunter`.
   - `meteor-addon-list.json`: `homepage` and `icon` now point at `omtoi101/Stash-Hunter` instead of the fork repository, so the addon-scanner resolves the upstream project.
   - `README.md`: title changed to `Stash-Hunter`; removed the "maintained by _og3" line; clone/Releases links and the `cd` example now use the canonical `omtoi101/Stash-Hunter` casing; `_og3` credited in the Credits section, matching the `authors` array.
+
+### Added
+
+- **`mention-everyone` setting** (default: off). Discord messages no longer ping `@everyone` unless enabled; `allowed_mentions` is set explicitly either way.
+- **`max-cluster-size` and `report-dedupe-radius` settings** for the stash clustering (see Fixed).
 
 ### Security
 

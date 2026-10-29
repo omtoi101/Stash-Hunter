@@ -87,18 +87,21 @@ These settings control the core functionality of the stash finding process.
 | ------------------------------ | ------------------------------------------------------------------------------------------------------- | ------------- |
 | `discord-webhook-url`          | The Discord webhook URL to send notifications to.                                                       | (empty)       |
 | `block-detection-threshold`    | The number of valuable blocks to find before a stash is detected.                                       | 10            |
-| `scan-radius`                  | The radius (in blocks) to scan for valuable blocks around the player.                                   | 64            |
+| `scan-radius`                  | The horizontal radius (in blocks) to scan for valuable blocks around the player, over the full world height. | 64            |
 | `storage-only-mode`            | If enabled, only searches for storage containers (chests, shulkers). Faster than a full block scan.      | true          |
 | `max-volume-threshold`         | The maximum volume of a block cluster to be considered a stash. Helps filter out large natural structures. | 5000          |
 | `filter-natural-structures`    | If enabled, attempts to filter out likely natural structures like dungeons and mineshafts.                | true          |
 | `min-density-threshold`        | The minimum density (blocks/volume) required for a cluster to be considered a potential stash.          | 0.002         |
 | `notification-density-threshold` | The minimum density required to send a Discord notification. Set to 0 to be notified for all finds.       | 0.005         |
 | `max-cluster-distance`         | The maximum distance between two blocks for them to be considered part of the same cluster.               | 30            |
+| `max-cluster-size`             | The maximum diameter of one cluster, so neighbouring stashes aren't chained into one.                     | 64            |
+| `report-dedupe-radius`         | A stash this close to an already reported one (or to an existing stash waypoint) isn't reported again.    | 48            |
 | `flight-altitude`              | The altitude (Y-level) the bot will fly at during scanning.                                             | 160           |
 | `scan-interval`                | The interval in ticks between each scan for blocks (20 ticks = 1 second).                               | 40            |
 | `player-detection`             | Whether to notify when another player is detected nearby.                                               | true          |
 | `notify-on-death`              | Whether to send a Discord notification if you die.                                                      | true          |
 | `notify-on-completion`         | Whether to send a Discord notification when the scanning of a defined area is complete.                 | true          |
+| `mention-everyone`             | Ping `@everyone` for important Discord notifications (stash found, death, disconnect).                  | false         |
 | `use-baritone-pathing`         | Use [Baritone](https://github.com/MeteorDevelopment/baritone) (if installed) for precise flight/ground path execution instead of the built-in flight controller. Has no effect if Baritone isn't installed. | true          |
 
 ### Stuck Detector Module

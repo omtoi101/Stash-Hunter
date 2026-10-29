@@ -8,6 +8,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import meteordevelopment.meteorclient.MeteorClient;
 import net.minecraft.world.level.block.Block;
@@ -16,6 +20,15 @@ import net.minecraft.world.level.block.Blocks;
 public class Config {
     private static final File CONFIG_FILE = new File(MeteorClient.FOLDER, "stash-hunter.properties");
     private static final Properties properties = new Properties();
+
+    // Settings fire onChanged for every slider step; saveLater() coalesces those into one write.
+    private static final ScheduledExecutorService SAVER = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "StashHunter-ConfigSave");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private static final long SAVE_DELAY_MS = 1000;
+    private static ScheduledFuture<?> pendingSave;
 
     // Default configuration values
     public static String discordWebhookUrl = "";
@@ -27,6 +40,7 @@ public class Config {
     public static boolean notifyOnDeath = true;
     public static boolean notifyOnCompletion = true; // New setting for completion notifications
     public static boolean notifyOnDisconnect = true;
+    public static boolean mentionEveryone = false; // @everyone in Discord messages is opt-in
     public static boolean storageOnlyMode = true; // Storage-only detection by default
     public static int maxVolumeThreshold = 5000; // Reduced from 10000 - more aggressive filtering
     public static boolean filterNaturalStructures = true;
@@ -115,6 +129,7 @@ public class Config {
                 notifyOnDeath = getBoolProperty("notifyOnDeath", true);
                 notifyOnCompletion = getBoolProperty("notifyOnCompletion", true);
                 notifyOnDisconnect = getBoolProperty("notifyOnDisconnect", true);
+                mentionEveryone = getBoolProperty("mentionEveryone", false);
                 storageOnlyMode = getBoolProperty("storageOnlyMode", true);
                 maxVolumeThreshold = getIntProperty("maxVolumeThreshold", 5000);
                 filterNaturalStructures = getBoolProperty("filterNaturalStructures", true);
@@ -139,7 +154,12 @@ public class Config {
         }
     }
 
-    public static void save() {
+    public static synchronized void saveLater() {
+        if (pendingSave != null) pendingSave.cancel(false);
+        pendingSave = SAVER.schedule(Config::save, SAVE_DELAY_MS, TimeUnit.MILLISECONDS);
+    }
+
+    public static synchronized void save() {
         try {
             // Ensure the meteor client folder exists
             if (!MeteorClient.FOLDER.exists()) {
@@ -156,6 +176,7 @@ public class Config {
                 properties.setProperty("notifyOnDeath", String.valueOf(notifyOnDeath));
                 properties.setProperty("notifyOnCompletion", String.valueOf(notifyOnCompletion));
                 properties.setProperty("notifyOnDisconnect", String.valueOf(notifyOnDisconnect));
+                properties.setProperty("mentionEveryone", String.valueOf(mentionEveryone));
                 properties.setProperty("storageOnlyMode", String.valueOf(storageOnlyMode));
                 properties.setProperty("maxVolumeThreshold", String.valueOf(maxVolumeThreshold));
                 properties.setProperty("filterNaturalStructures", String.valueOf(filterNaturalStructures));

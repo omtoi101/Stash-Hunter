@@ -899,26 +899,44 @@ public class NewerNewChunks extends Module {
 		loadChunkData(Paths.get("OldGenerationChunkData.txt"), OldGenerationOldChunks);
 	}
 	private void loadChunkData(Path savedDataLocation, Set<ChunkPos> chunkSet) {
+		Path filePath = Paths.get("StashHunter/NewChunks", serverip, world).resolve(savedDataLocation);
+		List<String> allLines;
 		try {
-			Path filePath = Paths.get("StashHunter/NewChunks", serverip, world).resolve(savedDataLocation);
-			List<String> allLines = Files.readAllLines(filePath);
-
-			for (String line : allLines) {
-				if (line != null && !line.isEmpty()) {
-					String[] array = line.split(", ");
-					if (array.length == 2) {
-						int X = Integer.parseInt(array[0].replaceAll("\\[", "").replaceAll("\\]", ""));
-						int Z = Integer.parseInt(array[1].replaceAll("\\[", "").replaceAll("\\]", ""));
-						ChunkPos chunkPos = new ChunkPos(X, Z);
-						if (!OldGenerationOldChunks.contains(chunkPos) && !beingUpdatedOldChunks.contains(chunkPos) && !tickexploitChunks.contains(chunkPos) && !newChunks.contains(chunkPos) && !oldChunks.contains(chunkPos)) {
-							chunkSet.add(chunkPos);
-						}
-					}
-				}
-			}
+			allLines = Files.readAllLines(filePath);
 		} catch (IOException e) {
 			e.printStackTrace();
+			return;
 		}
+
+		int skipped = 0;
+		for (String line : allLines) {
+			ChunkPos chunkPos = parseChunkPos(line);
+			if (chunkPos == null) {
+				if (!line.isBlank()) skipped++;
+				continue;
+			}
+			if (!isKnownChunk(chunkPos)) {
+				chunkSet.add(chunkPos);
+			}
+		}
+		// A broken line used to abort the whole load, which then retried every tick.
+		if (skipped > 0) warning("Skipped " + skipped + " unreadable line(s) in " + savedDataLocation);
+	}
+	// Lines are "[x, z]" (see formatChunkPos); returns null for anything else.
+	private static ChunkPos parseChunkPos(String line) {
+		String trimmed = line.trim();
+		if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return null;
+		String[] parts = trimmed.substring(1, trimmed.length() - 1).split(",");
+		if (parts.length != 2) return null;
+		try {
+			return new ChunkPos(Integer.parseInt(parts[0].trim()), Integer.parseInt(parts[1].trim()));
+		} catch (NumberFormatException e) {
+			return null;
+		}
+	}
+	// Written explicitly instead of via ChunkPos.toString(), whose format is not a stable contract.
+	private static String formatChunkPos(ChunkPos pos) {
+		return "[" + pos.x() + ", " + pos.z() + "]";
 	}
 	// Only queues the line; flushPendingWrites() appends each file's batch in a single write.
 	private void saveData(Path savedDataLocation, ChunkPos chunkpos) {
@@ -938,7 +956,7 @@ public class NewerNewChunks extends Module {
 		for (Map.Entry<Path, List<ChunkPos>> entry : pendingWrites.entrySet()) {
 			StringBuilder data = new StringBuilder();
 			for (ChunkPos chunkpos : entry.getValue()) {
-				data.append(chunkpos).append(System.lineSeparator());
+				data.append(formatChunkPos(chunkpos)).append(System.lineSeparator());
 			}
 			try {
 				Files.createDirectories(entry.getKey().getParent());

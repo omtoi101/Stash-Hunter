@@ -2,6 +2,7 @@ package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
 import com.stashhunter.stashhunter.baritone.BaritoneBridge;
+import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.KeyHold;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
@@ -51,16 +52,21 @@ public class AltitudeLossDetector extends Module {
             return;
         }
 
-        if (fixCooldown > 0) {
-            fixCooldown--;
-            return;
-        }
-
-        if (fixInProgress) {
-            return;
-        }
-
         long currentTime = System.currentTimeMillis();
+
+        // Only elytra flight counts: walking off a ledge or a normal fall is no altitude loss.
+        // While the bot flies, a closed elytra falling is exactly the case to recover from.
+        boolean flying = mc.player.isFallFlying() || ElytraController.isActive();
+
+        // Keep the reference fresh while not checking, so the first check afterwards doesn't
+        // compare against a Y from before the cooldown/fix and fire on that stale drop.
+        if (fixCooldown > 0 || fixInProgress || !flying) {
+            if (fixCooldown > 0) fixCooldown--;
+            lastYPosition = mc.player.getY();
+            lastCheckTime = currentTime;
+            return;
+        }
+
         if (currentTime - lastCheckTime >= 1000) {
             double currentYPosition = mc.player.getY();
             double altitudeDrop = lastYPosition - currentYPosition;
@@ -80,9 +86,9 @@ public class AltitudeLossDetector extends Module {
         if (autoFix.get()) {
             fixInProgress = true;
 
-            // If Baritone is mid-path, cancel it first so its own movement inputs don't fight
-            // the jump-hold recovery below.
-            BaritoneBridge.cancel();
+            // If Baritone is mid-path for our flight, cancel it first so its own movement inputs
+            // don't fight the jump-hold recovery below. Leave paths the user started alone.
+            if (ElytraController.isActive()) BaritoneBridge.cancel();
 
             info("Attempting to fix by holding jump...");
             KeyHold.hold(mc.options.keyJump, 100, () -> {

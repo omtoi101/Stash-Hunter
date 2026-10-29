@@ -24,7 +24,7 @@ public class StuckDetector extends Module {
         .defaultValue(Config.stuckDetectorWebhookUrl)
         .onChanged(v -> {
             Config.stuckDetectorWebhookUrl = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -37,7 +37,7 @@ public class StuckDetector extends Module {
         .sliderMax(10)
         .onChanged(v -> {
             Config.stuckDetectorThreshold = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -48,7 +48,7 @@ public class StuckDetector extends Module {
         .defaultValue(Config.stuckDetectorAutoFix)
         .onChanged(v -> {
             Config.stuckDetectorAutoFix = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );

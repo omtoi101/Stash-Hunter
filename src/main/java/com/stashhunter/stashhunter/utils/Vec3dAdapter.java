@@ -1,5 +1,6 @@
 package com.stashhunter.stashhunter.utils;
 
+import com.google.gson.JsonParseException;
 import com.google.gson.TypeAdapter;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
@@ -20,7 +21,7 @@ public class Vec3dAdapter extends TypeAdapter<Vec3> {
     @Override
     public Vec3 read(JsonReader in) throws IOException {
         in.beginObject();
-        double x = 0, y = 0, z = 0;
+        double x = Double.NaN, y = Double.NaN, z = Double.NaN;
         while (in.hasNext()) {
             switch (in.nextName()) {
                 case "x":
@@ -32,9 +33,15 @@ public class Vec3dAdapter extends TypeAdapter<Vec3> {
                 case "z":
                     z = in.nextDouble();
                     break;
+                default:
+                    in.skipValue(); // tolerate fields added by other versions
             }
         }
         in.endObject();
+        // A missing coordinate must not silently become 0 - that would send the bot to the origin.
+        if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)) {
+            throw new JsonParseException("Waypoint needs finite x, y and z, got (" + x + ", " + y + ", " + z + ")");
+        }
         return new Vec3(x, y, z);
     }
 }

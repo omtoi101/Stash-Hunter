@@ -52,6 +52,8 @@ public class ElytraController {
     }
 
     public static void start(int x1, int z1, int x2, int z2, int stripWidth) {
+        // generateGridWaypoints steps by stripWidth, so anything <= 0 would never terminate.
+        if (stripWidth <= 0) throw new IllegalArgumentException("stripWidth must be positive, got " + stripWidth);
         waypoints.clear();
         currentWaypoint = 0;
         active = true;

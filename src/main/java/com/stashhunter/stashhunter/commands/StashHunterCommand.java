@@ -1,5 +1,6 @@
 package com.stashhunter.stashhunter.commands;
 
+import com.stashhunter.stashhunter.modules.StashHunterModule;
 import com.stashhunter.stashhunter.modules.AutoElytraRepair;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import meteordevelopment.meteorclient.systems.modules.Modules;
@@ -89,6 +90,7 @@ public class StashHunterCommand extends Command {
                 if (ElytraController.isActive()) {
                     error("Stash hunter is already active.");
                 } else {
+                    ensureModuleActive();
                     ElytraController.resume();
                     info("Stash hunter flight resumed.");
                 }
@@ -100,6 +102,7 @@ public class StashHunterCommand extends Command {
                         error("Stash hunter is already active.");
                     } else {
                         long timestamp = LongArgumentType.getLong(context, "timestamp");
+                        ensureModuleActive();
                         ElytraController.resume(timestamp);
                         info("Stash hunter flight resumed.");
                     }
@@ -262,7 +265,8 @@ public class StashHunterCommand extends Command {
 
         // Calculate area and estimated time
         long area = Math.abs((long)(x2 - x1) * (z2 - z1));
-        long estimatedWaypoints = (Math.abs(x2 - x1) / stripWidth) * 2;
+        long strips = Math.abs(x2 - x1) / stripWidth + 1; // generateGridWaypoints includes both ends
+        long estimatedWaypoints = strips * 2;
 
         info("Starting stash finding process:");
         info("§7Area: §f" + area + " blocks²");
@@ -271,7 +275,17 @@ public class StashHunterCommand extends Command {
         info("§7Estimated waypoints: §f" + estimatedWaypoints);
         info("§7Make sure you have an Elytra equipped and are at flight altitude!");
 
+        ensureModuleActive();
         ElytraController.start(x1, z1, x2, z2, stripWidth);
         return SINGLE_SUCCESS;
+    }
+
+    // ElytraController is only ticked by StashHunterModule; without it a started flight never moves.
+    private void ensureModuleActive() {
+        StashHunterModule module = Modules.get().get(StashHunterModule.class);
+        if (module != null && !module.isActive()) {
+            module.toggle();
+            info("Enabled the stash-hunter module, which drives the flight.");
+        }
     }
 }

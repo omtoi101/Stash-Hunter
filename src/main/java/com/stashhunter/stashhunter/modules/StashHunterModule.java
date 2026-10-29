@@ -54,7 +54,7 @@ public class StashHunterModule extends Module {
         .defaultValue(Config.discordWebhookUrl)
         .onChanged(v -> {
             Config.discordWebhookUrl = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -67,7 +67,7 @@ public class StashHunterModule extends Module {
         .sliderMax(50)
         .onChanged(v -> {
             Config.blockDetectionThreshold = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -80,7 +80,7 @@ public class StashHunterModule extends Module {
         .sliderMax(256)
         .onChanged(v -> {
             Config.scanRadius = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -91,7 +91,7 @@ public class StashHunterModule extends Module {
         .defaultValue(Config.storageOnlyMode)
         .onChanged(v -> {
             Config.storageOnlyMode = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -104,7 +104,7 @@ public class StashHunterModule extends Module {
         .sliderMax(50000)
         .onChanged(v -> {
             Config.maxVolumeThreshold = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -115,7 +115,7 @@ public class StashHunterModule extends Module {
         .defaultValue(Config.filterNaturalStructures)
         .onChanged(v -> {
             Config.filterNaturalStructures = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -128,7 +128,7 @@ public class StashHunterModule extends Module {
         .sliderMax(0.1)
         .onChanged(v -> {
             Config.minDensityThreshold = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -141,7 +141,7 @@ public class StashHunterModule extends Module {
         .sliderMax(0.1)
         .onChanged(v -> {
             Config.notificationDensityThreshold = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -154,7 +154,7 @@ public class StashHunterModule extends Module {
         .sliderMax(200)
         .onChanged(v -> {
             Config.maxClusterDistance = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -186,7 +186,7 @@ public class StashHunterModule extends Module {
         .sliderMax(400)
         .onChanged(v -> {
             Config.flightAltitude = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -199,7 +199,7 @@ public class StashHunterModule extends Module {
         .sliderMax(100)
         .onChanged(v -> {
             Config.scanInterval = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -210,7 +210,7 @@ public class StashHunterModule extends Module {
         .defaultValue(Config.playerDetection)
         .onChanged(v -> {
             Config.playerDetection = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -221,7 +221,7 @@ public class StashHunterModule extends Module {
         .defaultValue(Config.notifyOnDeath)
         .onChanged(v -> {
             Config.notifyOnDeath = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -232,7 +232,7 @@ public class StashHunterModule extends Module {
         .defaultValue(Config.notifyOnCompletion)
         .onChanged(v -> {
             Config.notifyOnCompletion = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -243,7 +243,18 @@ public class StashHunterModule extends Module {
         .defaultValue(Config.notifyOnDisconnect)
         .onChanged(v -> {
             Config.notifyOnDisconnect = v;
-            Config.save();
+            Config.saveLater();
+        })
+        .build()
+    );
+
+    private final Setting<Boolean> mentionEveryone = sgGeneral.add(new BoolSetting.Builder()
+        .name("mention-everyone")
+        .description("Ping @everyone for important Discord notifications (stash found, death, disconnect).")
+        .defaultValue(Config.mentionEveryone)
+        .onChanged(v -> {
+            Config.mentionEveryone = v;
+            Config.saveLater();
         })
         .build()
     );
@@ -254,7 +265,7 @@ public class StashHunterModule extends Module {
         .defaultValue(Config.useBaritonePathing)
         .onChanged(v -> {
             Config.useBaritonePathing = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -512,7 +523,7 @@ public class StashHunterModule extends Module {
         }
 
         // Check if ElytraController completed and send notification
-        if (notifyOnCompletion.get() && ElytraController.justCompleted()) {
+        if (ElytraController.justCompleted() && notifyOnCompletion.get()) { // always consume the flag
             DiscordEmbed embed = new DiscordEmbed(
                 "Scanning Completed!",
                 "Stash hunter has finished scanning the designated area.\n" +

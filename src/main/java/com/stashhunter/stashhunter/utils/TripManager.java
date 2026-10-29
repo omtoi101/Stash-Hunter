@@ -2,6 +2,8 @@ package com.stashhunter.stashhunter.utils;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
+import com.stashhunter.stashhunter.StashHunter;
 import com.google.gson.reflect.TypeToken;
 import meteordevelopment.meteorclient.MeteorClient;
 import net.minecraft.world.phys.Vec3;
@@ -36,10 +38,18 @@ public class TripManager {
                 Type type = new TypeToken<List<TripData>>() {}.getType();
                 List<TripData> trips = GSON.fromJson(reader, type);
                 if (trips != null) {
+                    trips.removeIf(trip -> trip == null || trip.waypoints == null);
                     return trips;
                 }
             } catch (IOException e) {
                 e.printStackTrace();
+            } catch (JsonParseException | IllegalStateException e) {
+                // Move the broken file aside: otherwise the next addTrip() would overwrite it.
+                File backup = new File(TRIPS_FILE.getPath() + ".corrupt");
+                backup.delete();
+                boolean moved = TRIPS_FILE.renameTo(backup);
+                StashHunter.LOG.warn("Could not read {} ({}){}", TRIPS_FILE.getName(), e.getMessage(),
+                    moved ? ", moved it to " + backup.getName() : "");
             }
         }
         return new ArrayList<>();

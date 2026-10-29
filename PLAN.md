@@ -120,6 +120,13 @@
 
 ### Phase 4 — Robustheit / Netzwerk / Config
 
+> **Erledigt (2026-10-29, Punkte 22–27)**, Build grün, in-game noch ungetestet.
+> Abweichungen: 23 debounced (Config.saveLater, 1 s) statt Meteor-Settings als einzige
+> Persistenz; 24 fordert isFallFlying() ODER aktiven Bot-Flug (sonst würde genau der
+> Fall „Elytra zu, Bot fällt“ nicht mehr erkannt); 25 zusätzlich TripManager: kaputte
+> JSON wird nach .corrupt verschoben statt beim nächsten addTrip überschrieben.
+> @everyone ist jetzt opt-in (Setting mention-everyone, Default aus).
+
 22. **Discord-Webhook härten.** Unbegrenzte Queue, Response-Code ignoriert, kein
     Retry/Backoff, disconnect() fehlt, @everyone bei jeder Meldung. Status/retry_after
     auswerten, Queue begrenzen, @everyone opt-in, allowed_mentions setzen.
