@@ -83,6 +83,24 @@ public class StuckDetector extends Module {
         fixStage = FixStage.NONE;
     }
 
+    @Override
+    public void onDeactivate() {
+        // If we toggled ElytraFly off as part of an auto-fix and haven't re-enabled it yet,
+        // restore it so the player isn't left falling out of the sky (the tick-driven re-enable
+        // below would otherwise be the only thing that turns it back on).
+        if (fixInProgress && fixStage == FixStage.REENABLE_ELYTRA_FLY) {
+            ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
+            if (elytraFly != null && !elytraFly.isActive()) elytraFly.toggle();
+        }
+
+        lastPosition = null;
+        stationaryTicks = 0;
+        fixInProgress = false;
+        fixCooldown = 0;
+        fixStage = FixStage.NONE;
+        fixTicks = 0;
+    }
+
     @EventHandler
     private void onTick(TickEvent.Post event) {
         if (mc.player == null || mc.level == null) {
@@ -103,7 +121,7 @@ public class StuckDetector extends Module {
         // path well short of the target, treat that the same as being stuck. This doesn't
         // reimplement any of Baritone's own path-repair logic - it only asks "did Baritone give
         // up on its goal?" and reuses the existing recovery below if so.
-        if (BaritoneBridge.isModLoaded() && ElytraController.isActive()) {
+        if (Config.useBaritonePathing && BaritoneBridge.isElytraPathingReady() && ElytraController.isActive()) {
             Vec3 target = ElytraController.getCurrentTarget();
             if (target != null && !BaritoneBridge.isPathing() && !BaritoneBridge.hasPath()
                 && mc.player.position().distanceTo(target) > 5.0) {

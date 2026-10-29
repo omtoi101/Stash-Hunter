@@ -253,6 +253,15 @@ public class StashHunterModule extends Module {
         reportedStashes.clear();
         lastHealth = -1; // Reset health tracking
 
+        // Reset elytra/tick state so a re-enable can't instantly trip the "out of elytras"
+        // path (Discord blast + disconnect) from a stale broken-elytra counter, nor resume a
+        // leftover jump hold or completion/notification timer from the previous run.
+        elytraBrokenTicks = 0;
+        wasElytraBroken = false;
+        reEngagingElytraTicks = 0;
+        tickCounter = 0;
+        setHoldingJump(false);
+
         if (useBaritonePathing.get() && !BaritoneBridge.isModLoaded()) {
             info("Baritone is not installed - falling back to the built-in flight controller. " +
                 "Install the Baritone Fabric mod (26.2) for precise pathfinding.");
