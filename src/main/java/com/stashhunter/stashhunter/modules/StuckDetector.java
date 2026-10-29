@@ -93,6 +93,7 @@ public class StuckDetector extends Module {
             if (elytraFly != null && !elytraFly.isActive()) elytraFly.toggle();
         }
 
+        KeyHold.cancel(this);
         lastPosition = null;
         stationaryTicks = 0;
         fixInProgress = false;
@@ -205,7 +206,7 @@ public class StuckDetector extends Module {
 
                     info("Attempting Fix 3: Holding jump...");
                     fixStage = FixStage.HOLDING_JUMP;
-                    KeyHold.hold(mc.options.keyJump, 5, () -> {
+                    KeyHold.hold(this, mc.options.keyJump, 5, () -> {
                         info("Jump complete.");
                         finishFix();
                     });

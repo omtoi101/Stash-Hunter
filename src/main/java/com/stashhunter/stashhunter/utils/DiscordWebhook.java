@@ -132,13 +132,13 @@ public class DiscordWebhook {
         try {
             String header = connection.getHeaderField("Retry-After");
             if (header != null) return (long) (Double.parseDouble(header) * 1000);
-        } catch (NumberFormatException ignored) {}
+        } catch (NumberFormatException ignored) {} // fall through to the body
         try (InputStream error = connection.getErrorStream()) {
             if (error != null) {
                 JsonObject body = JsonParser.parseReader(new InputStreamReader(error, StandardCharsets.UTF_8)).getAsJsonObject();
                 if (body.has("retry_after")) return (long) (body.get("retry_after").getAsDouble() * 1000);
             }
-        } catch (IOException | RuntimeException ignored) {}
+        } catch (IOException | RuntimeException ignored) {} // fall back to the default wait
         return backoffMs(2);
     }
 }

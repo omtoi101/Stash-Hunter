@@ -1,5 +1,6 @@
 package com.stashhunter.stashhunter.utils;
 
+import com.stashhunter.stashhunter.StashHunter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -145,8 +146,7 @@ public class Config {
                 useBaritonePathing = getBoolProperty("useBaritonePathing", true);
 
             } catch (IOException e) {
-                System.err.println("Failed to load Stash-Hunter config: " + e.getMessage());
-                e.printStackTrace();
+                StashHunter.LOG.warn("Failed to load Stash-Hunter config", e);
             }
         } else {
             // Create config file with defaults if it doesn't exist
@@ -194,8 +194,7 @@ public class Config {
                 properties.store(fos, "Stash-Hunter Configuration - Auto-generated");
             }
         } catch (IOException e) {
-            System.err.println("Failed to save Stash-Hunter config: " + e.getMessage());
-            e.printStackTrace();
+            StashHunter.LOG.warn("Failed to save Stash-Hunter config", e);
         }
     }
 
@@ -203,7 +202,7 @@ public class Config {
         try {
             return Integer.parseInt(properties.getProperty(key, String.valueOf(defaultValue)));
         } catch (NumberFormatException e) {
-            System.err.println("Invalid integer value for " + key + ", using default: " + defaultValue);
+            StashHunter.LOG.warn("Invalid integer value for {}, using default: {}", key, defaultValue);
             return defaultValue;
         }
     }
@@ -216,7 +215,7 @@ public class Config {
         try {
             return Double.parseDouble(properties.getProperty(key, String.valueOf(defaultValue)));
         } catch (NumberFormatException e) {
-            System.err.println("Invalid double value for " + key + ", using default: " + defaultValue);
+            StashHunter.LOG.warn("Invalid double value for {}, using default: {}", key, defaultValue);
             return defaultValue;
         }
     }

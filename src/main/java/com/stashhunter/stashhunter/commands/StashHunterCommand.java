@@ -3,6 +3,7 @@ package com.stashhunter.stashhunter.commands;
 import com.stashhunter.stashhunter.modules.StashHunterModule;
 import com.stashhunter.stashhunter.modules.AutoElytraRepair;
 import com.stashhunter.stashhunter.utils.ElytraController;
+import com.stashhunter.stashhunter.utils.GridWaypoints;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -265,8 +266,7 @@ public class StashHunterCommand extends Command {
 
         // Calculate area and estimated time
         long area = Math.abs((long)(x2 - x1) * (z2 - z1));
-        long strips = Math.abs(x2 - x1) / stripWidth + 1; // generateGridWaypoints includes both ends
-        long estimatedWaypoints = strips * 2;
+        long estimatedWaypoints = GridWaypoints.count(x1, x2, stripWidth);
 
         info("Starting stash finding process:");
         info("§7Area: §f" + area + " blocks²");

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Jump holds from different modules cut each other off.** `KeyHold` released the key unconditionally, so e.g. the altitude-loss recovery ending released a jump the stash module was still holding. Presses are now counted per key, and `AltitudeLossDetector`, `StuckDetector` and `AutoElytraRepair` cancel their holds when deactivated (the hold's callback was otherwise the only thing that cleared their fix-in-progress state).
 - **Compilation failure in `ElytraController`**: `BlockPos` was used at three sites (the `baritoneTargetPos` field, `startGroundPath(...)`, and the landing-target call) but `net.minecraft.core.BlockPos` was never imported, so `compileJava` failed with `cannot find symbol` on all three. Added the missing import.
 - **Compilation failure in `StashHunterModule`**: `onActivate()` reset health tracking via `lastHealthCheck = -1;`, but no such field exists - the declared field is `lastHealth` (line 240). The leftover name from an earlier rename broke the build with `cannot find symbol: variable lastHealthCheck`. Corrected to `lastHealth`.
 - **`NewerNewChunks`: enabling `SaveChunkData` mid-session only dumped the already detected chunks the first time.** The one-shot counter was never reset when saving was switched off again, so a second off/on cycle silently skipped the dump. Replaced with plain on-edge detection.
@@ -38,10 +39,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Removed
 
+- **Dead utility code**: `WorldScanner` (6 of its 8 methods had no callers; the two used ones moved to `StashClustering`), the unused `Utils`, and the custom `Logger`, which wrote to a hard-coded `~/.meteor-client/stashhunter.log` instead of `MeteorClient.FOLDER`, was not thread-safe and never closed. Its messages now go to the normal game log via `StashHunter.LOG`.
+- **The separate Gson dependency** - Minecraft already ships Gson (2.14.0) on the classpath; the declared 2.10.1 was redundant.
+- **Dead `lastForwardPressed` reflection in `AutoElytraRepair`.** It looked the field up on the flight-mode subclass, but it is declared in `ElytraFlightMode`, so it always threw `NoSuchFieldException` and was silently ignored - removing it changes nothing at runtime.
 - **Dead mixins and event**: `PlayerInventoryAccessor` (unused, and a boot-crash risk under `defaultRequire: 1`), `LivingEntityMixin` (`LivingEntity#die` runs server-side, so it never fired on the client) and the subscriber-less `PlayerDeathEvent`. With no mixins left, the `addon-template.mixins.json` config is dropped from `fabric.mod.json`.
 
 ### Changed
 
+- **Fabric API is no longer required.** It was only used for its client-disconnect event; the Discord disconnect notification now hangs off Meteor's `GameLeftEvent` (fired on kicks, lost connections and own disconnects alike), and the internal `PlayerDisconnectEvent` is gone. `fabric.mod.json` now depends only on Java, Minecraft and Meteor; the build compiles against the single `fabric-resource-loader-v1` module Meteor bundles.
+- **`meteor-client` dependency narrowed from `*` to `~26.2-`**, i.e. any Meteor build of the 26.2 line. (Plain `>=26.2` would reject every Meteor build, since they are versioned as pre-releases like `26.2-35`.)
+- **Toolchain**: Fabric Loader 0.19.3 → 0.20.1; Loom pinned to the 1.17.21 release instead of the moving `1.17-SNAPSHOT`. Loom 1.18+/1.19 were not taken: they require Gradle itself to run on JDK 25 (and 1.19 Gradle ≥ 9.8).
+- **Pure logic extracted into testable classes**: `StashClustering` (clustering, bounding box, center - now `Optional` instead of `BlockPos.ZERO` for an empty list), `GridWaypoints` (strip waypoints and their count), `TrailAnalysis` (trail detection, takes a `Predicate<ChunkPos>` instead of the module) and `ChunkDataFormat` (data file lines).
+- **`AutoElytraRepair` no longer reads Meteor internals via reflection.** ElytraFly's `autoPilot`/`autoHover`/`autoTakeOff` are public settings; Scaffold's `air-place`/`auto-switch` go through Meteor's `settings.get(name)`. A missing setting is logged once as a warning instead of being swallowed.
+- **`ElytraController` looks `NewerNewChunks` up per call** instead of in a `static final` field filled at class-load time, which stayed `null` for good if the class loaded before the module was registered.
+- **Errors are logged instead of printed**: all `printStackTrace()`/`System.err` calls go through `StashHunter.LOG`; empty `catch` blocks around calls that can't throw were removed, the remaining intentional ones are commented.
+- **`NewerNewChunks` is indented with spaces** like the rest of the code (`.editorconfig`).
 - **Rendering and trail analysis no longer allocate per chunk per frame/tick.** `NewerNewChunks` renders and prunes with plain int/double distance math instead of creating `BlockPos`/`Vec3`/`AABB` per chunk. `getNewChunks()` (copied the whole set, twice per tick) is replaced by `isNewChunk(ChunkPos)`; `ElytraController` probes only its 5-chunk analysis radius, caps the O(n³) collinearity search at the 24 nearest chunks and no longer sorts its caller's list in place.
 - **Faster `scanForBlocks`.** The active block list is turned into a set once per scan, sections whose palette cannot contain an active block are skipped, block states are read straight from the section, and the two `sqrt`/`pow` distance checks became one squared int check. Scanned positions (radius, Y range, step) are unchanged.
 - **Removed template leftovers**: icon moved to `assets/stash-hunter/icon.png`, `maven_group` is now `com.stashhunter`, `mod_version` aligned with the changelog (`26.2.1`).
@@ -54,6 +66,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Unit tests** (JUnit 5, run by `./gradlew build` and CI) for clustering, waypoint generation, trail analysis, the chunk data format and trip/`Vec3` serialization.
+- **Spotless** whitespace check (indentation, trailing whitespace, final newline; `./gradlew spotlessApply` fixes it) and a **Dependabot** config for Gradle plugins/libraries and GitHub Actions.
 - **`mention-everyone` setting** (default: off). Discord messages no longer ping `@everyone` unless enabled; `allowed_mentions` is set explicitly either way.
 - **`max-cluster-size` and `report-dedupe-radius` settings** for the stash clustering (see Fixed).
 

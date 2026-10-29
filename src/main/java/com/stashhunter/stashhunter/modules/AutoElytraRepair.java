@@ -20,7 +20,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.Vec3;
 
-import java.lang.reflect.Field;
+import java.util.HashSet;
+import java.util.Set;
 
 public class AutoElytraRepair extends Module {
     // Elytra loses 1 durability per second of flight. The stop/scaffold/positioning phases can
@@ -64,6 +65,9 @@ public class AutoElytraRepair extends Module {
         .defaultValue(false)
         .build()
     );
+
+    // "module/setting" pairs already reported as missing, so the warning is logged once.
+    private final Set<String> missingSettingWarned = new HashSet<>();
 
     // Repair state
     private RepairState currentState = RepairState.MONITORING;
@@ -135,6 +139,7 @@ public class AutoElytraRepair extends Module {
 
     @Override
     public void onDeactivate() {
+        KeyHold.cancel(this);
         if (currentState != RepairState.MONITORING) {
             resumeNormalOperation();
         }
@@ -204,13 +209,13 @@ public class AutoElytraRepair extends Module {
         }
 
         // Stop autopilot to allow player to slow down
-        originalAutoPilotState = getBoolSetting(elytraFly, "autoPilot", false);
-        originalAutoHoverState = getBoolSetting(elytraFly, "autoHover", false);
-        originalAutoTakeoffState = getBoolSetting(elytraFly, "autoTakeOff", false);
+        originalAutoPilotState = elytraFly.autoPilot.get();
+        originalAutoHoverState = elytraFly.autoHover.get();
+        originalAutoTakeoffState = elytraFly.autoTakeOff.get();
         elytraFlySettingsSaved = true;
-        setModuleSetting(elytraFly, "autoPilot", false);
-        releaseForward(elytraFly);
-        setModuleSetting(elytraFly, "autoTakeOff", true);
+        elytraFly.autoPilot.set(false);
+        mc.options.keyUp.setDown(false);
+        elytraFly.autoTakeOff.set(true);
 
         info("Stopped autopilot. Waiting for player to stop moving...");
         currentState = RepairState.WAITING_FOR_STOP;
@@ -274,10 +279,10 @@ public class AutoElytraRepair extends Module {
             // If we haven't started the deceleration sequence yet, do so once.
             if (!decelInitiated) {
                 // Save/modify ElytraFly settings to slow the player down
-                setModuleSetting(elytraFly, "autoHover", true);
-                setModuleSetting(elytraFly, "autoPilot", false);
-                releaseForward(elytraFly);
-                setModuleSetting(elytraFly, "autoTakeOff", true);
+                elytraFly.autoHover.set(true);
+                elytraFly.autoPilot.set(false);
+                mc.options.keyUp.setDown(false);
+                elytraFly.autoTakeOff.set(true);
 
                 // Give ElytraFly some time to slow the player down before enabling scaffold placement
                 decelInitiated = true;
@@ -313,10 +318,10 @@ public class AutoElytraRepair extends Module {
             }
 
             // Now actually enable scaffold and auto exp together
-            originalScaffoldAirPlace = getBoolSetting(scaffold, "airPlace", false);
-            originalScaffoldAutoSwitch = getBoolSetting(scaffold, "autoSwitch", true);
-            setModuleSetting(scaffold, "airPlace", true);
-            setModuleSetting(scaffold, "autoSwitch", true);
+            originalScaffoldAirPlace = readBool(scaffold, "air-place", false);
+            originalScaffoldAutoSwitch = readBool(scaffold, "auto-switch", true);
+            writeBool(scaffold, "air-place", true);
+            writeBool(scaffold, "auto-switch", true);
 
             if (!scaffold.isActive()) scaffold.toggle();
 
@@ -353,8 +358,8 @@ public class AutoElytraRepair extends Module {
 
             // Ensure elytra engaged before positioning
             if (!mc.player.isFallFlying()) {
-                if (mc.player.onGround()) KeyHold.hold(mc.options.keyJump, 4, null);
-                try { mc.player.startFallFlying(); } catch (Exception ignored) {}
+                if (mc.player.onGround()) KeyHold.hold(this, mc.options.keyJump, 4, null);
+                mc.player.startFallFlying();
             }
 
             currentState = RepairState.POSITIONING_FOR_REPAIR;
@@ -391,7 +396,7 @@ public class AutoElytraRepair extends Module {
 
         // Keep gliding and pitch up to climb gently
         if (!mc.player.isFallFlying()) {
-            try { mc.player.startFallFlying(); } catch (Exception ignored) {}
+            mc.player.startFallFlying();
         }
         mc.player.setXRot(-20);
     }
@@ -400,8 +405,8 @@ public class AutoElytraRepair extends Module {
         Scaffold scaffold = Modules.get().get(Scaffold.class);
         if (scaffold != null && scaffold.isActive()) {
             scaffold.toggle();
-            setModuleSetting(scaffold, "airPlace", originalScaffoldAirPlace);
-            setModuleSetting(scaffold, "autoSwitch", originalScaffoldAutoSwitch);
+            writeBool(scaffold, "air-place", originalScaffoldAirPlace);
+            writeBool(scaffold, "auto-switch", originalScaffoldAutoSwitch);
             info("Scaffold disabled and settings restored.");
         }
 
@@ -470,7 +475,7 @@ public class AutoElytraRepair extends Module {
     private void handleResumingFlight() {
         if (!climbingToCruise) {
             resumeNormalOperation();
-            KeyHold.hold(mc.options.keyJump, 10, null);
+            KeyHold.hold(this, mc.options.keyJump, 10, null);
             ElytraController.resume();
             info("Resuming flight. Climbing back to cruise altitude (Y=" + Config.flightAltitude + "), timeout 10s.");
             climbingToCruise = true;
@@ -492,7 +497,7 @@ public class AutoElytraRepair extends Module {
         // Ensure autopilot resumes forward movement
         ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
         if (elytraFly != null && originalAutoPilotState) {
-            setModuleSetting(elytraFly, "autoPilot", true);
+            elytraFly.autoPilot.set(true);
         }
         mc.options.keyUp.setDown(true);
         resetRepairState();
@@ -553,16 +558,16 @@ public class AutoElytraRepair extends Module {
 
         ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
         if (elytraFly != null && elytraFlySettingsSaved) {
-            setModuleSetting(elytraFly, "autoPilot", originalAutoPilotState);
-            setModuleSetting(elytraFly, "autoHover", originalAutoHoverState);
-            setModuleSetting(elytraFly, "autoTakeOff", originalAutoTakeoffState);
+            elytraFly.autoPilot.set(originalAutoPilotState);
+            elytraFly.autoHover.set(originalAutoHoverState);
+            elytraFly.autoTakeOff.set(originalAutoTakeoffState);
         }
 
         Scaffold scaffold = Modules.get().get(Scaffold.class);
         if (scaffold != null && scaffold.isActive()) {
             scaffold.toggle();
-            setModuleSetting(scaffold, "airPlace", originalScaffoldAirPlace);
-            setModuleSetting(scaffold, "autoSwitch", originalScaffoldAutoSwitch);
+            writeBool(scaffold, "air-place", originalScaffoldAirPlace);
+            writeBool(scaffold, "auto-switch", originalScaffoldAutoSwitch);
         }
 
         AutoEXP autoExp = Modules.get().get(AutoEXP.class);
@@ -619,55 +624,24 @@ public class AutoElytraRepair extends Module {
         }
     }
 
-    // Release forward so autopilot movement stops, including ElytraFly's internal forward flag if present
-    private void releaseForward(ElytraFly elytraFly) {
-        mc.options.keyUp.setDown(false);
-        try {
-            Field modeField = elytraFly.getClass().getDeclaredField("currentMode");
-            modeField.setAccessible(true);
-            Object mode = modeField.get(elytraFly);
-            if (mode != null) {
-                try {
-                    Field lastF = mode.getClass().getDeclaredField("lastForwardPressed");
-                    lastF.setAccessible(true);
-                    lastF.setBoolean(mode, false);
-                } catch (NoSuchFieldException ignored) {}
-            }
-        } catch (Throwable ignored) {}
+    // Scaffold keeps these settings private; Meteor's settings lookup by name is the public way in.
+    private boolean readBool(Module module, String name, boolean fallback) {
+        Setting<Boolean> setting = boolSetting(module, name);
+        return setting != null ? setting.get() : fallback;
     }
 
-    // Reflection Helpers
-    private boolean getBoolSetting(Module module, String settingName, boolean fallback) {
-        Boolean value = getModuleSetting(module, settingName);
-        return value != null ? value : fallback;
+    private void writeBool(Module module, String name, boolean value) {
+        Setting<Boolean> setting = boolSetting(module, name);
+        if (setting != null) setting.set(value); // set() matches GUI behavior
     }
 
     @SuppressWarnings("unchecked")
-    private <T> T getModuleSetting(Module module, String settingName) {
-        try {
-            Field field = module.getClass().getDeclaredField(settingName);
-            field.setAccessible(true);
-            Object settingObj = field.get(module);
-            if (settingObj instanceof Setting) {
-                return ((Setting<T>) settingObj).get();
-            }
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            debugLog("Reflection failed while getting setting '" + settingName + "': " + e.getMessage());
+    private Setting<Boolean> boolSetting(Module module, String name) {
+        Setting<?> setting = module.settings.get(name);
+        if (setting != null && setting.get() instanceof Boolean) return (Setting<Boolean>) setting;
+        if (missingSettingWarned.add(module.name + "/" + name)) {
+            StashHunter.LOG.warn("{} has no boolean setting '{}' - Meteor changed it, auto repair can't adjust it", module.name, name);
         }
         return null;
-    }
-
-    @SuppressWarnings("unchecked")
-    private <T> void setModuleSetting(Module module, String settingName, T value) {
-        try {
-            Field field = module.getClass().getDeclaredField(settingName);
-            field.setAccessible(true);
-            Object settingObj = field.get(module);
-            if (settingObj instanceof Setting) {
-                ((Setting<T>) settingObj).set(value); // set() matches GUI behavior
-            }
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            debugLog("Reflection failed while setting '" + settingName + "': " + e.getMessage());
-        }
     }
 }

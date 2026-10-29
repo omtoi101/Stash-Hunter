@@ -4,10 +4,10 @@
 > verbleibenden Verbesserungen nach einem Code-Review. Was unten **nicht** als
 > „Offen“ aufgeführt ist, wurde bereits behoben (siehe „Bereits erledigt“).
 >
-> **Stand 2026-10-29:** Phase 0 (Quick Wins) und Phase 1 (Stabilität) sind
-> vollständig erledigt und im CHANGELOG dokumentiert. Offen sind noch die Phasen
-> 2–5 (Threading/Performance, Scan-Korrektheit, Robustheit, Architektur) sowie
-> die neuen Vorschläge am Ende dieses Dokuments.
+> **Stand 2026-10-29:** Phasen 0–5 und die Punkte 33–43 sind erledigt bzw. bewertet
+> (Details jeweils im Abschnitt und im CHANGELOG). Offen sind nur noch 34 (braucht ein
+> echtes Icon) und die Feature-Ideen 44–47. Alles ist ungetestet in-game - siehe
+> „Verifikation“.
 
 ## Projekt-Kontext
 
@@ -149,6 +149,18 @@
 
 ### Phase 5 — Architektur / Wartbarkeit
 
+> **Erledigt (2026-10-29, Punkte 28–32)**, Build + 17 Unit-Tests grün, in-game ungetestet.
+> 28 teilweise: Clustering (StashClustering), Waypoint-Generierung (GridWaypoints),
+> Trail-Analyse (TrailAnalysis) und Chunk-Dateiformat (ChunkDataFormat) sind eigene,
+> getestete Klassen. Die Detektoren in NewerNewChunks und die Zustandsautomaten in
+> AutoElytraRepair/ElytraController sind weiter groß und statisch - ein Umbau dort ändert
+> Verhalten und sollte erst nach In-Game-Tests passieren.
+> 30: Die lastForwardPressed-Reflection hat nie funktioniert (Feld liegt in der Oberklasse
+> ElytraFlightMode) und ist entfernt. keyUp/keyShift.setDown in AutoElytraRepair bleiben
+> (Zusammenspiel mit ElytraFly-Autopilot, nur in-game sicher änderbar).
+> 32: Spotless nur für Whitespace; Zeilenenden ausgenommen (Git normalisiert per
+> .gitattributes, sonst schlägt der Check auf Windows-Checkouts fehl).
+
 28. **God Classes & statischen Zustand auflösen.** NewerNewChunks, StashHunterModule,
     ElytraController, AutoElytraRepair. Reine Logik (Clustering, Waypoint-Generierung,
     Trail-Analyse, Trip-Konvertierung) in testbare Klassen extrahieren.
@@ -168,6 +180,25 @@
 ---
 
 ## Neue Verbesserungsvorschläge (nicht im ursprünglichen Review)
+
+> **Stand 2026-10-29:**
+> - 33 erledigt (Logger.java entfernt, alles über StashHunter.LOG; hatte doch 8 Caller).
+> - 34 offen: braucht ein echtes Icon (Grafik), kein Code.
+> - 35 nicht gemacht: bin/ ist der Build-Output der VS-Code-Java-Erweiterung (enthält
+>   bereits die neuen Klassen) und entsteht beim Öffnen sofort neu; ist ignoriert.
+> - 36 kein Problem: reportedStashes wird nur auf dem Client-Thread benutzt (Scan im
+>   Tick, Commands, GameLeft/Dimensionswechsel) - nicht vom Netty-Thread.
+> - 37 nicht gemacht: Locking pinnt bei SNAPSHOTs nur „26.2-SNAPSHOT“, nicht den
+>   Build; Dependency-Verification würde bei jedem neuen Meteor-Build den Build brechen.
+>   Sinnvoll erst mit festen Meteor-Releases oder gepinnten Timestamp-Snapshots.
+> - 38 erledigt, aber mit `~26.2-` statt `>=26.2`: Meteor versioniert als `26.2-35`
+>   (Pre-Release), `>=26.2` hätte jede Meteor-Version abgelehnt (per Fabric-Loader geprüft).
+> - 39 erledigt (0.20.1). 40 entfällt durch 42. 41: auf Release 1.17.21 gepinnt;
+>   1.18.4 braucht Gradle auf JDK 25, 1.19.3 zusätzlich Gradle ≥ 9.8.
+> - 42 weiter als geplant: Fabric API komplett entfernt (Disconnect über Meteors
+>   GameLeftEvent); kompiliert nur gegen fabric-resource-loader-v1, das Meteor bündelt.
+> - 43 nicht gemacht: Bei unobfuskiertem MC verlangt modImplementation weiter Mappings;
+>   das offizielle meteor-addon-template 26.2 nutzt ebenfalls implementation.
 
 33. **`utils/Logger.java` komplett entfernen.** Hat **null Caller** (geprüft),
     ist nicht threadsafe, hartkodierter Pfad `~/.meteor-client/`, FileWriter wird nie
@@ -293,8 +324,8 @@
 ## Verifikation
 
 - Nach jeder Änderung: `./gradlew build` (JDK 25 nötig).
-- Phase 0/1 sind committed (Branch `code-revision`, Commits `adb7235` und
-  `a29d64e`); PLAN.md ist ebenfalls bereits eingecheckt. Vor Weiterarbeit einfach
-  auf `code-revision` weiterarbeiten.
+- Phasen 0–4 sind committed (Branch `code-revision`), Phase 5 und 33–43 liegen
+  noch uncommitted im Working Tree.
+- `./gradlew build` führt jetzt auch die Unit-Tests und den Spotless-Check aus.
 - Funktionsprüfung in-game: Modul an/aus, Death/Respawn, Dimensionswechsel,
   /stashhunter start + stop, Stuck-Auto-Fix, Elytra-Reparatur.

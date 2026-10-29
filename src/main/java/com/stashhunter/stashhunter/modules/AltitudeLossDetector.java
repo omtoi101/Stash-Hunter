@@ -46,6 +46,14 @@ public class AltitudeLossDetector extends Module {
         fixCooldown = 0;
     }
 
+    @Override
+    public void onDeactivate() {
+        // The hold's callback would otherwise be the only thing that clears fixInProgress.
+        KeyHold.cancel(this);
+        fixInProgress = false;
+        fixCooldown = 0;
+    }
+
     @EventHandler
     private void onTick(TickEvent.Post event) {
         if (mc.player == null || mc.level == null) {
@@ -91,7 +99,7 @@ public class AltitudeLossDetector extends Module {
             if (ElytraController.isActive()) BaritoneBridge.cancel();
 
             info("Attempting to fix by holding jump...");
-            KeyHold.hold(mc.options.keyJump, 100, () -> {
+            KeyHold.hold(this, mc.options.keyJump, 100, () -> {
                 info("Jump complete.");
                 fixInProgress = false;
                 fixCooldown = 200;

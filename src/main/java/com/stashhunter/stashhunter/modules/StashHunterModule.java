@@ -2,12 +2,12 @@ package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
 import com.stashhunter.stashhunter.baritone.BaritoneBridge;
-import com.stashhunter.stashhunter.events.PlayerDisconnectEvent;
 import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.DiscordEmbed;
 import com.stashhunter.stashhunter.utils.DiscordWebhook;
 import com.stashhunter.stashhunter.utils.ElytraController;
-import com.stashhunter.stashhunter.utils.WorldScanner;
+import com.stashhunter.stashhunter.utils.KeyHold;
+import com.stashhunter.stashhunter.utils.StashClustering;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.systems.modules.Modules;
@@ -32,9 +32,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -248,6 +246,7 @@ public class StashHunterModule extends Module {
         .build()
     );
 
+    @SuppressWarnings("unused") // value is read via Config.mentionEveryone
     private final Setting<Boolean> mentionEveryone = sgGeneral.add(new BoolSetting.Builder()
         .name("mention-everyone")
         .description("Ping @everyone for important Discord notifications (stash found, death, disconnect).")
@@ -323,7 +322,8 @@ public class StashHunterModule extends Module {
     private void setHoldingJump(boolean hold) {
         if (hold == holdingJump) return;
         holdingJump = hold;
-        mc.options.keyJump.setDown(hold);
+        if (hold) KeyHold.press(mc.options.keyJump);
+        else KeyHold.release(mc.options.keyJump);
     }
 
     public void clearReportedStashes() {
@@ -334,8 +334,9 @@ public class StashHunterModule extends Module {
         reportedPlayers.clear();
     }
 
-    @EventHandler
-    private void onDisconnect(PlayerDisconnectEvent event) {
+    // Meteor posts GameLeftEvent whenever a world is left (kick, lost connection, own disconnect),
+    // so no Fabric API connection event is needed for this.
+    private void notifyDisconnect() {
         if (notifyOnDisconnect.get()) {
             DiscordEmbed embed = new DiscordEmbed(
                 "Disconnected!",
@@ -350,6 +351,7 @@ public class StashHunterModule extends Module {
     // ElytraController's waypoints/target are static and would survive into the next session.
     @EventHandler
     private void onGameLeft(GameLeftEvent event) {
+        notifyDisconnect();
         if (ElytraController.isActive()) ElytraController.pause();
         reportedStashes.clear();
         resetFlightState();
@@ -569,7 +571,7 @@ public class StashHunterModule extends Module {
 
         if (valuableBlocksInRange.size() >= blockDetectionThreshold.get()) {
             // Group blocks into clusters to separate actual stashes from natural structures
-            List<List<BlockPos>> clusters = clusterBlocks(valuableBlocksInRange, maxClusterDistance.get(), maxClusterSize.get() / 2);
+            List<List<BlockPos>> clusters = StashClustering.cluster(valuableBlocksInRange, maxClusterDistance.get(), maxClusterSize.get() / 2);
 
             for (List<BlockPos> cluster : clusters) {
                 if (cluster.size() >= blockDetectionThreshold.get()) {
@@ -579,74 +581,9 @@ public class StashHunterModule extends Module {
         }
     }
 
-    /**
-     * Groups nearby blocks into clusters to separate stashes from natural structures.
-     * Seeds are taken densest-first; a block joins a cluster when it is within linkDistance of a
-     * member and within maxRadius of the seed, so chains of blocks can't grow a cluster without bound.
-     */
-    private List<List<BlockPos>> clusterBlocks(List<BlockPos> blocks, int linkDistance, int maxRadius) {
-        long linkSq = (long) linkDistance * linkDistance;
-        long radiusSq = (long) maxRadius * maxRadius;
-
-        // Grid with cell size = linkDistance: every neighbour of a block lies in the 27 surrounding cells.
-        Map<Long, List<BlockPos>> grid = new HashMap<>();
-        for (BlockPos pos : blocks) {
-            grid.computeIfAbsent(cellKey(pos, linkDistance), k -> new ArrayList<>()).add(pos);
-        }
-
-        Map<BlockPos, Integer> neighbourCount = new HashMap<>();
-        for (BlockPos pos : blocks) {
-            neighbourCount.put(pos, neighbours(pos, grid, linkDistance, linkSq).size());
-        }
-        List<BlockPos> seeds = new ArrayList<>(blocks);
-        seeds.sort(Comparator.comparingInt((BlockPos pos) -> neighbourCount.get(pos)).reversed());
-
-        List<List<BlockPos>> clusters = new ArrayList<>();
-        Set<BlockPos> assigned = new HashSet<>();
-        for (BlockPos seed : seeds) {
-            if (!assigned.add(seed)) continue;
-
-            List<BlockPos> cluster = new ArrayList<>();
-            ArrayDeque<BlockPos> queue = new ArrayDeque<>();
-            cluster.add(seed);
-            queue.add(seed);
-            while (!queue.isEmpty()) {
-                for (BlockPos next : neighbours(queue.poll(), grid, linkDistance, linkSq)) {
-                    if (next.distSqr(seed) <= radiusSq && assigned.add(next)) {
-                        cluster.add(next);
-                        queue.add(next);
-                    }
-                }
-            }
-            clusters.add(cluster);
-        }
-
-        return clusters;
-    }
-
-    private static long cellKey(BlockPos pos, int cellSize) {
-        return BlockPos.asLong(Math.floorDiv(pos.getX(), cellSize), Math.floorDiv(pos.getY(), cellSize), Math.floorDiv(pos.getZ(), cellSize));
-    }
-
-    private static List<BlockPos> neighbours(BlockPos pos, Map<Long, List<BlockPos>> grid, int cellSize, long linkSq) {
-        List<BlockPos> result = new ArrayList<>();
-        int cx = Math.floorDiv(pos.getX(), cellSize), cy = Math.floorDiv(pos.getY(), cellSize), cz = Math.floorDiv(pos.getZ(), cellSize);
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    List<BlockPos> cell = grid.get(BlockPos.asLong(cx + dx, cy + dy, cz + dz));
-                    if (cell == null) continue;
-                    for (BlockPos other : cell) {
-                        if (other != pos && other.distSqr(pos) < linkSq) result.add(other);
-                    }
-                }
-            }
-        }
-        return result;
-    }
-
     private void processCluster(List<BlockPos> cluster) {
-        BlockPos stashPos = WorldScanner.calculateCenter(cluster);
+        BlockPos stashPos = StashClustering.center(cluster).orElse(null);
+        if (stashPos == null) return;
 
         // Check if we've already reported a base near this location
         int dedupeRadius = reportDedupeRadius.get();
@@ -657,7 +594,7 @@ public class StashHunterModule extends Module {
             return;
         }
 
-        double volume = WorldScanner.getBoundingBoxVolume(cluster);
+        double volume = StashClustering.boundingBoxVolume(cluster);
         double density = cluster.size() / Math.max(volume, 1.0);
 
         // Enhanced filtering for natural structures

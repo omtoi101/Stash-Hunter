@@ -1,254 +1,301 @@
 # Stash-Hunter
 
-Ported to Minecraft 26.2 and the latest Meteor Client. Licensed under the Apache License 2.0.
+A [Meteor Client](https://meteorclient.com/) addon that finds stashes on anarchy servers for you. It flies an elytra over an area you choose, scans the loaded chunks for clusters of containers and other base blocks, and reports what it finds to Discord and as Meteor waypoints.
 
-A Meteor client addon for finding stashes on anarchy servers. 
-This mod is designed to automatically fly with an elytra scanning chunks for clusters of valuable blocks while avoiding all generated structures. 
-The mod now features chunk trail tracking algorithms for optimal base finding and autonomous elytra repair for long distance scanning.
+It can also follow trails of newly generated chunks toward player activity, repair its elytra with XP bottles mid-flight, and recover from rubber-banding and sudden altitude loss, so it can run for hours without you.
 
+Built for **Minecraft 26.2**. Licensed under the Apache License 2.0.
 
-## Features
+## Contents
 
-- **Stash Finding Module**: The core of the addon, which actively searches for and records potential stash locations.
-- **Auto Elytra Repair**: A fully automated feature that manages elytra flight and automatic repair with xp bottles, ensuring continuous and efficient exploration.
-- **Chunk Trail Following Algorithm**: A sophisticated algorithm that automatically follows trails of newly generated chunks to locate player activity and bases.
-- **Optional Baritone Pathing**: When the [Baritone](https://github.com/MeteorDevelopment/baritone) mod (26.2 branch) is also installed, Stash Hunter hands its flight/landing targets to Baritone's elytra and ground pathfinding for more precise, obstacle-aware movement execution - the built-in flight controller is used automatically as a fallback if Baritone isn't installed. Toggle with the `use-baritone-pathing` setting.
-- **Stuck Detector**: A utility to detect if the player character is stuck, which can be useful during automated exploration.
-- **Customizable Commands**:
-    - `.stashhunter`: The main command to configure the Stash-Hunter module.
-    - `.clear-stashes`: Clears the list of found stashes.
-    - `.clear-players`: Clears the list of tracked players.
-- **In-game HUD**: A Heads-Up Display to show real-time information about the stash finding process.
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [How it works](#how-it-works)
+- [Commands](#commands)
+- [Modules and settings](#modules-and-settings)
+- [Discord notifications](#discord-notifications)
+- [HUD](#hud)
+- [Files it creates](#files-it-creates)
+- [Troubleshooting](#troubleshooting)
+- [Building from source](#building-from-source)
+
+## Requirements
+
+- Minecraft **26.2** with [Fabric Loader](https://fabricmc.net/)
+- [Meteor Client](https://meteorclient.com/) for 26.2
+- Java **25**
+- *(Optional)* [Baritone](https://github.com/MeteorDevelopment/baritone) for 26.2 (the Meteor fork), for obstacle-aware pathfinding
+
+Fabric API is **not** required.
 
 ## Installation
 
-1.  Download the latest version of Stash-Hunter from the [Releases](https://github.com/omtoi101/Stash-Hunter/releases) page.
-2.  Make sure you have [Meteor Client](https://meteorclient.com/) installed.
-3.  Place the downloaded `.jar` file into your `mods` folder.
-4.  *(Optional)* Install the [Baritone](https://github.com/MeteorDevelopment/baritone) Fabric mod (26.2 branch) for more precise pathfinding during flight and landing. Stash Hunter works fine without it, using its built-in flight controller instead.
-5.  Launch Minecraft with Fabric.
+1. Download the latest `.jar` from the [Releases](https://github.com/omtoi101/Stash-Hunter/releases) page.
+2. Put it into your `mods` folder next to Meteor Client.
+3. *(Optional)* Add the Baritone mod as well. Without it, Stash-Hunter uses its built-in flight controller.
+4. Start Minecraft with Fabric. The modules appear in Meteor's **Stash-Hunter** category.
 
-## Usage
+## Quick start
 
-This document provides detailed instructions on how to use the commands available in the Stash-Hunter addon.
+1. **Equip an elytra.** The flight refuses to start without one.
+2. **Optional:** Enable `auto-elytra-repair` for long runs. It needs a **Mending** elytra, **XP bottles** in your inventory and blocks for Meteor's Scaffold module (see [Auto Elytra Repair](#auto-elytra-repair)).
+3. **Enable `NewerNewChunks`** if you want the bot to follow chunk trails.
+4. Paste your **Discord webhook URL** into the `stash-hunter` module's `discord-webhook-url` setting. You can skip this step; without a URL, finds still show up in chat and as waypoints.
+5. Get airborne and start scanning, for example a 20,000 × 20,000 area centred on you:
 
-### Main Command: `.stashhunter`
+   ```
+   .sh start ~-10000 ~-10000 ~10000 ~10000 200
+   ```
 
-The `.stashhunter` command (which can be shortened to `.sh`) is the main command for controlling the automated flight and scanning system.
+The command enables the `stash-hunter` module and Meteor's ElytraFly if they are off. Use `.sh status` to check progress and `.sh pause` / `.sh resume` to take a break.
 
-#### Sub-commands
+## How it works
 
--   `.stashhunter start <x1> <z1> <x2> <z2> [stripWidth]`
-    -   **Description**: Starts the automated scanning process in a defined rectangular area. This mode is ideal for systematically searching a specific region.
-    -   **Arguments**:
-        -   `<x1> <z1>`: The coordinates of the starting corner of the area.
-        -   `<x2> <z2>`: The coordinates of the opposite corner of the area.
-        -   `[stripWidth]` (optional): The width of the strips the bot will fly in. Defaults to `128`. Must be between 50 and 500.
-    -   **Coordinate Formats**:
-        -   **Absolute**: Use standard coordinates (e.g., `10000 5000`).
-        -   **Relative**: Use `~` to represent your current position (e.g., `~ ~` for your current X and Z).
-        -   **Relative with Offset**: Use `~` followed by a number to specify an offset from your current position (e.g., `~-5000` for 5000 blocks in the negative direction from your current location).
-    -   **Example**:
-        ```
-        .sh start ~-10000 ~-10000 ~10000 ~10000 200
-        ```
-        This command will scan a 20,000 x 20,000 area around you, with a strip width of 200 blocks.
+**Flight pattern.** The area is split into north-south strips (`stripWidth` blocks apart). The bot flies them back and forth at `flight-altitude`, like a lawnmower. Steering is done by Baritone's elytra pathing when it is installed and `use-baritone-pathing` is on, otherwise by the built-in controller.
 
--   `.stashhunter trail`
-    -   **Description**: Activates the fully automated chunk trail following mode. In this mode, the addon will automatically detect and follow trails of newly generated chunks, allowing for autonomous exploration to find player activity.
-    -   **Note**: This command does not require coordinates, as it dynamically follows chunk trails.
+**Chunk trails.** While `NewerNewChunks` is active, the bot looks at the new chunks around it:
 
--   `.stashhunter stop`
-    -   **Description**: Stops the current scanning or trail-following operation.
+- If they form a line or a consistent direction (a likely player trail), it follows that trail for up to 30 seconds.
+- A single new chunk straight ahead without a clear trail is avoided.
+- At the edge of unloaded terrain, it follows the boundary.
 
--   `.stashhunter status`
-    -   **Description**: Shows the current status of the Stash-Hunter, including whether it's active, the current progress (waypoints), and the current target coordinates.
+After each detour it returns to its strips.
 
--   `.stashhunter help`
-    -   **Description**: Displays a help message with a summary of all commands and examples.
+**Scanning.** Every `scan-interval` ticks the addon scans a cylinder of `scan-radius` blocks around the player over the **full world height**, so stashes far below the flight altitude are found too.
 
-### Utility Commands
+- **Storage-only mode (default):** looks for chests, trapped chests, barrels and shulker boxes of every colour.
+- **Full mode:** also counts furnaces, blast furnaces, smokers, brewing stands, enchanting tables, anvils, crafting tables, beacons, conduits, hoppers, dispensers, droppers and beds.
 
--   `.clear-stashes`
-    -   **Description**: Clears the internal list of stashes that have already been found and reported. This is useful if you want the mod to notify you about a previously found stash again.
+**Clustering and filtering.**
 
--   `.clear-players`
-    -   **Description**: Clears the list of players that have been recently detected. This will allow the mod to send a new notification for a player that is still in the area.
+- Found blocks are grouped into clusters. Neighbouring blocks may be up to `max-cluster-distance` apart, and one cluster is at most `max-cluster-size` across.
+- A cluster counts as a stash if it has at least `block-detection-threshold` blocks and passes the filters: `max-volume-threshold`, `min-density-threshold` and, if enabled, `filter-natural-structures`.
+- These filters are heuristics. Structure loot (dungeons, mineshafts, villages) can still be reported now and then.
 
-## Configuration
+**Reporting.**
 
-This document provides a detailed overview of all the settings available for customization in the Stash-Hunter addon.
+- Each stash is reported once. Another cluster within `report-dedupe-radius` of a reported stash, or of an existing stash waypoint, is not reported again.
+- If the stash's density reaches `notification-density-threshold`, you get a Discord message and a Meteor waypoint named `<count> Blocks at <x, y, z>` in the current dimension. Lower-density finds are only mentioned in chat.
 
-### Stash-Hunter Module
+**Staying alive.** The flight is paused automatically (and saved, so `.sh resume` continues it) when you die, change dimension or leave the server. If the elytra breaks or goes missing and isn't replaced or repaired in time, the bot sends an "Out of Elytras" notification and disconnects, instead of falling.
 
-These settings control the core functionality of the stash finding process.
+## Commands
 
-| Setting                        | Description                                                                                             | Default Value |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------- | ------------- |
-| `discord-webhook-url`          | The Discord webhook URL to send notifications to.                                                       | (empty)       |
-| `block-detection-threshold`    | The number of valuable blocks to find before a stash is detected.                                       | 10            |
-| `scan-radius`                  | The horizontal radius (in blocks) to scan for valuable blocks around the player, over the full world height. | 64            |
-| `storage-only-mode`            | If enabled, only searches for storage containers (chests, shulkers). Faster than a full block scan.      | true          |
-| `max-volume-threshold`         | The maximum volume of a block cluster to be considered a stash. Helps filter out large natural structures. | 5000          |
-| `filter-natural-structures`    | If enabled, attempts to filter out likely natural structures like dungeons and mineshafts.                | true          |
-| `min-density-threshold`        | The minimum density (blocks/volume) required for a cluster to be considered a potential stash.          | 0.002         |
-| `notification-density-threshold` | The minimum density required to send a Discord notification. Set to 0 to be notified for all finds.       | 0.005         |
-| `max-cluster-distance`         | The maximum distance between two blocks for them to be considered part of the same cluster.               | 30            |
-| `max-cluster-size`             | The maximum diameter of one cluster, so neighbouring stashes aren't chained into one.                     | 64            |
-| `report-dedupe-radius`         | A stash this close to an already reported one (or to an existing stash waypoint) isn't reported again.    | 48            |
-| `flight-altitude`              | The altitude (Y-level) the bot will fly at during scanning.                                             | 160           |
-| `scan-interval`                | The interval in ticks between each scan for blocks (20 ticks = 1 second).                               | 40            |
-| `player-detection`             | Whether to notify when another player is detected nearby.                                               | true          |
-| `notify-on-death`              | Whether to send a Discord notification if you die.                                                      | true          |
-| `notify-on-completion`         | Whether to send a Discord notification when the scanning of a defined area is complete.                 | true          |
-| `mention-everyone`             | Ping `@everyone` for important Discord notifications (stash found, death, disconnect).                  | false         |
-| `use-baritone-pathing`         | Use [Baritone](https://github.com/MeteorDevelopment/baritone) (if installed) for precise flight/ground path execution instead of the built-in flight controller. Has no effect if Baritone isn't installed. | true          |
+`.stashhunter` can be shortened to `.sh`.
 
-### Stuck Detector Module
+| Command | What it does |
+| --- | --- |
+| `.sh start <x1> <z1> <x2> <z2> [stripWidth]` | Scans the rectangle between the two corners. |
+| `.sh stop` | Stops the current flight. |
+| `.sh pause` | Stops the flight and saves it as a trip. |
+| `.sh resume [timestamp]` | Continues the latest saved trip, or the one with the given timestamp. |
+| `.sh list` | Lists the timestamps of all saved trips. |
+| `.sh status` | Shows the status, the current waypoint and the current target. |
+| `.sh repair` | Shows the Auto Elytra Repair state and your elytra's durability. |
+| `.sh repair toggle` | Turns Auto Elytra Repair on or off. |
+| `.sh help` | Prints a short command reference in chat. |
+| `.clear-stashes` | Forgets the already reported stashes, so they can be reported again. Existing stash waypoints still prevent a repeat report until you delete them. |
+| `.clear-players` | Forgets the recently reported players, so they are reported again. |
 
-These settings control the behavior of the elytra rubber-band detection system.
+### `start` in detail
 
-| Setting               | Description                                                                          | Default Value |
-| --------------------- | ------------------------------------------------------------------------------------ | ------------- |
-| `discord-webhook-url` | The Discord webhook URL to send stuck notifications to. Can be the same or different from the main one. | (empty)       |
-| `detection-threshold` | The time in seconds the player needs to be motionless before being considered stuck.   | 3             |
-| `auto-fix`            | If enabled, automatically tries to fix the rubber-banding by toggling `ElytraFly`.     | true          |
+- **Corners** can be given in three forms:
+  - **Absolute:** `1000 5000`
+  - **Relative to your position:** `~ ~`
+  - **Relative with an offset:** `~-5000 ~2500`
+- **Area size:** each side must be between 100 and 50,000 blocks.
+- **`stripWidth`:** must be between 50 and 500. The default is 128. Smaller strips leave fewer gaps but take longer.
 
-### NewerNewChunks Module
+```
+.sh start 1000 1000 5000 5000 150          # absolute coordinates
+.sh start ~ ~ ~4000 ~4000 150               # from your position towards +X/+Z
+.sh start ~-2000 ~-2000 ~2000 ~2000 120     # 4,000 × 4,000 around you
+```
 
-These settings control the behavior of the new chunk detection and trail-following system.
+## Modules and settings
 
-| Setting                        | Description                                                                                             | Default Value |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------- | ------------- |
-| `PaletteExploit`               | (1.18+ only) Detects new chunks by scanning chunk palettes.                                             | true          |
-| `beingUpdatedDetector`         | Marks chunks that are being updated from an older version. Requires `PaletteExploit`.                   | true          |
-| `overworldOldChunksDetector`   | Detects old chunks in the Overworld based on block types.                                               | true          |
-| `netherOldChunksDetector`      | Detects old chunks in the Nether based on missing new blocks.                                           | true          |
-| `endOldChunksDetector`         | Detects old chunks in the End based on biome types.                                                     | true          |
-| `Chunk Detection Mode`         | The mode for detecting new chunks. `BlockExploitMode` is recommended for some servers.                  | Normal        |
-| `chunk-trail-following`        | When enabled, the Auto Elytra feature will automatically follow trails of new chunks, creating a fully automated exploration system. | true          |
-| `LiquidExploit`                | Estimates new chunks based on flowing liquids.                                                          | false         |
-| `BlockUpdateExploit`           | Estimates new chunks based on block updates.                                                            | false         |
-| `RemoveOnModuleDisabled`       | Clears cached chunk data when the module is disabled.                                                   | true          |
-| `RemoveOnLeaveWorldOrChangeDimensions` | Clears cached chunk data when changing worlds or dimensions.                                     | true          |
-| `RemoveOutsideRenderDistance`  | Clears cached chunk data for chunks outside your render distance.                                       | false         |
-| `SaveChunkData`                | Saves detected chunk data to a file.                                                                    | true          |
-| `LoadChunkData`                | Loads chunk data from a file when the module is enabled.                                                | true          |
-| `AutoReloadChunks`             | Automatically reloads chunk data from files periodically.                                               | false         |
-| `AutoReloadDelayInSeconds`     | The delay in seconds for auto-reloading chunk data.                                                     | 60            |
-| `Render-Distance(Chunks)`      | The render distance for chunk overlays.                                                                 | 64            |
-| `render-height`                | The Y-level at which to render the chunk overlays.                                                      | 0             |
-| `shape-mode`                   | The rendering mode for chunk overlays (Sides, Lines, or Both).                                          | Both          |
-| `new-chunks-side-color`        | The side color for newly generated chunks.                                                              | Red (95)      |
-| `BlockExploitChunks-side-color`| The side color for chunks detected via block updates.                                                   | Blue (75)     |
-| `old-chunks-side-color`        | The side color for old chunks.                                                                          | Green (40)    |
-| `being-updated-chunks-side-color` | The side color for chunks being updated from an older version.                                           | Yellow (60)   |
-| `old-version-chunks-side-color`| The side color for chunks from old Minecraft versions.                                                  | Yellow (40)   |
-| `new-chunks-line-color`        | The line color for newly generated chunks.                                                              | Red (205)     |
-| `BlockExploitChunks-line-color`| The line color for chunks detected via block updates.                                                   | Blue (170)    |
-| `old-chunks-line-color`        | The line color for old chunks.                                                                          | Green (80)    |
-| `being-updated-chunks-line-color` | The line color for chunks being updated from an older version.                                           | Yellow (100)  |
-| `old-version-chunks-line-color`| The line color for chunks from old Minecraft versions.                                                  | Yellow (80)   |
+All modules are in Meteor's **Stash-Hunter** category.
 
-## Detailed Features
+### Stash Hunter (`stash-hunter`)
 
-This document provides a detailed overview of the features available in the Stash-Hunter addon.
+Scans for stashes, drives the flight and sends the notifications. It must be enabled for a flight to move; `.sh start` and `.sh resume` enable it for you.
 
-### Stash-Hunter Module
+| Setting | Description | Default |
+| --- | --- | --- |
+| `discord-webhook-url` | Discord webhook for all notifications of this module. | *(empty)* |
+| `block-detection-threshold` | Minimum number of blocks for a cluster to count as a stash. | 10 |
+| `scan-radius` | Horizontal scan radius in blocks; the scan always covers the full world height. | 64 |
+| `storage-only-mode` | Only look for storage containers (see [How it works](#how-it-works)). | true |
+| `max-volume-threshold` | Clusters with a larger bounding box are treated as natural structures. | 5000 |
+| `filter-natural-structures` | Apply the natural-structure filters (volume, density, woodland mansion check). | true |
+| `min-density-threshold` | Minimum blocks per bounding-box volume for a cluster to count. | 0.002 |
+| `notification-density-threshold` | Minimum density for a Discord message and waypoint. 0 reports every find. | 0.005 |
+| `max-cluster-distance` | Maximum distance between neighbouring blocks of one cluster. | 30 |
+| `max-cluster-size` | Maximum diameter of one cluster, so neighbouring stashes aren't merged. | 64 |
+| `report-dedupe-radius` | A stash this close to a reported one or to a stash waypoint isn't reported again. | 48 |
+| `flight-altitude` | Y level to fly at. | 160 |
+| `scan-interval` | Ticks between scans (20 ticks = 1 second). | 40 |
+| `player-detection` | Report other players within 100 blocks (at most once per player every 5 minutes). | true |
+| `notify-on-death` | Notify on death and respawn. | true |
+| `notify-on-completion` | Notify when an area is fully scanned. | true |
+| `notify-on-disconnect` | Notify when you leave or lose the server. | true |
+| `mention-everyone` | Ping `@everyone` for stash finds, deaths, disconnects and other important messages. | false |
+| `use-baritone-pathing` | Let Baritone steer when it is installed. No effect without Baritone. | true |
 
-The `StashHunterModule` is the core of this addon. It is a highly configurable module that automates the process of finding stashes.
+### Auto Elytra Repair (`auto-elytra-repair`)
 
-#### Key Features:
+When the elytra's remaining durability drops to `repair-threshold`, the module runs a repair sequence:
 
--   **Auto Elytra**: A fully automated feature that manages elytra flight for continuous and efficient exploration. It handles takeoff, landing, and maintaining altitude, allowing for seamless travel across vast distances without manual intervention.
--   **Configurable Scanning**: You can configure various parameters for scanning, such as:
-    -   `scan-radius`: The radius around the player to scan for blocks.
-    -   `block-detection-threshold`: The minimum number of valuable blocks to trigger a stash detection.
-    -   `storage-only-mode`: A mode to only search for storage containers like chests and shulker boxes, which is faster than scanning for all valuable blocks.
--   **Advanced Filtering**: The module includes advanced filtering to avoid false positives from natural structures:
-    -   `max-volume-threshold`: Sets a maximum volume for a cluster of blocks to be considered a stash.
-    -   `min-density-threshold`: Sets a minimum density (blocks/volume) for a cluster to be considered a stash.
-    -   `filter-natural-structures`: An option to enable or disable the filtering of natural structures.
--   **Player Detection**: The module can detect other players within a certain range and send a notification.
--   **Discord Integration**: The module can send detailed notifications to a Discord webhook for:
-    -   Found stashes, with coordinates, density, and a list of found containers.
-    -   Detected players.
-    -   Player death events.
-    -   Completion of a scanning mission.
--   **Meteor Waypoints**: When a stash is found, a waypoint is automatically created in Meteor Client.
+1. It stops the autopilot and waits until you have slowed down.
+2. It places a block below you with Meteor's **Scaffold**.
+3. It hovers on that block and lets Meteor's **AutoEXP** throw XP bottles until the elytra is repaired.
+4. It climbs back to cruise altitude and resumes the flight.
 
-### NewerNewChunks Module
+**What you need:**
+- A **Mending** elytra
+- **XP bottles** anywhere in your inventory
+- **Blocks** for Scaffold
 
-The `NewerNewChunks` module is a powerful tool for identifying newly generated chunks, which can indicate recent player activity. This module is essential for the "chunktrail following algorithm" feature.
+**When it gives up:**
+- **No XP bottles:** the repair does not start.
+- **No progress for 5 seconds:** the repair stops. If the elytra is still below the threshold, the bot disconnects.
+- **Elytra about to break (≤ 10 durability) while still gliding:** the bot disconnects rather than risk a fall.
 
-#### Key Features:
+| Setting | Description | Default |
+| --- | --- | --- |
+| `repair-threshold` | Remaining durability that starts a repair (minimum 30, so the sequence has headroom). | 50 |
+| `notify-repairs` | Send Discord messages about repairs. | true |
+| `repair-timeout` | Maximum repair time in seconds. | 300 |
+| `debug-mode` | Print detailed progress in chat. | false |
 
--   **Multiple Detection Methods**: The module uses several techniques to detect new chunks:
-    -   **PaletteExploit**: (1.18+ only) Detects new chunks by analyzing the structure of chunk data. This is the most reliable method on modern servers.
-    -   **LiquidExploit**: Identifies new chunks by looking for flowing liquids, which often indicates recent world generation.
-    -   **BlockUpdateExploit**: Detects block updates that can signify new chunk generation.
--   **Old Chunk Detection**: The module can also identify chunks generated in older versions of Minecraft, helping to distinguish between old and new areas.
--   **Chunk Trail Following Algorithm**: A sophisticated algorithm that, when enabled, directs the `Auto Elytra` feature to automatically follow trails of new chunks. This creates a fully automated system for discovering player activity, bases, and other points of interest by tracking the paths of recent world generation.
--   **Configurable Rendering**: You can customize the color and rendering style of different types of chunks (new, old, etc.) to make them easily visible.
+### Stuck Detector (`stuck-detector`)
 
-### Stuck Detector Module
+Detects elytra rubber-banding: you are gliding but haven't moved for `detection-threshold` seconds. With `auto-fix` on, it tries these steps in order:
 
-The `StuckDetector` is a utility module designed to handle a common issue with elytra flight on anarchy servers: rubber-banding.
+1. It toggles ElytraFly off and on.
+2. If you still haven't moved after 2 seconds, it stops gliding and briefly holds jump.
 
-#### Key Features:
+| Setting | Description | Default |
+| --- | --- | --- |
+| `discord-webhook-url` | Webhook for stuck notifications; can differ from the main one. | *(empty)* |
+| `detection-threshold` | Seconds without movement before you count as stuck. | 3 |
+| `auto-fix` | Try to fix it automatically. | true |
 
--   **Stuck Detection**: The module monitors the player's movement and detects when they are stuck in an elytra rubber-band loop.
--   **Auto-Fix**: When enabled, the module will automatically attempt to fix the rubber-banding by:
-    1.  Toggling the `ElytraFly` module.
-    2.  If that fails, it will stop the player's gliding.
--   **Discord Notifications**: It can send a notification to a Discord webhook when the player gets stuck, and whether it is attempting an automatic fix.
+### Altitude Loss Detector (`altitude-loss-detector`)
 
-### Stash-Hunter HUD
+Notices when you drop faster than `altitude-drop-threshold` blocks per second while gliding or while the bot is flying, for example when the elytra closed. It holds jump for 5 seconds to redeploy the elytra.
 
-The `StashHunterHud` provides real-time information about the status of the Stash-Hunter on your screen.
+| Setting | Description | Default |
+| --- | --- | --- |
+| `altitude-drop-threshold` | Blocks lost within one second that trigger it. | 10 |
+| `auto-fix` | Hold jump to recover. | true |
 
-#### HUD Elements:
+### NewerNewChunks (`NewerNewChunks`)
 
--   **Status**: Displays the current status of the `ElytraController` (e.g., "Active", "Idle", "Completed"). The color of the text changes based on the status.
--   **Target Information**: When active, it shows the coordinates of the current target and the distance to it.
--   **Progress**: Displays the progress of the current scanning mission in the format of `current waypoint / total waypoints`.
+Marks chunks as new (generated recently) or old (visited before), based on what the server sends. It renders them as coloured overlays and provides the data for the trail following. The module's settings page also has a **DELETE CHUNK DATA** button that deletes the saved data for the current dimension. You have to press it twice within 5 seconds.
 
-## Building
+| Setting | Description | Default |
+| --- | --- | --- |
+| `PaletteExploit` | Detect new chunks from the chunk section palettes. Servers on 1.18+ only. | true |
+| `Detection for chunks that haven't been explored since <=1.17` | Mark chunks that are being upgraded from an old version. Needs `PaletteExploit`. | true |
+| `Pre 1.17 Overworld OldChunk Detector` | Mark Overworld chunks generated before 1.17 (by their blocks). | true |
+| `Pre 1.16 Nether OldChunk Detector` | Mark Nether chunks generated before 1.16 (missing newer Nether blocks). | true |
+| `Pre 1.13 End OldChunk Detector` | Mark End chunks generated in old versions (heuristic). | true |
+| `Chunk Detection Mode` | `Normal`, `IgnoreBlockExploit` or `BlockExploitMode`. The non-normal modes are for old servers whose build limits were raised. | Normal |
+| `dynamic-trail-detection` | Let the flight follow trails of new chunks. | true |
+| `LiquidExploit` | Estimate new chunks from flowing liquids. | false |
+| `BlockUpdateExploit` | Estimate new chunks from block updates (may include old chunks; use `BlockExploitMode`). | false |
+| `RemoveOnModuleDisabled` | Clear the cached chunks when the module is disabled. | true |
+| `RemoveOnLeaveWorldOrChangeDimensions` | Clear the cached chunks when leaving the world or changing dimension. | true |
+| `RemoveOutsideRenderDistance` | Drop cached chunks outside the render distance below. | false |
+| `SaveChunkData` | Save detected chunks to disk. | true |
+| `LoadChunkData` | Load saved chunks when the module is enabled. | true |
+| `AutoReloadChunks` | Reload the saved chunks periodically. | false |
+| `AutoReloadDelayInSeconds` | Delay for `AutoReloadChunks`. | 60 |
+| `Render-Distance(Chunks)` | How far (in chunks) the overlays are drawn. | 64 |
+| `render-height` | Y level at which the overlays are drawn. | 0 |
+| `shape-mode` | Draw sides, lines or both. | Both |
 
-To build this project from source, you will need:
+Colours (sides / lines) can be set separately for each chunk type:
 
--   Java 25 or later
--   Git
+| Chunk type | Default colour |
+| --- | --- |
+| New chunks | red |
+| Block-exploit chunks | blue |
+| Old chunks | green |
+| Chunks being updated from ≤ 1.17 | yellow |
+| Chunks from old versions | yellow-green |
 
-Follow these steps:
+## Discord notifications
 
-1.  **Clone the repository:**
-    ```sh
-    git clone https://github.com/omtoi101/Stash-Hunter.git
-    cd Stash-Hunter
-    ```
+Create a webhook in your Discord server (*Server Settings → Integrations → Webhooks*) and paste its URL into `discord-webhook-url`. Depending on your settings, you receive:
 
-2.  **Build the project:**
-    -   On Windows:
-        ```sh
-        gradlew.bat build
-        ```
-    -   On macOS/Linux:
-        ```sh
-        ./gradlew build
-        ```
+| Notification | Sent when |
+| --- | --- |
+| **Stash Found** | A stash is found. Includes coordinates, block count, volume, density, a rating and a per-block-type breakdown. |
+| **Player Detected** | Another player comes within 100 blocks. Includes name, coordinates and distance. |
+| **Bot Died** / **Bot Respawned** | You die or respawn. Includes the location. |
+| **Scanning Completed** | An area is fully scanned. |
+| **Disconnected** | You leave or lose the server. |
+| **Out of Elytras** | The elytra is gone and couldn't be repaired; the bot disconnects. |
+| **Elytra Repair Started / Finished / Failed** | A repair runs (`notify-repairs`). |
+| **Elytra Stuck Detected** | Rubber-banding is detected (Stuck Detector's own webhook). |
 
-3.  The compiled `.jar` file will be located in the `build/libs/` directory.
+Pings are opt-in: `@everyone` is only used when `mention-everyone` is on. Rate limits and temporary Discord errors are retried automatically. While Discord is unreachable, at most 50 messages are queued.
+
+## HUD
+
+Add the **stash-hunter-status** element in Meteor's HUD editor. It shows the bot's status:
+
+- **White:** idle.
+- **Green:** flying. It then also shows `Flying to waypoint n/m`, `Edge Following` or `Trail Following`, the current target with its distance, and the waypoint progress.
+- **Yellow:** the area is completed.
+
+## Files it creates
+
+| File | Content |
+| --- | --- |
+| `meteor-client/stash-hunter.properties` | Addon configuration (also stored in Meteor's own settings). |
+| `meteor-client/stashhunter_trips.json` | Saved trips for `.sh resume`. If it is ever unreadable, it is moved to `stashhunter_trips.json.corrupt` instead of being overwritten. |
+| `StashHunter/NewChunks/<server>/<dimension>/*.txt` | Chunk data saved by NewerNewChunks, one `[x, z]` chunk position per line. |
+
+All paths are relative to your Minecraft game directory. Log output goes to the normal game log (`logs/latest.log`).
+
+## Troubleshooting
+
+- **"Please equip an Elytra before starting!"**: The flight only starts with an elytra in the chest slot.
+- **The bot does not move after `.sh start`**: Make sure the `stash-hunter` module is enabled. The start command enables it, but disabling the module stops the flight.
+- **No stashes are reported**:
+  - Check `notification-density-threshold`. Finds below it only appear in chat.
+  - A stash that is already reported, or has a stash waypoint nearby, is not reported again.
+  - `storage-only-mode` ignores everything that isn't a container.
+- **Too many false positives**: Raise `block-detection-threshold` or `min-density-threshold`, or lower `max-volume-threshold`.
+- **Repairs never start**: The repair needs XP bottles in your inventory and a Mending elytra, and the module must be enabled (`.sh repair` shows its state).
+- **No Discord messages**: Check the webhook URL. Rejected requests (for example a deleted webhook) are logged in `logs/latest.log`.
+
+## Building from source
+
+You need Java 25 and Git.
+
+```sh
+git clone https://github.com/omtoi101/Stash-Hunter.git
+cd Stash-Hunter
+./gradlew build        # Windows: gradlew.bat build
+```
+
+- **Output:** the jar is written to `build/libs/`.
+- **What `build` checks:** it also runs the unit tests and a whitespace check (Spotless). If the check fails, `./gradlew spotlessApply` fixes the formatting.
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for a history of notable changes.
+See [CHANGELOG.md](CHANGELOG.md) for notable changes.
 
 ## License
 
-This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for more details.
+Licensed under the **Apache License 2.0**. See [LICENSE](LICENSE).
 
 ## Credits
 
--   **omtoi**: Original author and maintainer.
--   **\_og3**: Ported the project to Minecraft 26.2 and the latest Meteor Client.
+- **omtoi**: original author and maintainer.
+- **\_og3**: port to Minecraft 26.2 and the current Meteor Client.

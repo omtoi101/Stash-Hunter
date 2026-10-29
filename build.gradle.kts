@@ -2,7 +2,10 @@ plugins {
     // Fully-qualified id, not the short "fabric-loom" legacy alias: that one resolves to
     // Loom's old remap-always plugin class, which still demands a mappings dependency even
     // though Minecraft has shipped unobfuscated since 26.1 and none exists to give it.
-    id("net.fabricmc.fabric-loom") version "1.17-SNAPSHOT"
+    // Pinned release instead of 1.17-SNAPSHOT. Loom 1.18+ needs Gradle itself to run on JDK 25
+    // (and 1.19 Gradle >= 9.8), which would break builds started from a JDK 21 shell.
+    id("net.fabricmc.fabric-loom") version "1.17.21"
+    id("com.diffplug.spotless") version "7.0.2"
 }
 
 val archivesBaseName = providers.gradleProperty("archives_base_name").get()
@@ -52,7 +55,10 @@ dependencies {
     // fabric-example-mod and meteor-addon-template 26.2 branches.
     minecraft("com.mojang:minecraft:${providers.gradleProperty("minecraft_version").get()}")
     implementation("net.fabricmc:fabric-loader:${providers.gradleProperty("loader_version").get()}")
-    implementation("net.fabricmc.fabric-api:fabric-api:${providers.gradleProperty("fabric_version").get()}")
+    // No Fabric API: the only hook it provided (client disconnect) is covered by Meteor's GameLeftEvent.
+    // Meteor bundles fabric-resource-loader-v1 (this exact version); its injected interfaces show up
+    // in Minecraft's own class signatures, so javac needs the module to compile. Runtime comes from Meteor.
+    compileOnly("net.fabricmc.fabric-api:fabric-resource-loader-v1:2.0.13+9edec1269e")
 
     // Meteor
     implementation("meteordevelopment:meteor-client:${providers.gradleProperty("minecraft_version").get()}-SNAPSHOT")
@@ -69,8 +75,24 @@ dependencies {
     // MeteorDevelopment/baritone 26.2 branch locally and publishing to mavenLocal()).
     compileOnly("meteordevelopment:baritone:${providers.gradleProperty("baritone_version").get()}")
 
-    // GSON
-    implementation("com.google.code.gson:gson:2.10.1")
+    // No separate Gson dependency: Minecraft ships Gson and puts it on the classpath already.
+
+    // Tests (pure logic only: clustering, waypoint generation, data formats)
+    testImplementation(platform("org.junit:junit-bom:5.11.4"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+// Whitespace only (matches .editorconfig); `build` runs spotlessCheck, `spotlessApply` fixes it.
+spotless {
+    // Git normalizes line endings itself (.gitattributes), so a CRLF/LF mix in a working copy is no violation.
+    lineEndings = com.diffplug.spotless.LineEnding.PRESERVE
+    java {
+        target("src/**/*.java")
+        leadingTabsToSpaces(4)
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
 }
 
 java {
@@ -101,6 +123,10 @@ tasks {
         from("LICENSE") {
             rename { "${it}_${archivesBaseName}" }
         }
+    }
+
+    test {
+        useJUnitPlatform()
     }
 
     withType<JavaCompile> {

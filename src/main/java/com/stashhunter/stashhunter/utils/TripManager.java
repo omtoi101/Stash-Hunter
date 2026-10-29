@@ -28,7 +28,7 @@ public class TripManager {
         try (FileWriter writer = new FileWriter(TRIPS_FILE)) {
             GSON.toJson(trips, writer);
         } catch (IOException e) {
-            e.printStackTrace();
+            StashHunter.LOG.warn("Could not save {}", TRIPS_FILE.getName(), e);
         }
     }
 
@@ -42,7 +42,7 @@ public class TripManager {
                     return trips;
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                StashHunter.LOG.warn("Could not read {}", TRIPS_FILE.getName(), e);
             } catch (JsonParseException | IllegalStateException e) {
                 // Move the broken file aside: otherwise the next addTrip() would overwrite it.
                 File backup = new File(TRIPS_FILE.getPath() + ".corrupt");

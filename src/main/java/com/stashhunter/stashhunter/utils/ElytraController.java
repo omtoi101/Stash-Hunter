@@ -1,5 +1,6 @@
 package com.stashhunter.stashhunter.utils;
 
+import com.stashhunter.stashhunter.StashHunter;
 import com.stashhunter.stashhunter.baritone.BaritoneBridge;
 import com.stashhunter.stashhunter.modules.NewerNewChunks;
 import meteordevelopment.meteorclient.MeteorClient;
@@ -12,13 +13,11 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.HashSet;
 
 public class ElytraController {
-    private static final NewerNewChunks newerNewChunks = Modules.get().get(NewerNewChunks.class);
     private static List<Vec3> waypoints = new ArrayList<>();
     private static int currentWaypoint = 0;
     private static boolean active = false;
@@ -40,9 +39,7 @@ public class ElytraController {
     private static Vec3 boundaryDirection = null;
 
     // Trail analysis state
-    private static final int TRAIL_ANALYSIS_RADIUS = 5; // chunks to analyze around player
     private static final double MIN_TRAIL_CONFIDENCE = 0.6; // minimum confidence to follow a trail
-    private static final int MAX_LINEAR_PATTERN_CHUNKS = 24; // caps the O(n^3) collinearity search
 
     private enum NavigationMode {
         NORMAL,           // Following waypoints normally
@@ -52,7 +49,7 @@ public class ElytraController {
     }
 
     public static void start(int x1, int z1, int x2, int z2, int stripWidth) {
-        // generateGridWaypoints steps by stripWidth, so anything <= 0 would never terminate.
+        // Checked before any state changes, so a bad call can't leave an active flight without waypoints.
         if (stripWidth <= 0) throw new IllegalArgumentException("stripWidth must be positive, got " + stripWidth);
         waypoints.clear();
         currentWaypoint = 0;
@@ -71,27 +68,7 @@ public class ElytraController {
     private static void generateWaypoints(int x1, int z1, int x2, int z2, int stripWidth) {
         // Always generate grid-based waypoints for systematic exploration
         // The bot will dynamically avoid new chunks during flight
-        generateGridWaypoints(x1, z1, x2, z2, stripWidth);
-    }
-
-    private static void generateGridWaypoints(int x1, int z1, int x2, int z2, int stripWidth) {
-        int minX = Math.min(x1, x2);
-        int maxX = Math.max(x1, x2);
-        int minZ = Math.min(z1, z2);
-        int maxZ = Math.max(z1, z2);
-
-        boolean forward = true;
-
-        for (int x = minX; x <= maxX; x += stripWidth) {
-            if (forward) {
-                waypoints.add(new Vec3(x, Config.flightAltitude, minZ));
-                waypoints.add(new Vec3(x, Config.flightAltitude, maxZ));
-            } else {
-                waypoints.add(new Vec3(x, Config.flightAltitude, maxZ));
-                waypoints.add(new Vec3(x, Config.flightAltitude, minZ));
-            }
-            forward = !forward;
-        }
+        waypoints.addAll(GridWaypoints.generate(x1, z1, x2, z2, stripWidth, Config.flightAltitude));
     }
 
     public static void stop() {
@@ -222,14 +199,14 @@ public class ElytraController {
         navigationMode = NavigationMode.CLIMBING;
         Vec3 playerPos = MeteorClient.mc.player.position();
         currentTarget = new Vec3(playerPos.x, Config.flightAltitude, playerPos.z);
-        Logger.log("Climbing to altitude: " + Config.flightAltitude);
+        StashHunter.LOG.info("Climbing to altitude: " + Config.flightAltitude);
     }
 
     private static void handleClimbing() {
         if (MeteorClient.mc.player == null) return;
         if (MeteorClient.mc.player.position().y >= Config.flightAltitude - 2) {
             navigationMode = NavigationMode.NORMAL;
-            Logger.log("Reached target altitude, resuming normal navigation.");
+            StashHunter.LOG.info("Reached target altitude, resuming normal navigation.");
         } else {
             driveTowards(currentTarget);
         }
@@ -258,7 +235,8 @@ public class ElytraController {
         // Check for obstacles and boundaries
         ChunkBoundaryInfo boundaryInfo = checkForBoundaries(playerPos);
 
-        if (boundaryInfo.hasNewChunks && newerNewChunks.dynamicTrailDetection.get()) {
+        NewerNewChunks newerNewChunks = newerNewChunks();
+        if (boundaryInfo.hasNewChunks && newerNewChunks != null && newerNewChunks.dynamicTrailDetection.get()) {
             // Found new chunks - switch to trail following mode
             switchToTrailFollowing(boundaryInfo);
         } else if (boundaryInfo.hasUnloadedArea) {
@@ -295,7 +273,7 @@ public class ElytraController {
             if (!boundaryInfo.hasUnloadedArea) {
                 // Boundary cleared, return to normal navigation
                 navigationMode = NavigationMode.NORMAL;
-                Logger.log("Edge following complete, returning to normal navigation");
+                StashHunter.LOG.info("Edge following complete, returning to normal navigation");
             }
         }
     }
@@ -319,7 +297,7 @@ public class ElytraController {
             if (!boundaryInfo.hasNewChunks) {
                 // Trail ended, return to normal navigation
                 navigationMode = NavigationMode.NORMAL;
-                Logger.log("New chunk trail ended, returning to normal navigation");
+                StashHunter.LOG.info("New chunk trail ended, returning to normal navigation");
             }
         }
     }
@@ -331,182 +309,10 @@ public class ElytraController {
         String description = "";
     }
 
-    private static class TrailInfo {
-        Vec3 direction;
-        double confidence; // 0.0 to 1.0
-        String type; // "corridor", "line", "scattered", etc.
-    }
-
-    private static TrailInfo analyzeNewChunkTrail(Vec3 playerPos, NewerNewChunks chunks) {
-        ChunkPos playerChunk = new ChunkPos((int)playerPos.x >> 4, (int)playerPos.z >> 4);
-
-        // Find new chunks within analysis radius by probing the (small) neighbourhood instead of
-        // iterating every new chunk ever detected.
-        List<ChunkPos> nearbyNewChunks = new ArrayList<>();
-        int radiusSq = TRAIL_ANALYSIS_RADIUS * TRAIL_ANALYSIS_RADIUS;
-        for (int dx = -TRAIL_ANALYSIS_RADIUS; dx <= TRAIL_ANALYSIS_RADIUS; dx++) {
-            for (int dz = -TRAIL_ANALYSIS_RADIUS; dz <= TRAIL_ANALYSIS_RADIUS; dz++) {
-                if (dx * dx + dz * dz > radiusSq) continue;
-                ChunkPos chunk = new ChunkPos(playerChunk.x() + dx, playerChunk.z() + dz);
-                if (chunks.isNewChunk(chunk)) {
-                    nearbyNewChunks.add(chunk);
-                }
-            }
-        }
-
-        if (nearbyNewChunks.size() < 3) {
-            return null;
-        }
-
-        // Analyze patterns in nearby new chunks
-        TrailInfo bestTrail = null;
-        double bestConfidence = 0;
-
-        // Look for linear patterns (corridors, tunnels, roads)
-        TrailInfo linearTrail = analyzeLinearPattern(nearbyNewChunks, playerPos);
-        if (linearTrail != null && linearTrail.confidence > bestConfidence) {
-            bestTrail = linearTrail;
-            bestConfidence = linearTrail.confidence;
-        }
-
-        // Look for directional patterns (consistent direction of travel)
-        TrailInfo directionalTrail = analyzeDirectionalPattern(nearbyNewChunks, playerPos);
-        if (directionalTrail != null && directionalTrail.confidence > bestConfidence) {
-            bestTrail = directionalTrail;
-            bestConfidence = directionalTrail.confidence;
-        }
-
-        return bestTrail;
-    }
-
-    private static TrailInfo analyzeLinearPattern(List<ChunkPos> nearbyChunks, Vec3 playerPos) {
-        // Only the chunks closest to the player matter for steering; capping keeps this bounded.
-        List<ChunkPos> chunks = sortedByDistance(nearbyChunks, playerPos);
-        if (chunks.size() > MAX_LINEAR_PATTERN_CHUNKS) {
-            chunks = chunks.subList(0, MAX_LINEAR_PATTERN_CHUNKS);
-        }
-
-        // Look for chunks that form roughly straight lines
-        for (int i = 0; i < chunks.size() - 2; i++) {
-            for (int j = i + 1; j < chunks.size() - 1; j++) {
-                for (int k = j + 1; k < chunks.size(); k++) {
-                    ChunkPos c1 = chunks.get(i);
-                    ChunkPos c2 = chunks.get(j);
-                    ChunkPos c3 = chunks.get(k);
-
-                    // Calculate if these three chunks are roughly collinear
-                    double linearity = calculateLinearity(c1, c2, c3);
-
-                    if (linearity > 0.7) { // Threshold for considering chunks "linear"
-                        TrailInfo trail = new TrailInfo();
-                        trail.confidence = linearity;
-                        trail.type = "corridor";
-
-                        // Calculate direction from first to last chunk
-                        double dx = c3.x() - c1.x();
-                        double dz = c3.z() - c1.z();
-                        trail.direction = new Vec3(dx, 0, dz).normalize();
-
-                        return trail;
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    private static TrailInfo analyzeDirectionalPattern(List<ChunkPos> nearbyChunks, Vec3 playerPos) {
-        // Look for chunks that show consistent directional movement
-        if (nearbyChunks.size() < 4) return null;
-
-        List<ChunkPos> chunks = sortedByDistance(nearbyChunks, playerPos);
-
-        Vec3 avgDirection = Vec3.ZERO;
-        int validDirections = 0;
-
-        // Calculate average direction between consecutive chunks
-        for (int i = 0; i < chunks.size() - 1; i++) {
-            ChunkPos from = chunks.get(i);
-            ChunkPos to = chunks.get(i + 1);
-
-            Vec3 direction = new Vec3(to.x() - from.x(), 0, to.z() - from.z());
-            if (direction.lengthSqr() > 0) {
-                avgDirection = avgDirection.add(direction.normalize());
-                validDirections++;
-            }
-        }
-
-        if (validDirections >= 2) {
-            Vec3 finalDirection = avgDirection.scale(1.0 / validDirections);
-            double consistency = calculateDirectionConsistency(chunks, finalDirection);
-
-            if (consistency > 0.6) {
-                TrailInfo trail = new TrailInfo();
-                trail.direction = finalDirection.normalize();
-                trail.confidence = consistency;
-                trail.type = "directional";
-
-                return trail;
-            }
-        }
-
-        return null;
-    }
-
-    // Returns a sorted copy, so callers' lists are never reordered.
-    private static List<ChunkPos> sortedByDistance(List<ChunkPos> chunks, Vec3 playerPos) {
-        List<ChunkPos> sorted = new ArrayList<>(chunks);
-        sorted.sort(Comparator.comparingDouble(c -> {
-            double dx = c.x() * 16 - playerPos.x;
-            double dz = c.z() * 16 - playerPos.z;
-            return dx * dx + dz * dz;
-        }));
-        return sorted;
-    }
-
-    private static double calculateLinearity(ChunkPos c1, ChunkPos c2, ChunkPos c3) {
-        // Calculate how close three points are to forming a straight line
-        // Using the cross product method to find deviation from straight line
-
-        Vec3 v1 = new Vec3(c2.x() - c1.x(), 0, c2.z() - c1.z());
-        Vec3 v2 = new Vec3(c3.x() - c2.x(), 0, c3.z() - c2.z());
-
-        if (v1.lengthSqr() < 0.01 || v2.lengthSqr() < 0.01) {
-            return 0; // Points too close together
-        }
-
-        // Calculate angle between vectors
-        double dot = v1.normalize().dot(v2.normalize());
-        dot = Math.max(-1.0, Math.min(1.0, dot)); // Clamp to valid range
-
-        double angle = Math.acos(Math.abs(dot));
-        double linearity = 1.0 - (angle / (Math.PI / 2)); // 1.0 = perfectly linear, 0.0 = perpendicular
-
-        return Math.max(0, linearity);
-    }
-
-    private static double calculateDirectionConsistency(List<ChunkPos> chunks, Vec3 targetDirection) {
-        double totalConsistency = 0;
-        int comparisons = 0;
-
-        for (int i = 0; i < chunks.size() - 1; i++) {
-            ChunkPos from = chunks.get(i);
-            ChunkPos to = chunks.get(i + 1);
-
-            Vec3 direction = new Vec3(to.x() - from.x(), 0, to.z() - from.z());
-            if (direction.lengthSqr() > 0) {
-                double dot = direction.normalize().dot(targetDirection.normalize());
-                totalConsistency += Math.max(0, dot); // Only positive correlations
-                comparisons++;
-            }
-        }
-
-        return comparisons > 0 ? totalConsistency / comparisons : 0;
-    }
-
     private static ChunkBoundaryInfo checkForBoundaries(Vec3 playerPos) {
         ChunkBoundaryInfo info = new ChunkBoundaryInfo();
 
+        NewerNewChunks newerNewChunks = newerNewChunks();
         if (newerNewChunks == null || !newerNewChunks.isActive()) {
             return info;
         }
@@ -514,7 +320,7 @@ public class ElytraController {
         Vec3 forwardVec = Vec3.directionFromRotation(0, MeteorClient.mc.player.getYRot()).normalize();
 
         // First, analyze if there's a meaningful trail in the area
-        TrailInfo trailInfo = analyzeNewChunkTrail(playerPos, newerNewChunks);
+        TrailAnalysis.Trail trailInfo = TrailAnalysis.analyze(playerPos, newerNewChunks::isNewChunk);
         if (trailInfo != null && trailInfo.confidence >= MIN_TRAIL_CONFIDENCE) {
             info.hasNewChunks = true;
             info.boundaryDirection = trailInfo.direction;
@@ -559,7 +365,7 @@ public class ElytraController {
         edgeFollowStartTime = System.currentTimeMillis();
         boundaryDirection = boundaryInfo.boundaryDirection;
 
-        Logger.log("Switching to edge following: " + boundaryInfo.description);
+        StashHunter.LOG.info("Switching to edge following: " + boundaryInfo.description);
 
         if (MeteorClient.mc.player != null) {
             MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§eEdge following activated: " + boundaryInfo.description));
@@ -571,7 +377,7 @@ public class ElytraController {
         edgeFollowStartTime = System.currentTimeMillis();
         boundaryDirection = boundaryInfo.boundaryDirection;
 
-        Logger.log("New chunk boundary detected - following trail for potential stash locations");
+        StashHunter.LOG.info("New chunk boundary detected - following trail for potential stash locations");
 
         if (MeteorClient.mc.player != null) {
             MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§6Following new chunk boundary - potential player trail detected"));
@@ -679,6 +485,12 @@ public class ElytraController {
             MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§bFlying to waypoint " + (currentWaypoint + 1) + "/" + waypoints.size() +
                 ": " + (int)waypoint.x + ", " + (int)waypoint.z));
         }
+    }
+
+    // Looked up per call: a static final field filled at class-load time stays null for good if
+    // this class happens to load before the module is registered.
+    private static NewerNewChunks newerNewChunks() {
+        return Modules.get().get(NewerNewChunks.class);
     }
 
     public static boolean isActive() {
