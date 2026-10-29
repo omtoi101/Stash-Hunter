@@ -34,6 +34,7 @@ public class StashHunter extends MeteorAddon {
         LOG.info("Initializing Stash-Hunter");
 
         Config.load();
+        Config.validate();
 
         // Modules
         Modules.get().add(new StashHunterModule());

@@ -39,11 +39,8 @@ final class BaritoneImpl {
         baritone.getPathingBehavior().cancelEverything();
     }
 
-    static boolean isPathing() {
-        return primary().getPathingBehavior().isPathing();
-    }
-
-    static boolean hasPath() {
-        return primary().getPathingBehavior().hasPath();
+    /** True while the elytra process owns movement (it has a live behavior for a destination). */
+    static boolean isElytraActive() {
+        return primary().getElytraProcess().isActive();
     }
 }

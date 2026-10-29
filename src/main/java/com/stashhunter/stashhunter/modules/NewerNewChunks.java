@@ -288,7 +288,6 @@ public class NewerNewChunks extends Module {
 	private int autoreloadticks=0;
 	private int loadingticks=0;
 	private boolean worldchange=false;
-	private int justenabledsavedata=0;
 	private boolean saveDataWasOn = false;
 	private static final Set<Block> ORE_BLOCKS = new HashSet<>();
 	static {
@@ -402,15 +401,13 @@ public class NewerNewChunks extends Module {
 	}
 	@Override
 	public void onActivate() {
-		if (save.get())saveDataWasOn = true;
-		else if (!save.get())saveDataWasOn = false;
+		saveDataWasOn = save.get();
 		if (autoreload.get()) {
 			clearChunkData();
 		}
 		autoreloadticks=0;
 		loadingticks=0;
 		worldchange=false;
-		justenabledsavedata=0;
 		if (mc.level == null) return;
 
 		if (save.get() || load.get()) {
@@ -463,7 +460,6 @@ public class NewerNewChunks extends Module {
 		autoreloadticks=0;
 		loadingticks=0;
 		worldchange=false;
-		justenabledsavedata=0;
 		if (remove.get()|autoreload.get()) {
 			clearChunkData();
 		}
@@ -554,37 +550,35 @@ public class NewerNewChunks extends Module {
 			worldchange=false;
 		}
 
-		if (!save.get())saveDataWasOn = false;
-		if (save.get() && justenabledsavedata<=2 && !saveDataWasOn){
-			justenabledsavedata++;
-			if (justenabledsavedata == 1){
-				synchronized (newChunks) {
-					for (ChunkPos chunk : newChunks){
-						saveData(Paths.get("NewChunkData.txt"), chunk);
-					}
+		// SaveChunkData switched on while the module is running: dump the chunks detected so far once.
+		if (save.get() && !saveDataWasOn){
+			synchronized (newChunks) {
+				for (ChunkPos chunk : newChunks){
+					saveData(Paths.get("NewChunkData.txt"), chunk);
 				}
-				synchronized (OldGenerationOldChunks) {
-					for (ChunkPos chunk : OldGenerationOldChunks){
-						saveData(Paths.get("OldGenerationChunkData.txt"), chunk);
-					}
+			}
+			synchronized (OldGenerationOldChunks) {
+				for (ChunkPos chunk : OldGenerationOldChunks){
+					saveData(Paths.get("OldGenerationChunkData.txt"), chunk);
 				}
-				synchronized (beingUpdatedOldChunks) {
-					for (ChunkPos chunk : beingUpdatedOldChunks){
-						saveData(Paths.get("BeingUpdatedChunkData.txt"), chunk);
-					}
+			}
+			synchronized (beingUpdatedOldChunks) {
+				for (ChunkPos chunk : beingUpdatedOldChunks){
+					saveData(Paths.get("BeingUpdatedChunkData.txt"), chunk);
 				}
-				synchronized (oldChunks) {
-					for (ChunkPos chunk : oldChunks){
-						saveData(Paths.get("OldChunkData.txt"), chunk);
-					}
+			}
+			synchronized (oldChunks) {
+				for (ChunkPos chunk : oldChunks){
+					saveData(Paths.get("OldChunkData.txt"), chunk);
 				}
-				synchronized (tickexploitChunks) {
-					for (ChunkPos chunk : tickexploitChunks){
-						saveData(Paths.get("BlockExploitChunkData.txt"), chunk);
-					}
+			}
+			synchronized (tickexploitChunks) {
+				for (ChunkPos chunk : tickexploitChunks){
+					saveData(Paths.get("BlockExploitChunkData.txt"), chunk);
 				}
 			}
 		}
+		saveDataWasOn = save.get();
 
 		if (removerenderdist.get())removeChunksOutsideRenderDistance();
 	}

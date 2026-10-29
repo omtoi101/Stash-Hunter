@@ -29,6 +29,9 @@ public class ElytraController {
     // can tell "no path issued yet for this target" apart from "Baritone dropped its path".
     private static BlockPos baritoneTargetPos = null;
 
+    // True only if initiateFlight() switched ElytraFly on, so stop() leaves a user-enabled ElytraFly alone.
+    private static boolean elytraFlyEnabledByUs = false;
+
     // Navigation state for edge following
     private static NavigationMode navigationMode = NavigationMode.NORMAL;
     private static long edgeFollowStartTime = 0;
@@ -98,9 +101,10 @@ public class ElytraController {
         BaritoneBridge.cancel();
 
         ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
-        if (elytraFly != null && elytraFly.isActive()) {
+        if (elytraFlyEnabledByUs && elytraFly != null && elytraFly.isActive()) {
             elytraFly.toggle();
         }
+        elytraFlyEnabledByUs = false;
 
         if (MeteorClient.mc.player != null) {
             MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§aStash hunter flight stopped"));
@@ -167,6 +171,7 @@ public class ElytraController {
             ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
             if (elytraFly != null && !elytraFly.isActive()) {
                 elytraFly.toggle();
+                elytraFlyEnabledByUs = true;
             }
 
             flyToNextWaypoint();
@@ -585,9 +590,9 @@ public class ElytraController {
             return;
         }
 
-        if (!BaritoneBridge.isPathing() && !BaritoneBridge.hasPath()) {
-            // Baritone dropped the path before we arrived - fall back to the built-in controller
-            // for this stretch. StuckDetector also watches for this and can trigger recovery.
+        if (!BaritoneBridge.isElytraActive()) {
+            // Baritone's elytra process dropped the path before we arrived - fall back to the built-in
+            // controller for this stretch. StuckDetector also watches for this and can trigger recovery.
             controlFlight(target);
             return;
         }

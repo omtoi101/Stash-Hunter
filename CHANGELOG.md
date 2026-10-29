@@ -10,8 +10,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Compilation failure in `ElytraController`**: `BlockPos` was used at three sites (the `baritoneTargetPos` field, `startGroundPath(...)`, and the landing-target call) but `net.minecraft.core.BlockPos` was never imported, so `compileJava` failed with `cannot find symbol` on all three. Added the missing import.
 - **Compilation failure in `StashHunterModule`**: `onActivate()` reset health tracking via `lastHealthCheck = -1;`, but no such field exists - the declared field is `lastHealth` (line 240). The leftover name from an earlier rename broke the build with `cannot find symbol: variable lastHealthCheck`. Corrected to `lastHealth`.
+- **`NewerNewChunks`: enabling `SaveChunkData` mid-session only dumped the already detected chunks the first time.** The one-shot counter was never reset when saving was switched off again, so a second off/on cycle silently skipped the dump. Replaced with plain on-edge detection.
+- **`Config.validate()` is now actually called** after `Config.load()`, so out-of-range values in `stash-hunter.properties` are clamped on startup. `max-volume-threshold` now has the same minimum (100) in the UI as in validation.
+- **Documentation drift**: README listed the `flight-altitude` default as 320 (code: 160) and the clear commands as `.clearstashes`/`.clearplayers` (registered: `.clear-stashes`/`.clear-players`); the `.stashhunter help` output printed `/stashhunter` instead of the Meteor prefix.
+- **Bot kept flying to stale coordinates after death, a dimension change or leaving the server.** `ElytraController`'s waypoints and target are static and survived all three. `StashHunterModule` now pauses the flight (trip saved, `.stashhunter resume` continues it) on death, on a dimension change and on `GameLeftEvent`, and resets its elytra/jump state. Death detection no longer depends on `notify-on-death`; only the Discord message does.
+- **Built-in controller and Baritone steered at the same time.** The "Baritone dropped its path" check asked Baritone's generic pathing behavior, which is idle during elytra flight, so `ElytraController` overrode Baritone every tick and `StuckDetector` treated every Baritone flight as stuck. Both now ask the elytra process itself (`BaritoneBridge.isElytraActive()`); the unused `isPathing()`/`hasPath()` were removed.
+- **Stopping a flight switched off a user-enabled ElytraFly.** `ElytraController.stop()` now only disables ElytraFly if the flight enabled it.
+- **Elytra could break mid-repair.** `repair-threshold` minimum raised from 1 to 30 so the sequence has headroom. If remaining durability drops to 10 while still gliding (waiting/scaffolding), the repair aborts via emergency disconnect; once the block is placed, positioning is skipped and the repair starts in place.
+- **Repair hung for the full `repair-timeout` (300 s) without XP.** The sequence no longer starts without XP bottles in the inventory, and aborts if the damage value has not dropped for 5 s - with an emergency disconnect if the elytra is still below the threshold, otherwise by resuming flight.
+- **Emergency disconnect toggled `AutoElytraRepair` off from inside its own tick handler** and left its state on `EMERGENCY_DISCONNECT`. The state is now reset to `MONITORING` and the module deactivates on the next tick. Early aborts no longer write default values into ElytraFly's `autoPilot`/`autoHover`/`autoTakeOff` when those were never captured.
+
+### Removed
+
+- **Dead mixins and event**: `PlayerInventoryAccessor` (unused, and a boot-crash risk under `defaultRequire: 1`), `LivingEntityMixin` (`LivingEntity#die` runs server-side, so it never fired on the client) and the subscriber-less `PlayerDeathEvent`. With no mixins left, the `addon-template.mixins.json` config is dropped from `fabric.mod.json`.
 
 ### Changed
+
+- **Removed template leftovers**: icon moved to `assets/stash-hunter/icon.png`, `maven_group` is now `com.stashhunter`, `mod_version` aligned with the changelog (`26.2.1`).
+- **CI builds with Java 25** (was 21), matching `jdk_version` and the toolchain.
 
 - **Consolidated all repository and branding references onto the upstream monorepo `omtoi101/Stash-Hunter`**, removing the leftover fork identity ("StashhunterPort by _og3"):
   - `fabric.mod.json`: mod `name` changed from `StashhunterPort by _og3` to `StashHunter`; the description no longer describes the project as a third-party fork; `contact.sources` now points at `omtoi101/Stash-Hunter`.

@@ -75,6 +75,11 @@
 
 ### Phase 1 — Stabilität / „Bot bleibt am Leben“ (höchster Nutzen)
 
+> **Erledigt (2026-10-29, Punkte 7–11)**, Build grün, in-game noch ungetestet.
+> Abweichungen vom Plan: Teardown nutzt `ElytraController.pause()` statt `stop()`
+> (Trip bleibt fortsetzbar) und Meteors `GameLeftEvent`; `StuckDetector` ebenfalls auf
+> `BaritoneBridge.isElytraActive()` umgestellt; `repair-threshold` min = 30, kritisch = 10.
+
 7. **Tod-/Weltwechsel-Teardown in ElytraController.**
    - Problem: statische Felder (waypoints, currentWaypoint, currentTarget,
      visitedChunks, baritoneTargetPos in ElytraController.java:22-37) überleben

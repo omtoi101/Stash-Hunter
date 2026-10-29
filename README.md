@@ -16,8 +16,8 @@ The mod now features chunk trail tracking algorithms for optimal base finding an
 - **Stuck Detector**: A utility to detect if the player character is stuck, which can be useful during automated exploration.
 - **Customizable Commands**:
     - `.stashhunter`: The main command to configure the Stash-Hunter module.
-    - `.clearstashes`: Clears the list of found stashes.
-    - `.clearplayers`: Clears the list of tracked players.
+    - `.clear-stashes`: Clears the list of found stashes.
+    - `.clear-players`: Clears the list of tracked players.
 - **In-game HUD**: A Heads-Up Display to show real-time information about the stash finding process.
 
 ## Installation
@@ -94,7 +94,7 @@ These settings control the core functionality of the stash finding process.
 | `min-density-threshold`        | The minimum density (blocks/volume) required for a cluster to be considered a potential stash.          | 0.002         |
 | `notification-density-threshold` | The minimum density required to send a Discord notification. Set to 0 to be notified for all finds.       | 0.005         |
 | `max-cluster-distance`         | The maximum distance between two blocks for them to be considered part of the same cluster.               | 30            |
-| `flight-altitude`              | The altitude (Y-level) the bot will fly at during scanning.                                             | 320           |
+| `flight-altitude`              | The altitude (Y-level) the bot will fly at during scanning.                                             | 160           |
 | `scan-interval`                | The interval in ticks between each scan for blocks (20 ticks = 1 second).                               | 40            |
 | `player-detection`             | Whether to notify when another player is detected nearby.                                               | true          |
 | `notify-on-death`              | Whether to send a Discord notification if you die.                                                      | true          |

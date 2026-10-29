@@ -2,13 +2,13 @@ package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
 import com.stashhunter.stashhunter.baritone.BaritoneBridge;
-import com.stashhunter.stashhunter.events.PlayerDeathEvent;
 import com.stashhunter.stashhunter.events.PlayerDisconnectEvent;
 import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.DiscordEmbed;
 import com.stashhunter.stashhunter.utils.DiscordWebhook;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.WorldScanner;
+import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.settings.*;
@@ -25,7 +25,9 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.network.chat.Component;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 
 import java.util.ArrayList;
@@ -92,7 +94,7 @@ public class StashHunterModule extends Module {
         .name("max-volume-threshold")
         .description("Maximum volume to prevent natural structure detection.")
         .defaultValue(Config.maxVolumeThreshold)
-        .min(0)
+        .min(100)
         .sliderMax(50000)
         .onChanged(v -> {
             Config.maxVolumeThreshold = v;
@@ -242,6 +244,7 @@ public class StashHunterModule extends Module {
     private int reEngagingElytraTicks = 0;
     private boolean wasElytraBroken = false;
     private boolean holdingJump = false;
+    private ResourceKey<Level> lastDimension = null; // Track dimension for world-change teardown
 
     public StashHunterModule() {
         super(StashHunter.CATEGORY, "stash-hunter", "Automatically finds stashes by flying around and scanning for valuable blocks.");
@@ -252,6 +255,7 @@ public class StashHunterModule extends Module {
         reportedPlayers.clear();
         reportedStashes.clear();
         lastHealth = -1; // Reset health tracking
+        lastDimension = null;
 
         // Reset elytra/tick state so a re-enable can't instantly trip the "out of elytras"
         // path (Discord blast + disconnect) from a stale broken-elytra counter, nor resume a
@@ -307,6 +311,31 @@ public class StashHunterModule extends Module {
         }
     }
 
+    // ElytraController's waypoints/target are static and would survive into the next session.
+    @EventHandler
+    private void onGameLeft(GameLeftEvent event) {
+        if (ElytraController.isActive()) ElytraController.pause();
+        resetFlightState();
+        lastHealth = -1;
+        lastDimension = null;
+    }
+
+    // Saves the trip (resumable via .stashhunter resume) and drops all flight/elytra state.
+    private void haltFlight(String reason) {
+        if (ElytraController.isActive()) {
+            ElytraController.pause();
+            info(reason + " - flight paused. Use .stashhunter resume to continue.");
+        }
+        resetFlightState();
+    }
+
+    private void resetFlightState() {
+        elytraBrokenTicks = 0;
+        wasElytraBroken = false;
+        reEngagingElytraTicks = 0;
+        setHoldingJump(false);
+    }
+
     @EventHandler
     private void onTick(TickEvent.Post event) {
         tickCounter++;
@@ -320,6 +349,13 @@ public class StashHunterModule extends Module {
         if (mc.player == null || mc.level == null) {
             return;
         }
+
+        // Dimension change: the waypoints belong to the old dimension's coordinates.
+        ResourceKey<Level> dimension = mc.level.dimension();
+        if (lastDimension != null && !dimension.equals(lastDimension)) {
+            haltFlight("Dimension changed");
+        }
+        lastDimension = dimension;
 
         // Enhanced Elytra check with repair integration
         if (ElytraController.isActive()) {
@@ -379,11 +415,11 @@ public class StashHunterModule extends Module {
         }
 
         // Death detection - check if player health dropped to 0 or respawned
-        if (notifyOnDeath.get()) {
-            float currentHealth = mc.player.getHealth();
+        float currentHealth = mc.player.getHealth();
 
-            // If health went from positive to 0, player died
-            if (lastHealth > 0 && currentHealth <= 0) {
+        // If health went from positive to 0, player died
+        if (lastHealth > 0 && currentHealth <= 0) {
+            if (notifyOnDeath.get()) {
                 DiscordEmbed embed = new DiscordEmbed(
                     "Bot Died!",
                     "Death location: " + mc.player.blockPosition().toShortString() +
@@ -393,21 +429,22 @@ public class StashHunterModule extends Module {
                 DiscordWebhook.sendMessage("@everyone", embed);
                 info("Death detected and notified to Discord");
             }
-
-            // If we were dead (health 0, not the unsampled -1) and now have health, we respawned
-            if (lastHealth == 0 && currentHealth > 0) {
-                DiscordEmbed embed = new DiscordEmbed(
-                    "Bot Respawned",
-                    "Respawn location: " + mc.player.blockPosition().toShortString() +
-                    "\nHealth restored: " + currentHealth,
-                    0x00FF00
-                );
-                DiscordWebhook.sendMessage("", embed);
-                info("Respawn detected and notified to Discord");
-            }
-
-            lastHealth = currentHealth;
+            haltFlight("Death detected");
         }
+
+        // If we were dead (health 0, not the unsampled -1) and now have health, we respawned
+        if (lastHealth == 0 && currentHealth > 0 && notifyOnDeath.get()) {
+            DiscordEmbed embed = new DiscordEmbed(
+                "Bot Respawned",
+                "Respawn location: " + mc.player.blockPosition().toShortString() +
+                "\nHealth restored: " + currentHealth,
+                0x00FF00
+            );
+            DiscordWebhook.sendMessage("", embed);
+            info("Respawn detected and notified to Discord");
+        }
+
+        lastHealth = currentHealth;
 
         // Scan for blocks every scanInterval ticks
         if (tickCounter % scanInterval.get() == 0) {
@@ -678,8 +715,8 @@ public class StashHunterModule extends Module {
                 .append("\n"));
 
         String modeInfo = storageOnlyMode.get() ? " (Storage Only)" : " (Full Stash)";
-        String logMessage = String.format("%s at: %s with %d valuable blocks (density: %.6f)",
-            storageOnlyMode.get() ? "Stash Found" : "Stash Found", coords, valuableBlocks.size(), density);
+        String logMessage = String.format("Stash Found at: %s with %d valuable blocks (density: %.6f)",
+            coords, valuableBlocks.size(), density);
 
         // Always log to console/chat
         info(logMessage);
@@ -696,7 +733,7 @@ public class StashHunterModule extends Module {
                 coords, modeInfo, valuableBlocks.size(), volume, density, rating, containerList.toString()
             );
 
-            String title = storageOnlyMode.get() ? "Stash Found!" : "Stash Found!";
+            String title = "Stash Found!";
             DiscordEmbed embed = new DiscordEmbed(title, description, 0x00FF00);
             DiscordWebhook.sendMessage("@everyone", embed);
 

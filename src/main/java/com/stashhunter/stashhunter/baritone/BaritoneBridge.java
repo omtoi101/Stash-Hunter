@@ -66,19 +66,14 @@ public final class BaritoneBridge {
         }
     }
 
-    public static boolean isPathing() {
+    /**
+     * True while Baritone's elytra process is driving the player. This asks the elytra process
+     * itself, not the generic pathing behavior, which stays idle during elytra flight.
+     */
+    public static boolean isElytraActive() {
         if (!isModLoaded()) return false;
         try {
-            return BaritoneImpl.isPathing();
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    public static boolean hasPath() {
-        if (!isModLoaded()) return false;
-        try {
-            return BaritoneImpl.hasPath();
+            return BaritoneImpl.isElytraActive();
         } catch (Throwable t) {
             return false;
         }

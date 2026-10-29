@@ -11,7 +11,7 @@
   "contact": {
     "sources": "https://github.com/omtoi101/Stash-Hunter"
   },
-  "icon": "assets/template/icon.png",
+  "icon": "assets/stash-hunter/icon.png",
   "environment": "client",
   "license": "Apache-2.0",
   "entrypoints": {
@@ -19,9 +19,6 @@
       "com.stashhunter.stashhunter.StashHunter"
     ]
   },
-  "mixins": [
-    "addon-template.mixins.json"
-  ],
   "custom": {
     "meteor-client:color": "225,25,25"
   },

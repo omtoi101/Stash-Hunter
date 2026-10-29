@@ -123,7 +123,7 @@ public class StuckDetector extends Module {
         // up on its goal?" and reuses the existing recovery below if so.
         if (Config.useBaritonePathing && BaritoneBridge.isElytraPathingReady() && ElytraController.isActive()) {
             Vec3 target = ElytraController.getCurrentTarget();
-            if (target != null && !BaritoneBridge.isPathing() && !BaritoneBridge.hasPath()
+            if (target != null && !BaritoneBridge.isElytraActive()
                 && mc.player.position().distanceTo(target) > 5.0) {
                 handleStuck();
                 return;
