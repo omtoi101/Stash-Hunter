@@ -9,6 +9,7 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.server.IntegratedServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 
 import java.util.OptionalLong;
@@ -91,7 +92,8 @@ public class SlimeChunkOverlay extends Module {
 
         OptionalLong seed = currentSeed();
         if (seed.isEmpty()) {
-            if (!warnedNoSeed) {
+            // In singleplayer an empty seed only means the integrated server is starting/stopping.
+            if (!warnedNoSeed && mc.getSingleplayerServer() == null) {
                 warning("No world seed set - enter it in the world-seed setting.");
                 warnedNoSeed = true;
             }
@@ -116,7 +118,11 @@ public class SlimeChunkOverlay extends Module {
 
     private OptionalLong currentSeed() {
         IntegratedServer server = mc.getSingleplayerServer();
-        if (server != null) return OptionalLong.of(server.overworld().getSeed());
+        if (server != null) {
+            // overworld() is a plain map lookup and is null while the server starts or stops.
+            ServerLevel overworld = server.overworld();
+            return overworld != null ? OptionalLong.of(overworld.getSeed()) : OptionalLong.empty();
+        }
         return SlimeChunks.parseSeed(worldSeed.get());
     }
 

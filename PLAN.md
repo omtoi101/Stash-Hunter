@@ -6,8 +6,8 @@
 >
 > **Stand 2026-10-29:** Phasen 0–5 und die Punkte 33–43 sind erledigt bzw. bewertet
 > (Details jeweils im Abschnitt und im CHANGELOG). Offen sind nur noch 34 (braucht ein
-> echtes Icon) und die Feature-Ideen 44, 45 und 47 (46 erledigt, siehe dort). Alles ist ungetestet in-game - siehe
-> „Verifikation“.
+> echtes Icon) und die Feature-Ideen 44, 45 und 47 (46 erledigt, siehe dort).
+> Alles ist ungetestet in-game - siehe „Verifikation“.
 
 ## Projekt-Kontext
 
@@ -235,6 +235,11 @@
 ## Fabric- & Toolchain-Updates (Versionsstände geprüft 2026-10-29)
 
 > Alle Versionen gegen die offizielle Fabric-Meta-API bzw. maven.fabricmc.net verifiziert.
+>
+> **Stand-Nachtrag (Code-Nachprüfung 2026-10-29):** Die Punkte 39–43 unten beschreiben den
+> Zustand *vor* dem Phase-5-Refactor und sind damit teils überholt: 39 erledigt (Loader 0.20.1),
+> 40 hinfällig (Fabric API komplett entfernt), 41 erledigt (Loom 1.17.21), 42 übererfüllt
+> (keine Fabric API mehr), 43 verworfen (`implementation` bleibt bewusst, siehe Build-Kommentar).
 
 39. **Fabric Loader aktualisieren.** `loader_version` steht auf `0.19.3`; aktuell
     stabile Version ist `0.20.1`. In gradle.properties anheben und Build prüfen.
@@ -268,6 +273,16 @@
     Dev-Runtime-Classpath und erzeugt fabric.mod.json-bewusste Metadaten). Prüfen, ob
     der Wechsel ohne Verhaltensänderung funktioniert.
 
+44. **Port auf MC 26.3/26.4 prüfen (Mod steht auf 26.2).**
+    - Code-Belegt: `minecraft_version=26.2`, `meteor-client: ~26.2-` (fabric.mod.json),
+      `meteor-client: 26.2-SNAPSHOT` + `baritone: 26.2-SNAPSHOT` (build.gradle.kts).
+      Wegen der `26.2`-Pins lädt das Mod nicht auf 26.3/26.4.
+    - Extern verifiziert (2026-10-29): Meteor liegt bereits bei `26.3-SNAPSHOT`
+      (maven.meteordev.org), Fabric API bei `0.165.1+26.4` (MC 26.4). Ein Port wäre nötig,
+      um mit der neuesten Meteor-/MC-Version zu laufen.
+    - Fix (bei Bedarf): `minecraft_version`, `meteor-client`, `baritone_version` und die
+      `~26.2-`-Constraint anheben; `fabric-resource-loader-v1`-Version prüfen; Build + Tests.
+
 ---
 
 ## Feature-Idee: Welt-Seed nutzen (Struktur-/Biom-/Erz-Vorhersage)
@@ -279,7 +294,7 @@
 ### Ausgangslage & Machbarkeit
 
 - **Wichtig:** Der Welt-Seed ist client-seitig im **Multiplayer nicht verfügbar**
-  (bewusst versteckt). Es gibt kein `mc.level.getSeed()`. Drei Wege: (a) manuelles
+  (bewusst versteckt). Es gibt kein `mc.level.getSeed()`. Zwei Wege: (a) manuelles
   Seed-Setting, (b) Seed-Cracking. (Slime-Chunks sind in Java Edition **nicht**
   seed-unabhängig - das gilt nur für Bedrock; siehe 46.)
 - Singleplayer: Seed lesbar via `Minecraft.getSingleplayerServer().overworld().getSeed()`.
@@ -314,6 +329,12 @@
       (Zahl oder Text wie im „Welt erstellen"-Screen) - darauf kann 44 aufbauen.
       Nur Overworld; Chunk-Menge wird nur bei Wechsel von Spieler-Chunk/Seed/Radius
       neu berechnet.
+    - Restunsicherheit (geprüft): Im Singleplayer wird der Seed vom Render-Thread aus
+      beim Server abgefragt, also über Thread-Grenzen hinweg. Harmlos, weil sich der
+      Seed nach dem Start nicht mehr ändert und `mc.player != null` vorher sicherstellt,
+      dass der Server fertig gestartet ist; `overworld() == null` wird abgefangen.
+      Hinweis: `currentSeed()` läuft pro Frame — in Singleplayer ein redundanter
+      per-Frame-Lookup, der sich einmal cachen ließe.
 
 47. **Erz-/Terrain-Vorhersage (mit Seed, baut auf 44 auf).**
     - Diamant-/Erzverteilung + Biome vorhersagen → Scan-/Base-Ziele priorisieren,
@@ -327,6 +348,44 @@
   als Opt-in mit klarer Kennzeichnung auslegen.
 - Lizenz der Seedfinding-Library vor dem Bündeln prüfen (nicht blind als
   `implementation` ziehen).
+
+---
+
+## Weitere Optimierungen (geprüft 2026-10-29)
+
+> Alle Punkte gegen den aktuellen Code verifiziert. Die frühere Annahme „Math.pow läuft
+> pro Tick (Zeile 132)" war falsch — das ist die einmalige `resume()`-Methode; nur
+> `handleNormalNavigation` (222) läuft pro Tick. God-Classes sind bereits Punkt 28.
+
+48. **`classifyChunk`-Klassifizierung vom Netty-Thread holen.**
+    - Belegt: `classifyChunk(...)` wird in `onReadPacket` (Netty-Thread, Kommentar
+      Z.644–647) direkt aufgerufen (Z.674). Die Overworld-Schleife scannt bis zu 17
+      Sektionen à 16³ Blöcke (Z.710–732) → ~70k Iterationen pro Erst-Chunk.
+    - Fix: `replaceWithPacketData` (Decode) muss auf dem Netty-Thread bleiben
+      (Packet-Buffer); die private `LevelChunk`-Kopie danach per `mc.execute(...)`
+      auf dem Client-Thread klassifizieren.
+
+49. **`SlimeChunkOverlay` allokiert pro Chunk ein `Random` und rechnet auf dem Render-Thread.**
+    - Belegt: `recompute()` läuft in `onRender` und iteriert `(2·radius+1)²` Chunks
+      (Default 16 → 1.089, Max 64 → 16.641). `SlimeChunks.isSlimeChunk` macht
+      `new Random(seed)` pro Chunk (Z.23). Recomputation einmal pro Chunk-Wechsel (Cache).
+    - Fix: einen `Random` wiederverwenden (`setSeed`) bzw. den 48-bit-LCG inline;
+      Recomputation inkrementell oder auf Hintergrund-Thread.
+
+50. **`ElytraController.handleNormalNavigation` rechnet pro Tick mit `Math.pow`/`Math.sqrt`.**
+    - Belegt: Z.222–224 (läuft pro Tick während des Flugs). `Math.pow(x, 2)` → `x*x`;
+      Vergleich `horizontalDistance < 20.0` → `dx²+dz² < 400` (sqrt entfällt).
+    - Hinweis: dieselbe Form in `resume()` (Z.132–134) läuft nur einmal — dort egal.
+
+51. **Executor-/Thread-Ressourcen werden nie heruntergefahren.**
+    - `Config.SAVER` (ScheduledExecutor, Z.26) und `DiscordWebhook.EXECUTOR`
+      (ThreadPoolExecutor) sind Daemon-Threads ohne `shutdown()`. Ein pending
+      `saveLater` (1 s) kann beim Beenden verloren gehen → Flush bei Client-Shutdown.
+
+52. **Allocation im End-Detektor.**
+    - `new BlockPos(x, 64, z)` in `classifyChunk` (Z.766) im 16×16-Loop; funktional
+      korrekt (`getBlockState` maskiert x/z auf 0–15), aber unnötig allokiert.
+      Abfrage ohne `BlockPos`-Objekt ausdrücken (int-Variante bzw. Sektion direkt).
 
 ---
 
