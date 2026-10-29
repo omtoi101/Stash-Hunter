@@ -42,6 +42,7 @@ public class ElytraController {
     // Trail analysis state
     private static final int TRAIL_ANALYSIS_RADIUS = 5; // chunks to analyze around player
     private static final double MIN_TRAIL_CONFIDENCE = 0.6; // minimum confidence to follow a trail
+    private static final int MAX_LINEAR_PATTERN_CHUNKS = 24; // caps the O(n^3) collinearity search
 
     private enum NavigationMode {
         NORMAL,           // Following waypoints normally
@@ -334,22 +335,20 @@ public class ElytraController {
         String type; // "corridor", "line", "scattered", etc.
     }
 
-    private static TrailInfo analyzeNewChunkTrail(Vec3 playerPos, List<ChunkPos> newChunks) {
-        if (newChunks == null || newChunks.size() < 3) {
-            return null; // Need at least 3 chunks to form a trail
-        }
-
+    private static TrailInfo analyzeNewChunkTrail(Vec3 playerPos, NewerNewChunks chunks) {
         ChunkPos playerChunk = new ChunkPos((int)playerPos.x >> 4, (int)playerPos.z >> 4);
 
-        // Find new chunks within analysis radius
+        // Find new chunks within analysis radius by probing the (small) neighbourhood instead of
+        // iterating every new chunk ever detected.
         List<ChunkPos> nearbyNewChunks = new ArrayList<>();
-        for (ChunkPos chunk : newChunks) {
-            double distance = Math.sqrt(
-                Math.pow(chunk.x() - playerChunk.x(), 2) +
-                Math.pow(chunk.z() - playerChunk.z(), 2)
-            );
-            if (distance <= TRAIL_ANALYSIS_RADIUS) {
-                nearbyNewChunks.add(chunk);
+        int radiusSq = TRAIL_ANALYSIS_RADIUS * TRAIL_ANALYSIS_RADIUS;
+        for (int dx = -TRAIL_ANALYSIS_RADIUS; dx <= TRAIL_ANALYSIS_RADIUS; dx++) {
+            for (int dz = -TRAIL_ANALYSIS_RADIUS; dz <= TRAIL_ANALYSIS_RADIUS; dz++) {
+                if (dx * dx + dz * dz > radiusSq) continue;
+                ChunkPos chunk = new ChunkPos(playerChunk.x() + dx, playerChunk.z() + dz);
+                if (chunks.isNewChunk(chunk)) {
+                    nearbyNewChunks.add(chunk);
+                }
             }
         }
 
@@ -378,7 +377,13 @@ public class ElytraController {
         return bestTrail;
     }
 
-    private static TrailInfo analyzeLinearPattern(List<ChunkPos> chunks, Vec3 playerPos) {
+    private static TrailInfo analyzeLinearPattern(List<ChunkPos> nearbyChunks, Vec3 playerPos) {
+        // Only the chunks closest to the player matter for steering; capping keeps this bounded.
+        List<ChunkPos> chunks = sortedByDistance(nearbyChunks, playerPos);
+        if (chunks.size() > MAX_LINEAR_PATTERN_CHUNKS) {
+            chunks = chunks.subList(0, MAX_LINEAR_PATTERN_CHUNKS);
+        }
+
         // Look for chunks that form roughly straight lines
         for (int i = 0; i < chunks.size() - 2; i++) {
             for (int j = i + 1; j < chunks.size() - 1; j++) {
@@ -408,14 +413,11 @@ public class ElytraController {
         return null;
     }
 
-    private static TrailInfo analyzeDirectionalPattern(List<ChunkPos> chunks, Vec3 playerPos) {
+    private static TrailInfo analyzeDirectionalPattern(List<ChunkPos> nearbyChunks, Vec3 playerPos) {
         // Look for chunks that show consistent directional movement
-        if (chunks.size() < 4) return null;
+        if (nearbyChunks.size() < 4) return null;
 
-        // Sort chunks by distance from player
-        chunks.sort(Comparator.comparingDouble(c ->
-            Math.pow(c.x() * 16 - playerPos.x, 2) + Math.pow(c.z() * 16 - playerPos.z, 2)
-        ));
+        List<ChunkPos> chunks = sortedByDistance(nearbyChunks, playerPos);
 
         Vec3 avgDirection = Vec3.ZERO;
         int validDirections = 0;
@@ -447,6 +449,17 @@ public class ElytraController {
         }
 
         return null;
+    }
+
+    // Returns a sorted copy, so callers' lists are never reordered.
+    private static List<ChunkPos> sortedByDistance(List<ChunkPos> chunks, Vec3 playerPos) {
+        List<ChunkPos> sorted = new ArrayList<>(chunks);
+        sorted.sort(Comparator.comparingDouble(c -> {
+            double dx = c.x() * 16 - playerPos.x;
+            double dz = c.z() * 16 - playerPos.z;
+            return dx * dx + dz * dz;
+        }));
+        return sorted;
     }
 
     private static double calculateLinearity(ChunkPos c1, ChunkPos c2, ChunkPos c3) {
@@ -496,11 +509,10 @@ public class ElytraController {
             return info;
         }
 
-        List<ChunkPos> newChunks = newerNewChunks.getNewChunks();
         Vec3 forwardVec = Vec3.directionFromRotation(0, MeteorClient.mc.player.getYRot()).normalize();
 
         // First, analyze if there's a meaningful trail in the area
-        TrailInfo trailInfo = analyzeNewChunkTrail(playerPos, newChunks);
+        TrailInfo trailInfo = analyzeNewChunkTrail(playerPos, newerNewChunks);
         if (trailInfo != null && trailInfo.confidence >= MIN_TRAIL_CONFIDENCE) {
             info.hasNewChunks = true;
             info.boundaryDirection = trailInfo.direction;
@@ -515,7 +527,7 @@ public class ElytraController {
             ChunkPos checkChunk = new ChunkPos((int)checkPos.x >> 4, (int)checkPos.z >> 4);
 
             // Check if chunk is new (AVOID these unless they form a trail)
-            if (newChunks != null && newChunks.contains(checkChunk)) {
+            if (newerNewChunks.isNewChunk(checkChunk)) {
                 info.hasNewChunks = true;
                 info.description = "New chunk ahead - avoiding (no clear trail detected)";
 

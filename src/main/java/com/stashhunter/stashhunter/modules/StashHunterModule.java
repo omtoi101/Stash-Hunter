@@ -15,9 +15,9 @@ import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.waypoints.Waypoint;
 import meteordevelopment.meteorclient.systems.waypoints.Waypoints;
+import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
@@ -25,15 +25,21 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.network.chat.Component;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -153,6 +159,24 @@ public class StashHunterModule extends Module {
         .build()
     );
 
+    private final Setting<Integer> maxClusterSize = sgGeneral.add(new IntSetting.Builder()
+        .name("max-cluster-size")
+        .description("Maximum diameter of one cluster. Keeps neighbouring stashes from being chained into one huge, low-density cluster.")
+        .defaultValue(64)
+        .min(16)
+        .sliderMax(256)
+        .build()
+    );
+
+    private final Setting<Integer> reportDedupeRadius = sgGeneral.add(new IntSetting.Builder()
+        .name("report-dedupe-radius")
+        .description("A stash closer than this to an already reported one (or to an existing stash waypoint) is not reported again.")
+        .defaultValue(48)
+        .min(8)
+        .sliderMax(200)
+        .build()
+    );
+
     @SuppressWarnings("unused") // value is read via Config.flightAltitude
     private final Setting<Integer> flightAltitude = sgGeneral.add(new IntSetting.Builder()
         .name("flight-altitude")
@@ -238,6 +262,7 @@ public class StashHunterModule extends Module {
     // State
     private final Map<UUID, Long> reportedPlayers = new ConcurrentHashMap<>();
     private final List<BlockPos> reportedStashes = new ArrayList<>();
+    private static final String STASH_WAYPOINT_MARKER = " Blocks at "; // part of every stash waypoint name
     private int tickCounter = 0;
     private float lastHealth = -1; // Track health for death detection, -1 = not sampled yet
     private int elytraBrokenTicks = 0;
@@ -315,6 +340,7 @@ public class StashHunterModule extends Module {
     @EventHandler
     private void onGameLeft(GameLeftEvent event) {
         if (ElytraController.isActive()) ElytraController.pause();
+        reportedStashes.clear();
         resetFlightState();
         lastHealth = -1;
         lastDimension = null;
@@ -354,6 +380,7 @@ public class StashHunterModule extends Module {
         ResourceKey<Level> dimension = mc.level.dimension();
         if (lastDimension != null && !dimension.equals(lastDimension)) {
             haltFlight("Dimension changed");
+            reportedStashes.clear(); // positions are per dimension; existing waypoints still dedupe
         }
         lastDimension = dimension;
 
@@ -484,11 +511,6 @@ public class StashHunterModule extends Module {
                 System.currentTimeMillis() - entry.getValue() > 300000);
         }
 
-        // Clean up old reported bases every 10 minutes
-        if (tickCounter % 12000 == 0) {
-            reportedStashes.clear();
-        }
-
         // Check if ElytraController completed and send notification
         if (notifyOnCompletion.get() && ElytraController.justCompleted()) {
             DiscordEmbed embed = new DiscordEmbed(
@@ -508,6 +530,17 @@ public class StashHunterModule extends Module {
 
         List<BlockPos> valuableBlocksInRange = new ArrayList<>();
         BlockPos playerPos = mc.player.blockPosition();
+        Set<Block> activeBlocks = new HashSet<>(Config.getActiveBlockList());
+
+        // Containers are found exactly through the block-entity list, so the block-by-block scan
+        // only needs the active blocks without a block entity. That also keeps a container from
+        // being counted by both passes.
+        Set<Block> plainBlocks = new HashSet<>();
+        if (!storageOnlyMode.get()) {
+            for (Block block : activeBlocks) {
+                if (!block.defaultBlockState().hasBlockEntity()) plainBlocks.add(block);
+            }
+        }
 
         // Get chunks within scan radius
         int chunkRadius = (scanRadius.get() / 16) + 1;
@@ -515,18 +548,17 @@ public class StashHunterModule extends Module {
 
         for (int x = -chunkRadius; x <= chunkRadius; x++) {
             for (int z = -chunkRadius; z <= chunkRadius; z++) {
-                ChunkPos chunkPos = new ChunkPos(playerChunk.x() + x, playerChunk.z() + z);
-                LevelChunk chunk = mc.level.getChunk(chunkPos.x(), chunkPos.z());
+                LevelChunk chunk = mc.level.getChunk(playerChunk.x() + x, playerChunk.z() + z);
 
                 if (chunk != null) {
-                    scanChunk(chunk, playerPos, valuableBlocksInRange);
+                    scanChunk(chunk, playerPos, activeBlocks, plainBlocks, valuableBlocksInRange);
                 }
             }
         }
 
         if (valuableBlocksInRange.size() >= blockDetectionThreshold.get()) {
             // Group blocks into clusters to separate actual stashes from natural structures
-            List<List<BlockPos>> clusters = clusterBlocks(valuableBlocksInRange, maxClusterDistance.get());
+            List<List<BlockPos>> clusters = clusterBlocks(valuableBlocksInRange, maxClusterDistance.get(), maxClusterSize.get() / 2);
 
             for (List<BlockPos> cluster : clusters) {
                 if (cluster.size() >= blockDetectionThreshold.get()) {
@@ -537,51 +569,80 @@ public class StashHunterModule extends Module {
     }
 
     /**
-     * Groups nearby blocks into clusters to separate stashes from natural structures
+     * Groups nearby blocks into clusters to separate stashes from natural structures.
+     * Seeds are taken densest-first; a block joins a cluster when it is within linkDistance of a
+     * member and within maxRadius of the seed, so chains of blocks can't grow a cluster without bound.
      */
-    private List<List<BlockPos>> clusterBlocks(List<BlockPos> blocks, int maxDistance) {
+    private List<List<BlockPos>> clusterBlocks(List<BlockPos> blocks, int linkDistance, int maxRadius) {
+        long linkSq = (long) linkDistance * linkDistance;
+        long radiusSq = (long) maxRadius * maxRadius;
+
+        // Grid with cell size = linkDistance: every neighbour of a block lies in the 27 surrounding cells.
+        Map<Long, List<BlockPos>> grid = new HashMap<>();
+        for (BlockPos pos : blocks) {
+            grid.computeIfAbsent(cellKey(pos, linkDistance), k -> new ArrayList<>()).add(pos);
+        }
+
+        Map<BlockPos, Integer> neighbourCount = new HashMap<>();
+        for (BlockPos pos : blocks) {
+            neighbourCount.put(pos, neighbours(pos, grid, linkDistance, linkSq).size());
+        }
+        List<BlockPos> seeds = new ArrayList<>(blocks);
+        seeds.sort(Comparator.comparingInt((BlockPos pos) -> neighbourCount.get(pos)).reversed());
+
         List<List<BlockPos>> clusters = new ArrayList<>();
-        List<BlockPos> unprocessed = new ArrayList<>(blocks);
+        Set<BlockPos> assigned = new HashSet<>();
+        for (BlockPos seed : seeds) {
+            if (!assigned.add(seed)) continue;
 
-        while (!unprocessed.isEmpty()) {
-            BlockPos seed = unprocessed.remove(0);
             List<BlockPos> cluster = new ArrayList<>();
+            ArrayDeque<BlockPos> queue = new ArrayDeque<>();
             cluster.add(seed);
-
-            // Find all blocks within maxDistance of any block in the cluster
-            boolean foundNew = true;
-            while (foundNew) {
-                foundNew = false;
-                List<BlockPos> toRemove = new ArrayList<>();
-
-                for (BlockPos unprocessedBlock : unprocessed) {
-                    for (BlockPos clusterBlock : cluster) {
-                        if (unprocessedBlock.closerThan(clusterBlock, maxDistance)) {
-                            cluster.add(unprocessedBlock);
-                            toRemove.add(unprocessedBlock);
-                            foundNew = true;
-                            break;
-                        }
+            queue.add(seed);
+            while (!queue.isEmpty()) {
+                for (BlockPos next : neighbours(queue.poll(), grid, linkDistance, linkSq)) {
+                    if (next.distSqr(seed) <= radiusSq && assigned.add(next)) {
+                        cluster.add(next);
+                        queue.add(next);
                     }
                 }
-
-                unprocessed.removeAll(toRemove);
             }
-
             clusters.add(cluster);
         }
 
         return clusters;
     }
 
+    private static long cellKey(BlockPos pos, int cellSize) {
+        return BlockPos.asLong(Math.floorDiv(pos.getX(), cellSize), Math.floorDiv(pos.getY(), cellSize), Math.floorDiv(pos.getZ(), cellSize));
+    }
+
+    private static List<BlockPos> neighbours(BlockPos pos, Map<Long, List<BlockPos>> grid, int cellSize, long linkSq) {
+        List<BlockPos> result = new ArrayList<>();
+        int cx = Math.floorDiv(pos.getX(), cellSize), cy = Math.floorDiv(pos.getY(), cellSize), cz = Math.floorDiv(pos.getZ(), cellSize);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    List<BlockPos> cell = grid.get(BlockPos.asLong(cx + dx, cy + dy, cz + dz));
+                    if (cell == null) continue;
+                    for (BlockPos other : cell) {
+                        if (other != pos && other.distSqr(pos) < linkSq) result.add(other);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
     private void processCluster(List<BlockPos> cluster) {
         BlockPos stashPos = WorldScanner.calculateCenter(cluster);
 
         // Check if we've already reported a base near this location
+        int dedupeRadius = reportDedupeRadius.get();
         boolean alreadyReported = reportedStashes.stream()
-            .anyMatch(reportedStash -> reportedStash.closerThan(stashPos, 100));
+            .anyMatch(reportedStash -> reportedStash.closerThan(stashPos, dedupeRadius));
 
-        if (alreadyReported) {
+        if (alreadyReported || hasStashWaypointNear(stashPos, dedupeRadius)) {
             return;
         }
 
@@ -595,6 +656,19 @@ public class StashHunterModule extends Module {
 
         reportedStashes.add(stashPos);
         reportStash(stashPos, cluster, volume, density);
+    }
+
+    // Survives module toggles and reconnects (Meteor persists waypoints per server), unlike reportedStashes.
+    private boolean hasStashWaypointNear(BlockPos pos, int radius) {
+        var dimension = PlayerUtils.getDimension();
+        for (Waypoint waypoint : Waypoints.get()) {
+            if (waypoint.dimension.get() == dimension
+                && waypoint.name.get().contains(STASH_WAYPOINT_MARKER)
+                && waypoint.pos.get().closerThan(pos, radius)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -651,48 +725,40 @@ public class StashHunterModule extends Module {
         return counts;
     }
 
-    private void scanChunk(LevelChunk chunk, BlockPos playerPos, List<BlockPos> valuableBlocks) {
-        List<Block> activeBlocks = Config.getActiveBlockList();
+    // Horizontal (cylindrical) distance on purpose: the bot flies far above the ground, so a
+    // spherical radius around the player would never reach the stashes below it.
+    private void scanChunk(LevelChunk chunk, BlockPos playerPos, Set<Block> activeBlocks, Set<Block> plainBlocks, List<BlockPos> valuableBlocks) {
+        int radius = scanRadius.get();
+        int radiusSq = radius * radius;
+        int px = playerPos.getX(), pz = playerPos.getZ();
 
         // Scan through all block entities in the chunk first (most efficient)
-        chunk.getBlockEntitiesPos().forEach(pos -> {
-            if (pos.closerThan(playerPos, scanRadius.get())) {
-                try {
-                    BlockState blockState = mc.level.getBlockState(pos);
-                    if (activeBlocks.contains(blockState.getBlock())) {
-                        valuableBlocks.add(pos.immutable());
-                    }
-                } catch (Exception e) {
-                    // Ignore errors when accessing block states
-                }
+        for (BlockPos pos : chunk.getBlockEntitiesPos()) {
+            int dx = pos.getX() - px, dz = pos.getZ() - pz;
+            if (dx * dx + dz * dz < radiusSq && activeBlocks.contains(chunk.getBlockState(pos).getBlock())) {
+                valuableBlocks.add(pos.immutable());
             }
-        });
+        }
 
-        // Only do full block scanning if not in storage-only mode and within a smaller radius
-        if (!storageOnlyMode.get()) {
-            int limitedScanRadius = Math.min(scanRadius.get(), 32); // Much smaller radius for full scanning
+        if (plainBlocks.isEmpty()) return;
 
-            for (int x = chunk.getPos().getMinBlockX(); x <= chunk.getPos().getMaxBlockX(); x += 2) { // Skip every other block
-                for (int z = chunk.getPos().getMinBlockZ(); z <= chunk.getPos().getMaxBlockZ(); z += 2) {
-                    if (Math.sqrt(Math.pow(x - playerPos.getX(), 2) + Math.pow(z - playerPos.getZ(), 2)) > limitedScanRadius) {
-                        continue;
-                    }
+        // Block-by-block scan, limited to sections whose palette can contain one of the plain blocks.
+        LevelChunkSection[] sections = chunk.getSections();
+        int minX = chunk.getPos().getMinBlockX(), minZ = chunk.getPos().getMinBlockZ();
+        for (int i = 0; i < sections.length; i++) {
+            LevelChunkSection section = sections[i];
+            if (section == null || section.hasOnlyAir()
+                || !section.maybeHas(state -> plainBlocks.contains(state.getBlock()))) continue;
 
-                    // Scan only common stash building heights
-                    int minY = Math.max(mc.level.getMinY(), -64);
-                    int maxY = Math.min(mc.level.getHeight(), 80); // Focus on common stash heights
+            int baseY = SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(i));
+            for (int x = 0; x < 16; x++) {
+                for (int z = 0; z < 16; z++) {
+                    int dx = minX + x - px, dz = minZ + z - pz;
+                    if (dx * dx + dz * dz >= radiusSq) continue;
 
-                    for (int y = minY; y < maxY; y += 2) { // Skip every other Y level for performance
-                        BlockPos pos = new BlockPos(x, y, z);
-                        if (pos.closerThan(playerPos, limitedScanRadius)) {
-                            try {
-                                BlockState blockState = mc.level.getBlockState(pos);
-                                if (activeBlocks.contains(blockState.getBlock())) {
-                                    valuableBlocks.add(pos.immutable());
-                                }
-                            } catch (Exception e) {
-                                // Ignore errors when accessing block states
-                            }
+                    for (int y = 0; y < 16; y++) {
+                        if (plainBlocks.contains(section.getBlockState(x, y, z).getBlock())) {
+                            valuableBlocks.add(new BlockPos(minX + x, baseY + y, minZ + z));
                         }
                     }
                 }
@@ -738,10 +804,11 @@ public class StashHunterModule extends Module {
             DiscordWebhook.sendMessage("@everyone", embed);
 
             // Create a waypoint
-            String waypointName = String.format("%d Blocks at %s", valuableBlocks.size(), coords);
+            String waypointName = valuableBlocks.size() + STASH_WAYPOINT_MARKER + coords;
             Waypoint waypoint = new Waypoint.Builder()
                 .name(waypointName)
                 .pos(stashPos)
+                .dimension(PlayerUtils.getDimension())
                 .build();
             Waypoints.get().add(waypoint);
             info("Created waypoint: " + waypointName);
