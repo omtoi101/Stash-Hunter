@@ -145,3 +145,61 @@ daher ggf. in einer Umgebung mit Netzzugang ausführen. Die statische API-Prüfu
 ist sauber — alle aufgerufenen Methoden (`isOldChunk`, `isOldGenerationChunk`,
 `isBeingUpdatedChunk`, `isNewChunk`, `DiscordWebhook.sendMessage`, `DiscordEmbed`,
 `dimension().identifier().getPath()`) existieren im Projekt.
+
+---
+
+# Handoff an Claude Code — Baritone-Integration verbessert (Cancel-Fix + Landungs-Timeout)
+
+> **Status (2026-10-30): eingebaut und gebaut.** `gradlew.bat build` ist auf dieser Maschine
+> **grün** (compileJava, spotlessCheck, Unit-Tests) — damit ist die alte „Build nicht
+> verifiziert“-Warnung oben überholt. Der In-game-Test der beiden Punkte steht noch aus.
+
+## Was geändert wurde
+
+1. **`BaritoneImpl.cancel()` beendet den Elytra-Flug jetzt wirklich.**
+   - Vorher: `getElytraProcess().resetState()` + `cancelEverything()`. `resetState()` ist laut
+     Baritone-API **kein** Cancel — es behält das Ziel und pfadet erneut („will try to keep
+     flying“). Jeder Stop hat den Flug also erst abgerissen, **neu gestartet** und erst danach
+     gecancelt (inkl. verschwendeter Nether-Pathfinder-Neuberechnung).
+   - Nachher: nur noch `primary().getPathingBehavior().cancelEverything()`.
+   - Nachweis im Bytecode der echten Baritone-26.2-Jar: `cancelEverything()` →
+     `PathingControlManager.a()` → `onLostControl()` auf dem Elytra-Prozess → räumt den
+     nativen Nether-Pathfinder-Kontext und das Flug-Verhalten ab.
+
+2. **Landungs-Timeout in `ElytraController`.**
+   - Neu: Feld `landingStartTime` (long) + Konstante `LANDING_TIMEOUT_MS = 120_000` (2 Minuten).
+   - Hängt Baritone bei `land-after-completion` fest (findet keinen sicheren Landeplatz), wird
+     nach 2 Minuten abgebrochen: Baritone gecancelt, Chat-Meldung
+     „Landing timed out - staying airborne.“. Sonst blieben AltitudeLossDetector und
+     AutoFirework dauerhaft stumm (PLAN-Punkt 86 „Offen (low)“).
+   - Reset/Zeitstempel an allen Stellen: Felder (L50–57), `startWith` (L95), `stop` (L116),
+     `resume` (L173), Landungs-Start in `onTick` (L269), Timeout-Check (L239–251).
+
+## Betroffene Dateien
+
+- `src/main/java/com/stashhunter/stashhunter/baritone/BaritoneImpl.java`
+- `src/main/java/com/stashhunter/stashhunter/utils/ElytraController.java`
+- `CHANGELOG.md` (zwei Einträge unter `### Fixed`)
+
+## Akzeptanzkriterien
+
+- `.stashhunter stop` / Dimensionswechsel / AltitudeLoss-Recovery beendet den Baritone-Elytra-Flug
+  tatsächlich (kein Re-Path/Re-Arm mehr).
+- Festsitzende Landung bricht nach 2 min ab und reaktiviert AltitudeLossDetector/AutoFirework.
+- Build grün: `gradlew.bat build`.
+
+## ⚠️ Parallele Arbeit beobachtet
+
+Während der Arbeit tauchten fremde, uncommittete Änderungen auf, die **nicht** von dieser
+Aufgabe stammen und **nicht angefasst** wurden: `StashHunterModule.java` (modifiziert), neue
+Dateien `StashBlockIndex.java` + `StashBlockIndexTest.java` und ein CHANGELOG-Eintrag
+„Stashes on the border between two flight strips…“. Vor dem Commit klären, ob das parallel
+geschehen ist.
+
+> **Geklärt (2026-10-30):** Die oben als „parallel“ markierten Änderungen stammen aus einer
+> zweiten Claude-Code-Sitzung (Überarbeitung des Stashfindens) und sind gewollt:
+> `StashBlockIndex` (+Test), `StashGrowth` (+Test), Umbau von `scanForBlocks`/`processCluster`/
+> `reportStash` in `StashHunterModule` und zwei CHANGELOG-Einträge („Stashes on the border…“,
+> „A stash first seen only in part…“). `gradlew build` grün (inkl. beider Arbeiten), in-game
+> ungetestet. In-game prüfen: Stash auf einer Streifengrenze wird gemeldet; ein zuerst halb
+> gesehener Stash bekommt eine „Stash Updated“-Meldung und einen verschobenen Waypoint.

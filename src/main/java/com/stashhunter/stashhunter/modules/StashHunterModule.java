@@ -10,7 +10,9 @@ import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.KeyHold;
 import com.stashhunter.stashhunter.utils.ReportedStashes;
 import com.stashhunter.stashhunter.utils.ScanTrigger;
+import com.stashhunter.stashhunter.utils.StashBlockIndex;
 import com.stashhunter.stashhunter.utils.StashClustering;
+import com.stashhunter.stashhunter.utils.StashGrowth;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
@@ -36,7 +38,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
@@ -444,11 +445,13 @@ public class StashHunterModule extends Module {
 
     // State
     private final Map<UUID, Long> reportedPlayers = new ConcurrentHashMap<>();
-    // Containers of stashes reported this session, for the Stash ESP. Not persisted.
-    private final List<StashHighlight> foundStashes = new ArrayList<>();
+    // Stashes reported this session, for report corrections and the Stash ESP. Not persisted.
+    private final List<FoundStash> foundStashes = new ArrayList<>();
     // One file per server under the Meteor folder; loaded lazily for the server we're on.
     private static final Path REPORTED_STASHES_DIR = MeteorClient.FOLDER.toPath().resolve("StashHunter").resolve("reported-stashes");
     private ReportedStashes reportedStashes;
+    // Stash blocks of every scanned chunk, so clusters can span several scans/flight strips.
+    private final StashBlockIndex<Block> stashBlockIndex = new StashBlockIndex<>(8192);
     private static final String STASH_WAYPOINT_MARKER = " Blocks at "; // part of every stash waypoint name
     private int tickCounter = 0;
     private int ticksSinceScan = Integer.MAX_VALUE / 2; // large = scan on the first tick
@@ -468,6 +471,7 @@ public class StashHunterModule extends Module {
     public void onActivate() {
         reportedPlayers.clear();
         reportedStashes = null; // reloaded from disk for the current server
+        stashBlockIndex.clear();
         lastHealth = -1; // Reset health tracking
         lastDimension = null;
 
@@ -554,6 +558,7 @@ public class StashHunterModule extends Module {
         notifyDisconnect();
         if (ElytraController.isActive()) ElytraController.pause();
         reportedStashes = null; // the next server has its own file
+        stashBlockIndex.clear();
         foundStashes.clear();
         resetFlightState();
         lastHealth = -1;
@@ -748,8 +753,8 @@ public class StashHunterModule extends Module {
     private void scanForBlocks() {
         if (mc.player == null || mc.level == null) return;
 
-        List<BlockPos> valuableBlocksInRange = new ArrayList<>();
         BlockPos playerPos = mc.player.blockPosition();
+        String dimension = PlayerUtils.getDimension().name();
         Set<Block> activeBlocks = new HashSet<>(Config.getActiveBlockList());
         // Spawners have a block entity, so they come through the block-entity pass in either mode.
         if (includeSpawners.get()) activeBlocks.add(Blocks.SPAWNER);
@@ -764,63 +769,108 @@ public class StashHunterModule extends Module {
             }
         }
 
-        // Get chunks within scan radius
-        int chunkRadius = (scanRadius.get() / 16) + 1;
-        ChunkPos playerChunk = new ChunkPos(playerPos.getX() >> 4, playerPos.getZ() >> 4);
+        // Every loaded chunk touching the scan circle is scanned whole, so its index entry is complete.
+        // Horizontal (cylindrical) distance on purpose: the bot flies far above the ground, so a
+        // spherical radius around the player would never reach the stashes below it.
+        int radius = scanRadius.get();
+        long radiusSq = (long) radius * radius;
+        int px = playerPos.getX(), pz = playerPos.getZ();
+        int chunkRadius = (radius >> 4) + 1;
+        int playerChunkX = px >> 4, playerChunkZ = pz >> 4;
 
-        for (int x = -chunkRadius; x <= chunkRadius; x++) {
-            for (int z = -chunkRadius; z <= chunkRadius; z++) {
-                LevelChunk chunk = mc.level.getChunk(playerChunk.x() + x, playerChunk.z() + z);
+        for (int cx = playerChunkX - chunkRadius; cx <= playerChunkX + chunkRadius; cx++) {
+            for (int cz = playerChunkZ - chunkRadius; cz <= playerChunkZ + chunkRadius; cz++) {
+                // Unloaded chunks read as an empty chunk and would wipe what we know about them.
+                if (!mc.level.hasChunk(cx, cz)) continue;
+                long dx = Math.clamp(px, cx << 4, (cx << 4) + 15) - px;
+                long dz = Math.clamp(pz, cz << 4, (cz << 4) + 15) - pz;
+                if (dx * dx + dz * dz > radiusSq) continue;
 
-                if (chunk != null) {
-                    scanChunk(chunk, playerPos, activeBlocks, plainBlocks, valuableBlocksInRange);
-                }
+                stashBlockIndex.update(dimension, cx, cz, scanChunk(mc.level.getChunk(cx, cz), activeBlocks, plainBlocks));
             }
         }
 
-        if (valuableBlocksInRange.size() >= blockDetectionThreshold.get()) {
-            // Group blocks into clusters to separate actual stashes from natural structures
-            List<List<BlockPos>> clusters = StashClustering.cluster(valuableBlocksInRange, maxClusterDistance.get(), maxClusterSize.get() / 2);
+        // Cluster over everything found around here, including chunks scanned on earlier passes,
+        // so a stash split across two flight strips is seen whole. The margin lets a cluster that
+        // reaches into the scan circle pull in its members from outside it.
+        Map<BlockPos, Block> found = stashBlockIndex.near(dimension, px, pz, radius + maxClusterSize.get() + 16);
+        found.values().removeIf(block -> !activeBlocks.contains(block)); // settings may have changed since
+        if (found.size() < blockDetectionThreshold.get()) return;
 
-            for (List<BlockPos> cluster : clusters) {
-                if (cluster.size() >= blockDetectionThreshold.get()) {
-                    processCluster(cluster);
-                }
+        // Group blocks into clusters to separate actual stashes from natural structures
+        List<List<BlockPos>> clusters = StashClustering.cluster(new ArrayList<>(found.keySet()), maxClusterDistance.get(), maxClusterSize.get() / 2);
+        for (List<BlockPos> cluster : clusters) {
+            if (cluster.size() >= blockDetectionThreshold.get()) {
+                processCluster(cluster, found);
             }
         }
     }
 
-    private void processCluster(List<BlockPos> cluster) {
+    // Block types come from the scan, not from the level: members of a cluster may lie in chunks
+    // that are no longer loaded and would read as air.
+    private void processCluster(List<BlockPos> cluster, Map<BlockPos, Block> types) {
         BlockPos stashPos = StashClustering.center(cluster).orElse(null);
         if (stashPos == null) return;
 
-        // Check if we've already reported a base near this location
-        int dedupeRadius = reportDedupeRadius.get();
-        String dimension = PlayerUtils.getDimension().name();
-        if (reportedStashes().isNear(dimension, stashPos, dedupeRadius) || hasStashWaypointNear(stashPos, dedupeRadius)) {
-            return;
+        Dimension dim = PlayerUtils.getDimension();
+        String dimension = dim.name();
+
+        // Stashes reported this session that are part of this cluster. If it has grown well past
+        // what was reported (the first report only saw part of it), the report is corrected.
+        List<FoundStash> earlier = earlierReportsOf(dim, cluster);
+        if (!earlier.isEmpty()) {
+            int reported = earlier.stream().mapToInt(FoundStash::reportedBlocks).max().orElse(0);
+            if (!StashGrowth.grewEnough(reported, cluster.size())) return;
+        } else {
+            // Check if we've already reported a base near this location (earlier session, or cleared)
+            int dedupeRadius = reportDedupeRadius.get();
+            if (reportedStashes().isNear(dimension, stashPos, dedupeRadius) || hasStashWaypointNear(stashPos, dedupeRadius)) {
+                return;
+            }
         }
 
         double volume = StashClustering.boundingBoxVolume(cluster);
         double density = cluster.size() / Math.max(volume, 1.0);
 
-        // Enhanced filtering for natural structures
-        if (isNaturalStructure(stashPos, cluster, volume, density)) {
+        // Enhanced filtering for natural structures. A grown cluster that now looks natural keeps
+        // its first report.
+        if (isNaturalStructure(stashPos, cluster, types, volume, density)) {
             return;
         }
 
+        for (FoundStash old : earlier) {
+            foundStashes.remove(old);
+            if (old.waypoint() != null) Waypoints.get().remove(old.waypoint());
+        }
         reportedStashes().add(dimension, stashPos);
-        rememberStashContainers(cluster);
-        reportStash(stashPos, cluster, volume, density);
+        Waypoint waypoint = reportStash(stashPos, cluster, types, volume, density, earlier);
+        foundStashes.add(new FoundStash(dim, stashPos, Set.copyOf(cluster), cluster.size(), waypoint, highlightOf(dim, cluster, types)));
+    }
+
+    private List<FoundStash> earlierReportsOf(Dimension dimension, List<BlockPos> cluster) {
+        List<Set<BlockPos>> known = new ArrayList<>();
+        for (FoundStash stash : foundStashes) known.add(stash.dimension() == dimension ? stash.blocks() : Set.of());
+        List<FoundStash> result = new ArrayList<>();
+        for (int i : StashGrowth.overlapping(known, cluster)) result.add(foundStashes.get(i));
+        return result;
     }
 
     // In full mode a cluster also holds ores/spawners etc., so only the real containers are kept.
-    private void rememberStashContainers(List<BlockPos> cluster) {
+    private StashHighlight highlightOf(Dimension dimension, List<BlockPos> cluster, Map<BlockPos, Block> types) {
         List<BlockPos> containers = new ArrayList<>();
         for (BlockPos pos : cluster) {
-            if (isContainer(mc.level.getBlockState(pos).getBlock())) containers.add(pos.immutable());
+            if (isContainer(types.get(pos))) containers.add(pos.immutable());
         }
-        if (!containers.isEmpty()) foundStashes.add(new StashHighlight(PlayerUtils.getDimension(), containers));
+        return containers.isEmpty() ? null : new StashHighlight(dimension, containers);
+    }
+
+    /**
+     * A stash reported this session: the reported position, all blocks of its cluster (to recognise
+     * it when more of it is found), the block count it was reported with, its waypoint (null if none
+     * was created) and its Stash ESP highlight (null without containers). Not persisted.
+     */
+    private record FoundStash(Dimension dimension, BlockPos position, Set<BlockPos> blocks, int reportedBlocks,
+                              Waypoint waypoint, StashHighlight highlight) {
     }
 
     private static final Set<Block> EXTRA_CONTAINERS = Set.of(
@@ -845,8 +895,9 @@ public class StashHunterModule extends Module {
 
         StashHighlight nearest = null;
         double nearestDistSq = Double.MAX_VALUE;
-        for (StashHighlight stash : foundStashes) {
-            if (stash.dimension() != dimension) continue;
+        for (FoundStash found : foundStashes) {
+            StashHighlight stash = found.highlight();
+            if (stash == null || stash.dimension() != dimension) continue;
             double distSq = mc.player.distanceToSqr(stash.centerX(), stash.centerY(), stash.centerZ());
             if (distSq > maxDistanceSq) continue;
 
@@ -908,7 +959,7 @@ public class StashHunterModule extends Module {
     /**
      * Enhanced natural structure detection
      */
-    private boolean isNaturalStructure(BlockPos center, List<BlockPos> blocks, double volume, double density) {
+    private boolean isNaturalStructure(BlockPos center, List<BlockPos> blocks, Map<BlockPos, Block> types, double volume, double density) {
         if (!filterNaturalStructures.get()) {
             return false;
         }
@@ -924,7 +975,7 @@ public class StashHunterModule extends Module {
         }
 
         // A vanilla dungeon (spawner + up to two chests) is no base, however low the threshold is.
-        if (includeSpawners.get() && isDungeonOnly(blocks)) {
+        if (includeSpawners.get() && isDungeonOnly(blocks, types)) {
             return true;
         }
 
@@ -948,46 +999,38 @@ public class StashHunterModule extends Module {
             && detector.isNearNaturalStructure(PlayerUtils.getDimension(), center, radius);
     }
 
-    private boolean isDungeonOnly(List<BlockPos> blocks) {
+    private boolean isDungeonOnly(List<BlockPos> blocks, Map<BlockPos, Block> types) {
         Set<BlockPos> spawners = new HashSet<>();
         Set<BlockPos> chests = new HashSet<>();
         for (BlockPos pos : blocks) {
-            Block block = mc.level.getBlockState(pos).getBlock();
+            Block block = types.get(pos);
             if (block == Blocks.SPAWNER) spawners.add(pos);
             else if (block == Blocks.CHEST) chests.add(pos);
         }
         return DungeonFilter.isDungeonOnly(blocks, spawners, chests);
     }
 
-    private Map<Block, Integer> countBlockTypes(List<BlockPos> blocks) {
+    private Map<Block, Integer> countBlockTypes(List<BlockPos> blocks, Map<BlockPos, Block> types) {
         Map<Block, Integer> counts = new HashMap<>();
         for (BlockPos pos : blocks) {
-            try {
-                Block block = mc.level.getBlockState(pos).getBlock();
-                counts.put(block, counts.getOrDefault(block, 0) + 1);
-            } catch (Exception e) {
-                // Ignore errors when accessing block states
-            }
+            Block block = types.get(pos);
+            if (block != null) counts.merge(block, 1, Integer::sum);
         }
         return counts;
     }
 
-    // Horizontal (cylindrical) distance on purpose: the bot flies far above the ground, so a
-    // spherical radius around the player would never reach the stashes below it.
-    private void scanChunk(LevelChunk chunk, BlockPos playerPos, Set<Block> activeBlocks, Set<Block> plainBlocks, List<BlockPos> valuableBlocks) {
-        int radius = scanRadius.get();
-        int radiusSq = radius * radius;
-        int px = playerPos.getX(), pz = playerPos.getZ();
+    // The whole chunk, not just the part inside the scan circle: the result replaces the chunk's
+    // index entry, so a partial scan would forget blocks found there on an earlier pass.
+    private Map<BlockPos, Block> scanChunk(LevelChunk chunk, Set<Block> activeBlocks, Set<Block> plainBlocks) {
+        Map<BlockPos, Block> found = new HashMap<>();
 
         // Scan through all block entities in the chunk first (most efficient)
         for (BlockPos pos : chunk.getBlockEntitiesPos()) {
-            int dx = pos.getX() - px, dz = pos.getZ() - pz;
-            if (dx * dx + dz * dz < radiusSq && activeBlocks.contains(chunk.getBlockState(pos).getBlock())) {
-                valuableBlocks.add(pos.immutable());
-            }
+            Block block = chunk.getBlockState(pos).getBlock();
+            if (activeBlocks.contains(block)) found.put(pos.immutable(), block);
         }
 
-        if (plainBlocks.isEmpty()) return;
+        if (plainBlocks.isEmpty()) return found;
 
         // Block-by-block scan, limited to sections whose palette can contain one of the plain blocks.
         LevelChunkSection[] sections = chunk.getSections();
@@ -1000,24 +1043,28 @@ public class StashHunterModule extends Module {
             int baseY = SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(i));
             for (int x = 0; x < 16; x++) {
                 for (int z = 0; z < 16; z++) {
-                    int dx = minX + x - px, dz = minZ + z - pz;
-                    if (dx * dx + dz * dz >= radiusSq) continue;
-
                     for (int y = 0; y < 16; y++) {
-                        if (plainBlocks.contains(section.getBlockState(x, y, z).getBlock())) {
-                            valuableBlocks.add(new BlockPos(minX + x, baseY + y, minZ + z));
-                        }
+                        Block block = section.getBlockState(x, y, z).getBlock();
+                        if (plainBlocks.contains(block)) found.put(new BlockPos(minX + x, baseY + y, minZ + z), block);
                     }
                 }
             }
         }
+        return found;
     }
 
-    private void reportStash(BlockPos stashPos, List<BlockPos> valuableBlocks, double volume, double density) {
+    /**
+     * Reports a new stash, or corrects the reports in {@code earlier} (same stash, first seen only in
+     * part). Returns the created waypoint, or null if none was created.
+     */
+    private Waypoint reportStash(BlockPos stashPos, List<BlockPos> valuableBlocks, Map<BlockPos, Block> types,
+                                 double volume, double density, List<FoundStash> earlier) {
+        boolean update = !earlier.isEmpty();
         String coords = stashPos.toShortString();
         String rating = getRatingFromDensity(density);
+        Dimension dimension = PlayerUtils.getDimension();
 
-        Map<Block, Integer> counts = countBlockTypes(valuableBlocks);
+        Map<Block, Integer> counts = countBlockTypes(valuableBlocks, types);
         StringBuilder containerList = new StringBuilder();
         counts.entrySet().stream()
             .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
@@ -1028,42 +1075,56 @@ public class StashHunterModule extends Module {
                 .append("\n"));
 
         String modeInfo = storageOnlyMode.get() ? " (Storage Only)" : " (Full Stash)";
-        String logMessage = String.format("Stash Found at: %s with %d valuable blocks (density: %.6f)",
-            coords, valuableBlocks.size(), density);
+        StringBuilder previously = new StringBuilder();
+        for (FoundStash old : earlier) {
+            if (!previously.isEmpty()) previously.append(", ");
+            previously.append(old.reportedBlocks()).append(" blocks at ").append(old.position().toShortString());
+        }
+
+        String logMessage = String.format("Stash %s at: %s (%s) with %d valuable blocks (density: %.6f)%s",
+            update ? "Updated" : "Found", coords, dimension, valuableBlocks.size(), density,
+            update ? " - previously reported: " + previously : "");
 
         // Always log to console/chat
         info(logMessage);
 
-        // Only send Discord notification if density meets threshold
-        if (density >= notificationDensityThreshold.get()) {
+        // Only send Discord notification if density meets threshold. A stash already announced
+        // on Discord gets its correction there too, even if the bigger cluster is less dense.
+        boolean announcedBefore = earlier.stream().anyMatch(old -> old.waypoint() != null);
+        if (density >= notificationDensityThreshold.get() || announcedBefore) {
             String description = String.format(
+                (update ? "More of an already reported stash was found.\nPreviously reported: " + previously + "\n\n" : "") +
                 "Coordinates: %s%s\n" +
+                "Dimension: %s\n" +
                 "Found %d valuable blocks\n" +
                 "Volume: %.2f blocks\n" +
                 "Density: %.6f\n" +
                 "Rating: %s\n\n" +
                 "Container List:\n%s",
-                coords, modeInfo, valuableBlocks.size(), volume, density, rating, containerList.toString()
+                coords, modeInfo, dimension, valuableBlocks.size(), volume, density, rating, containerList.toString()
             );
 
-            String title = "Stash Found!";
-            DiscordEmbed embed = new DiscordEmbed(title, description, 0x00FF00);
-            DiscordWebhook.sendMessage("@everyone", embed);
+            // No second @everyone for a correction
+            String title = update ? "Stash Updated" : "Stash Found!";
+            DiscordEmbed embed = new DiscordEmbed(title, description, update ? 0x33CC99 : 0x00FF00);
+            DiscordWebhook.sendMessage(update ? "" : "@everyone", embed);
 
             // Create a waypoint
             String waypointName = valuableBlocks.size() + STASH_WAYPOINT_MARKER + coords;
             Waypoint waypoint = new Waypoint.Builder()
                 .name(waypointName)
                 .pos(stashPos)
-                .dimension(PlayerUtils.getDimension())
+                .dimension(dimension)
                 .build();
             Waypoints.get().add(waypoint);
-            info("Created waypoint: " + waypointName);
-        } else {
-            // Log that we skipped notification due to low density
-            info("Skipped Discord notification for low density stash (density: " + String.format("%.6f", density) +
-                 ", threshold: " + String.format("%.6f", notificationDensityThreshold.get()) + ")");
+            info((update ? "Moved waypoint to: " : "Created waypoint: ") + waypointName);
+            return waypoint;
         }
+
+        // Log that we skipped notification due to low density
+        info("Skipped Discord notification for low density stash (density: " + String.format("%.6f", density) +
+             ", threshold: " + String.format("%.6f", notificationDensityThreshold.get()) + ")");
+        return null;
     }
 
     private String getRatingFromDensity(double density) {

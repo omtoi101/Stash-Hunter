@@ -49,6 +49,13 @@ public class ElytraController {
     // Config.landAfterCompletion). Cleared once Baritone lets go or anything stops/starts a flight.
     private static boolean landingAfterCompletion = false;
 
+    // Wall-clock when the post-scan landing was handed to Baritone, for the landing timeout below.
+    private static long landingStartTime = 0;
+
+    // If Baritone's elytra process hasn't finished landing this long after the scan ended, give up:
+    // a stuck landing otherwise keeps the altitude-loss detector and auto-firework muted forever.
+    private static final long LANDING_TIMEOUT_MS = 120_000; // 2 minutes
+
     // Navigation state for edge following
     private static NavigationMode navigationMode = NavigationMode.NORMAL;
     private static long edgeFollowStartTime = 0;
@@ -86,6 +93,7 @@ public class ElytraController {
         active = true;
         justCompleted = false;
         landingAfterCompletion = false;
+        landingStartTime = 0;
         navigationMode = NavigationMode.NORMAL;
         visitedChunks.clear();
         boundaryDirection = null;
@@ -104,7 +112,10 @@ public class ElytraController {
     // cancelBaritone=false keeps Baritone's elytra process running so it can finish the landing.
     private static void stop(boolean cancelBaritone) {
         active = false;
-        if (cancelBaritone) landingAfterCompletion = false;
+        if (cancelBaritone) {
+            landingAfterCompletion = false;
+            landingStartTime = 0;
+        }
         currentTarget = null;
         navigationMode = NavigationMode.NORMAL;
         visitedChunks.clear();
@@ -160,6 +171,7 @@ public class ElytraController {
         active = true;
         justCompleted = false;
         landingAfterCompletion = false;
+        landingStartTime = 0;
         navigationMode = NavigationMode.NORMAL;
         baritoneTargetPos = null;
 
@@ -224,8 +236,18 @@ public class ElytraController {
     }
 
     public static void onTick() {
-        if (landingAfterCompletion && !BaritoneBridge.isElytraActive()) {
-            landingAfterCompletion = false; // Baritone landed ("Done"), gave up, or was cancelled elsewhere
+        if (landingAfterCompletion) {
+            if (!BaritoneBridge.isElytraActive()) {
+                landingAfterCompletion = false; // Baritone landed ("Done"), gave up, or was cancelled elsewhere
+            } else if (System.currentTimeMillis() - landingStartTime > LANDING_TIMEOUT_MS) {
+                // Baritone couldn't find a safe landing spot in time. Give up so the altitude-loss
+                // detector and auto-firework aren't muted indefinitely (a stuck landing never ends).
+                landingAfterCompletion = false;
+                BaritoneBridge.cancel();
+                if (MeteorClient.mc.player != null) {
+                    MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§eLanding timed out - staying airborne."));
+                }
+            }
         }
 
         if (!active || MeteorClient.mc.player == null || waypoints.isEmpty()) {
@@ -245,6 +267,7 @@ public class ElytraController {
             if (Config.landAfterCompletion && handOffLandingToBaritone()) {
                 stop(false);
                 landingAfterCompletion = true;
+                landingStartTime = System.currentTimeMillis();
                 MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§aBaritone is landing at the end of the area..."));
             } else {
                 if (Config.landAfterCompletion && MeteorClient.mc.player != null) {

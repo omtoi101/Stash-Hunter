@@ -34,9 +34,13 @@ final class BaritoneImpl {
     }
 
     static void cancel() {
-        IBaritone baritone = primary();
-        baritone.getElytraProcess().resetState();
-        baritone.getPathingBehavior().cancelEverything();
+        // cancelEverything() stops the pathing behavior and every process that controls it, which
+        // makes the elytra process lose control; its onLostControl() tears down the native
+        // nether-pathfinder context and the flight behavior (the actual "stop flying" teardown).
+        // resetState() must not be used here: it keeps the current destination and re-paths
+        // ("will maintain the same destination and will try to keep flying"), i.e. it re-arms the
+        // flight instead of stopping it.
+        primary().getPathingBehavior().cancelEverything();
     }
 
     /** True while the elytra process owns movement (it has a live behavior for a destination). */
