@@ -5,6 +5,7 @@ out/
 bin/
 run/
 loom-cache/
+.kotlin/
 *.class
 
 # ---- Java / Gradle archives ----
@@ -45,6 +46,9 @@ replay_pid*
 .mtj.tmp/
 # VS Code
 .vscode/
+# Editor swap/backup files
+*.swp
+*~
 
 # ---- OS ----
 .DS_Store
@@ -59,3 +63,5 @@ logs/
 # ---- Local tooling ----
 .claude/
 graphify-out/
+# Scratch previews
+icon_preview.png

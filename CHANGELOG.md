@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`NewerNewChunks` marked nearly every End island chunk as old-version.** The `Pre 1.13 End OldChunk Detector` checked for end stone at y=64 (and flagged the chunk as old if the check threw) instead of the biome its description promised. It now checks the chunk's biome palette: outside the main island (chunk x² + z² > 4096), `minecraft:the_end` means pre-1.13 terrain. Wrong entries already saved in `OldGenerationChunkData.txt` stay until removed with *DELETE CHUNK DATA* in the End.
 - **Jump holds from different modules cut each other off.** `KeyHold` released the key unconditionally, so e.g. the altitude-loss recovery ending released a jump the stash module was still holding. Presses are now counted per key, and `AltitudeLossDetector`, `StuckDetector` and `AutoElytraRepair` cancel their holds when deactivated (the hold's callback was otherwise the only thing that cleared their fix-in-progress state).
 - **Compilation failure in `ElytraController`**: `BlockPos` was used at three sites (the `baritoneTargetPos` field, `startGroundPath(...)`, and the landing-target call) but `net.minecraft.core.BlockPos` was never imported, so `compileJava` failed with `cannot find symbol` on all three. Added the missing import.
 - **Compilation failure in `StashHunterModule`**: `onActivate()` reset health tracking via `lastHealthCheck = -1;`, but no such field exists - the declared field is `lastHealth` (line 240). The leftover name from an earlier rename broke the build with `cannot find symbol: variable lastHealthCheck`. Corrected to `lastHealth`.
@@ -71,6 +72,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`mention-everyone` setting** (default: off). Discord messages no longer ping `@everyone` unless enabled; `allowed_mentions` is set explicitly either way.
 - **`max-cluster-size` and `report-dedupe-radius` settings** for the stash clustering (see Fixed).
 - **`slime-chunks` module.** Marks slime chunks around you in the Overworld. Java Edition slime chunks depend on the world seed: singleplayer reads it from the integrated server, in multiplayer it has to be entered in `world-seed` (number or text, like the Create World screen). Unit-tested against vanilla's `WorldgenRandom.seedSlimeChunk`.
+- **`old-chunk-notifier` module.** Sends a chat and Discord message when you fly from new/unclassified terrain into chunks `NewerNewChunks` marked as old (optionally including old-version and being-updated chunks). Only the transition is reported, with a configurable `cooldown` (default 60 s), so a long stretch of old chunks gives one message. A dimension change starts a new area, so the first old chunks in the Nether or End are reported too; the cooldown carries over, so walking back and forth through a portal doesn't spam Discord. The message includes chunk, coordinates and dimension and uses the webhook from `discord-webhook-url`.
 
 ### Security
 

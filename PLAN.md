@@ -4,9 +4,11 @@
 > verbleibenden Verbesserungen nach einem Code-Review. Was unten **nicht** als
 > „Offen“ aufgeführt ist, wurde bereits behoben (siehe „Bereits erledigt“).
 >
-> **Stand 2026-10-29:** Phasen 0–5 und die Punkte 33–43 sind erledigt bzw. bewertet
-> (Details jeweils im Abschnitt und im CHANGELOG). Offen sind nur noch 34 (braucht ein
-> echtes Icon) und die Feature-Ideen 44, 45 und 47 (46 erledigt, siehe dort).
+> **Stand 2026-10-30:** Phasen 0–5 und die Punkte 33–43 sind erledigt bzw. bewertet
+> (Details jeweils im Abschnitt und im CHANGELOG). Auch 34 ist jetzt erledigt (echtes
+> Icon: Truhe + Zielerfassung). Offen sind nur noch die Feature-Ideen 44, 45 und 47
+> (46 erledigt, siehe dort) sowie die Optimierungen 48–51 (52 durch den End-Detektor-Umbau
+> hinfällig). Aus den Feature-Ideen ist 60 (OldChunkNotifier) erledigt.
 > Alles ist ungetestet in-game - siehe „Verifikation“.
 
 ## Projekt-Kontext
@@ -183,7 +185,8 @@
 
 > **Stand 2026-10-29:**
 > - 33 erledigt (Logger.java entfernt, alles über StashHunter.LOG; hatte doch 8 Caller).
-> - 34 offen: braucht ein echtes Icon (Grafik), kein Code.
+> - 34 erledigt (2026-10-30): `icon.png` durch ein echtes Icon ersetzt (Truhe auf
+>   dunklem Hintergrund mit rotem Zielring), passend zur Mod-Farbe `225,25,25`.
 > - 35 nicht gemacht: bin/ ist der Build-Output der VS-Code-Java-Erweiterung (enthält
 >   bereits die neuen Klassen) und entsteht beim Öffnen sofort neu; ist ignoriert.
 > - 36 kein Problem: reportedStashes wird nur auf dem Client-Thread benutzt (Scan im
@@ -386,6 +389,113 @@
     - `new BlockPos(x, 64, z)` in `classifyChunk` (Z.766) im 16×16-Loop; funktional
       korrekt (`getBlockState` maskiert x/z auf 0–15), aber unnötig allokiert.
       Abfrage ohne `BlockPos`-Objekt ausdrücken (int-Variante bzw. Sektion direkt).
+    > **Hinfällig (2026-10-30):** Der End-Stone-Loop war auch fachlich falsch (markierte fast
+    > jeden Insel-Chunk als alt) und ist ersetzt: Der Detektor liest jetzt einmal die
+    > Biome-Palette (`collectBiomesInPalette`) und prüft außerhalb der Hauptinsel auf
+    > `minecraft:the_end`. Kein `BlockPos` mehr. Details: DSH-HANDOFF.md, CHANGELOG *Fixed*.
+
+---
+
+## Feature-Ideen aus ähnlichen Repos (recherchiert 2026-10-30)
+
+> Vergleich mit anderen Stash-Hunting-/Anarchy-Addons. Für die Umsetzung ist die
+> **Lizenz** der Quelle entscheidend: Stash-Hunter ist **Apache-2.0**, daher darf nur
+> kompatibler Code übernommen werden.
+
+**Lizenz-Status der Quellen:**
+
+- ✅ **PathSeeker** ([FaxHack/PathSeeker](https://github.com/FaxHack/PathSeeker)) —
+  **Apache-2.0**, kompatibel. Code darf mit Attribution übernommen werden (Apache-
+  Copyright/NOTICE behalten, geänderte Dateien kennzeichnen). **Aber:** Module, die dort
+  als „Ported From Jeff-Mod"/„TrouserStreak"/„Stardust" markiert sind, stammen aus Quellen
+  ohne Lizenz bzw. GPL — nur die von PathSeeker **selbst** geschriebenen Module (z. B. von
+  `xqyet`: AutoPortal, TridentAura, CollectorsESP, BaritonePathMacro) sauber übernehmen.
+- ⛔ **jeff mod** ([miles352/meteor-stashhunting-addon](https://github.com/miles352/meteor-stashhunting-addon)) —
+  **keine Lizenz** (`license: null`, Repo **archiviert**). Code **nicht** übernehmen.
+  Nur als Referenz/Spezifikation für eine eigene (Clean-Room-)Implementierung; oder den
+  Autor (Discord `0x658`) um Erlaubnis fragen. Unterstützt bereits MC 26.1.2.
+- ⛔ **Trouser-Streak** ([etianl/Trouser-Streak](https://github.com/etianl/Trouser-Streak)) —
+  **keine Lizenz** → nur Idee. (Enthält laut Autor zudem „ein paar Module, die nicht von
+  mir stammen", also unklare Herkunft.)
+- ⚠️ **Stardust** ([0xTas/stardust](https://github.com/0xTas/stardust)) und **BepHax**
+  ([dekrom/BepHaxAddon](https://github.com/dekrom/BepHaxAddon)) — **GPL-3.0**, inkompatibel
+  mit Apache-2.0. Nur die **Idee** übernehmen, **keinen** Code (sonst müsste Stash-Hunter
+  auf GPL umgestellt oder die Autoren gefragt werden).
+
+**Empfehlung:** Die untenstehenden Features **clean-room** (nach README/Wiki-Konzept, eigener
+Code) implementieren; nur die von PathSeeker selbst geschriebenen Apache-2.0-Module direkt
+portieren (mit Attribution). jeff mod ist die inhaltlich beste Quelle, aber ohne Lizenz nicht
+legal kopierbar — bei Bedarf den Autor auf Discord (`0x658`) kontaktieren.
+
+### Vorschläge (ab Nummer 53; Quelle + Lizenz jeweils angegeben)
+
+53. **ChestIndex / Stash-Logging (höchster Wert).** Container in Reichweite automatisch
+    öffnen, Inhalt indexieren und als JSON exportieren (`.sh export`), statt nur Container
+    zu zählen. Quelle: jeff mod `ChestIndex` ⛔ → clean-room; ergänzt die bestehende
+    Cluster-Erkennung. (Basis ist der unter 2/3 vorgeschlagene persistente Stash-Export.)
+
+54. **Xaero-Minimap/World-Map-Integration.** Stash-Funde und Trails als Xaero-Marker
+    statt nur Meteor-Waypoints (BetterStashFinder/TrailMaker). Quelle: jeff mod ⛔ → clean-room;
+    Soft-Dependency auf XaeroPlus/Xaero (wie Baritone).
+
+55. **SearchArea: Spiral-Modus + benannte Pfade.** `.sh start` kann aktuell nur Rechtecke;
+    Spiral-Modus und das Speichern/Weiterlaufen unter einem Namen (jeff mod macht das
+    automatisch). Quelle: jeff mod `SearchArea` ⛔ → clean-room.
+
+56. **PortalPatternFinder.** Entfernte/kaputte Nether-Portale als Base-/Skip-Signal.
+    Quelle: Trouser-Streak ⛔ (in PathSeeker als Port) → clean-room.
+
+57. **CaveDisturbanceDetector.** Einzelne Luft-Blöcke in Cave-Air = Störungen/Spuren.
+    Quelle: Trouser-Streak ⛔ → clean-room.
+
+58. **StackedMinecartDetector.** Gestapelte (gedupte) Spawner erkennen — wichtiges
+    Stash-Signal. Quelle: PathSeeker ✅ (Apache-2.0) → direkt portierbar (mit Attribution).
+
+59. **Base Finder.** Breitere Base-Erkennung über Spieleraktivität (nicht nur Chest-Cluster).
+    Quelle: PathSeeker ✅ (Apache-2.0) → direkt portierbar.
+
+60. **OldChunkNotifier.** Separate Discord-Meldung beim Betreten alter Chunks
+    (NewerNewChunks erkennt sie bereits, meldet aber nicht). Quelle: jeff mod ⛔ → clean-room.
+    > **Erledigt (2026-10-30)**, nicht gebaut (Mojang-Download im Sandbox-Netz gesperrt),
+    > in-game ungetestet.
+    > - Eigenes Modul `old-chunk-notifier` (clean-room). Liest die Sets von NewerNewChunks über
+    >   `isOldChunk`/`isOldGenerationChunk`/`isBeingUpdatedChunk`, meldet in Chat + Discord
+    >   nur den Übergang neu→alt, mit Cooldown (Default 60 s).
+    > - Bei Dimensionswechsel werden `lastChunk` und `inOldArea` zurückgesetzt, der Cooldown
+    >   bleibt (gegen Portal-Spam). Details: CLAUDE-HANDOFF.md.
+    > - Mitbehoben: End-OldChunk-Detektor (siehe 52), sonst hätte der Notifier im End
+    >   Falschmeldungen geschickt. Details: DSH-HANDOFF.md.
+
+61. **ElytraFlyPlusPlus (Bounce/Y-Boost/Fake-Fly).** Highway-Obstacle-Passing, Bounce-Mode,
+    Y-Boost, Fake-Fly mit Chestplate. Quelle: jeff mod ⛔ → clean-room (Y-Boost/Fake-Fly sind
+    auf 2b2t gepatcht).
+
+62. **ESP-Suite.** PotESP, MobGearESP, DroppedItemESP, EntityClusterESP, VanityESP, Hole/Tunnel/
+    Stair-ESP. Quellen gemischt: Trouser-Streak ⛔, jeff mod ⛔, `windoid/MobGearESP` (via
+    PathSeeker). Einzelne ESP sind von PathSeeker selbst ✅ — nur die übernehmen; Rest clean-room.
+
+63. **StorageLooter.** Container automatisch looten und Items sortieren. Quelle: PathSeeker ✅
+    (Apache-2.0) → direkt portierbar.
+
+64. **AutoPortal / ElytraSwap / GrimEfly.** Portal automatisch bauen; Elytra bei niedriger
+    Haltbarkeit tauschen; Flug ohne Elytra-Verschleiß. Quelle: PathSeeker (`xqyet`) ✅
+    (Apache-2.0) bzw. jeff mod ⛔ → AutoPortal/ElytraSwap direkt, GrimEfly clean-room.
+
+65. **SignHistorian.** Schilder aufzeichnen/wiederherstellen. Quelle: Stardust ⚠️ (GPL-3.0,
+    in PathSeeker als Port) → nur Idee, kein Code.
+
+66. **Pitch40Util / GotoPosition / HighlightOldLava / AFKVanillaFly.** Movement-/QoL-Helfer.
+    Quelle: jeff mod ⛔ → clean-room.
+
+### Querverweise
+
+- 53/54 bauen auf den früheren Vorschlägen „persistente Stash-Liste + `.sh export/import`"
+  und „Discord um Server/Dimension ergänzen" auf (siehe Antwort-Kontext, nicht nummeriert).
+- 58/59/62 überschneiden sich thematisch mit dem Feature-Block 44–47 (Seed/Struktur), bleiben
+  aber unabhängig vom Welt-Seed.
+- `NewerNewChunks`-Teilen (crash-resistent + Ordner kopieren) hat PathSeeker ebenfalls —
+  Stash-Hunter kann das im Kern schon (SaveChunkData/LoadChunkData), nur der „Ordner teilen"-
+  Komfort fehlt.
 
 ---
 

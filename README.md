@@ -238,6 +238,17 @@ Marks slime chunks around you in the Overworld as green squares. In Java Edition
 | `render-height` | Height of the squares. Slimes spawn below y=40. | 40 |
 | `shape-mode`, `side-color`, `line-color` | Look of the squares. | Both, green |
 
+### Old Chunk Notifier (`old-chunk-notifier`)
+
+Tells you when you fly from new or unclassified terrain into chunks that NewerNewChunks marked as old, in chat and on Discord. Needs NewerNewChunks to be enabled. Only the step into an old area is reported, not every old chunk.
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `include-old-generation` | Also count chunks generated in an old Minecraft version. | on |
+| `include-being-updated` | Also count chunks not explored since ≤ 1.17. | on |
+| `cooldown` | Minimum seconds between two messages. | 60 |
+| `discord` | Send the message to the webhook from `discord-webhook-url`. | on |
+
 ## Discord notifications
 
 Create a webhook in your Discord server (*Server Settings → Integrations → Webhooks*) and paste its URL into `discord-webhook-url`. Depending on your settings, you receive:
@@ -252,6 +263,7 @@ Create a webhook in your Discord server (*Server Settings → Integrations → W
 | **Out of Elytras** | The elytra is gone and couldn't be repaired; the bot disconnects. |
 | **Elytra Repair Started / Finished / Failed** | A repair runs (`notify-repairs`). |
 | **Elytra Stuck Detected** | Rubber-banding is detected (Stuck Detector's own webhook). |
+| **Old Chunks Entered** | You enter old chunks (Old Chunk Notifier). Includes chunk, coordinates and dimension. |
 
 Pings are opt-in: `@everyone` is only used when `mention-everyone` is on. Rate limits and temporary Discord errors are retried automatically. While Discord is unreachable, at most 50 messages are queued.
 

@@ -26,6 +26,9 @@ import net.minecraft.network.protocol.game.ServerboundChunkBatchReceivedPacket;
 import net.minecraft.network.protocol.game.*;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
@@ -87,7 +90,7 @@ public class NewerNewChunks extends Module {
     );
     private final Setting<Boolean> endOldChunksDetector = specialGroup2.add(new BoolSetting.Builder()
             .name("Pre 1.13 End OldChunk Detector")
-            .description("Marks chunks as generated in an old version if they have the biome of minecraft:the_end.")
+            .description("Marks chunks outside the main End island as generated in an old version (pre 1.13) if they have the biome minecraft:the_end.")
             .defaultValue(true)
             .build()
     );
@@ -300,6 +303,9 @@ public class NewerNewChunks extends Module {
         final Path file;
         ChunkKind(String file) { this.file = Paths.get(file); }
     }
+    // Vanilla TheEndBiomeSource: chunks with x² + z² <= 4096 belong to the main island, which is
+    // minecraft:the_end in every version. Only outside of it does the_end mean pre-1.13 terrain.
+    private static final long END_MAIN_ISLAND_CHUNK_RADIUS_SQ = 4096L;
     private static final Set<Block> ORE_BLOCKS = new HashSet<>();
     static {
         ORE_BLOCKS.add(Blocks.COAL_ORE);
@@ -402,6 +408,16 @@ public class NewerNewChunks extends Module {
     }
     public boolean isNewChunk(ChunkPos pos) {
         return newChunks.contains(pos);
+    }
+    // Client thread only, like the sets themselves.
+    public boolean isOldChunk(ChunkPos pos) {
+        return oldChunks.contains(pos);
+    }
+    public boolean isOldGenerationChunk(ChunkPos pos) {
+        return OldGenerationOldChunks.contains(pos);
+    }
+    public boolean isBeingUpdatedChunk(ChunkPos pos) {
+        return beingUpdatedOldChunks.contains(pos);
     }
     private void clearChunkData() {
         newChunks.clear();
@@ -755,26 +771,19 @@ public class NewerNewChunks extends Module {
         }
 
         if (endOldChunksDetector.get() && level.dimension() == Level.END && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
-            // Heuristic, best-effort End chunk detection: checks for old generation
-            // patterns instead of biome palettes, which aren't reliably accessible here.
-            try {
-                // Look for old End generation patterns instead of biome palettes
-                boolean hasOldEndStructure = false;
-                for (int x = 0; x < 16 && !hasOldEndStructure; x++) {
-                    for (int z = 0; z < 16 && !hasOldEndStructure; z++) {
-                        // Check for typical old End generation (mostly end stone at surface)
-                        BlockState surfaceBlock = chunk.getBlockState(new BlockPos(x, 64, z));
-                        if (surfaceBlock.getBlock() == Blocks.END_STONE) {
-                            hasOldEndStructure = true;
-                        }
+            // Before 1.13 the whole End was minecraft:the_end; since then only the main island is,
+            // the outer islands got their own biomes. The packet carries the biome palette (1.18+).
+            // This used to check for end stone at y=64, which flagged nearly every island chunk.
+            long cx = oldpos.x(), cz = oldpos.z();
+            if (cx * cx + cz * cz > END_MAIN_ISLAND_CHUNK_RADIUS_SQ) {
+                Set<Holder<Biome>> biomes = new HashSet<>();
+                chunk.collectBiomesInPalette(biomes);
+                for (Holder<Biome> biome : biomes) {
+                    if (biome.is(Biomes.THE_END)) {
+                        isOldGeneration = true;
+                        break;
                     }
                 }
-                if (hasOldEndStructure) {
-                    isOldGeneration = true;
-                }
-            } catch (Exception e) {
-                // Fallback: assume old generation if we can't detect properly
-                isOldGeneration = true;
             }
         }
 
