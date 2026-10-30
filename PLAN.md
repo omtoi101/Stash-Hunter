@@ -1,5 +1,47 @@
 # Stash-Hunter — Offene Arbeiten (Plan für die nächste Iteration)
 
+> ## ⚠️ ZUERST ERLEDIGEN — vor jeder anderen Arbeit (Stand 2026-10-30)
+>
+> **Der Build ist seit mehreren Runden nicht mehr verifiziert.** Mehrere Änderungen
+> (End-Detektor in NewerNewChunks, OldChunkNotifier-Dimensionsreset, neues Modul
+> `activated-spawner-detector`) sind nur einzeln mit `javac`/`javap` geprüft und
+> **nie mit `./gradlew build` gebaut**. Spotless und Unit-Tests sind dabei nicht gelaufen.
+> Erst wenn der folgende Punkt erledigt ist, darf weitergearbeitet werden.
+>
+> 1. **In einem Netz ohne Mojang-Sperre bauen** (zu Hause oder per Handy-Hotspot, nicht im
+>    Schulnetz):
+>    ```bash
+>    ./gradlew build
+>    ```
+>    Muss grün sein (JDK 25, inkl. Spotless + Unit-Tests). Bei Fehlern **diese zuerst
+>    beheben**, bevor neue Features angefasst werden.
+> 2. **Warum es hier nicht ging:** Das Schulnetz setzt jede Verbindung zu Mojang zurück
+>    (`piston-meta.mojang.com`, `launchermeta.mojang.com`, `piston-data.mojang.com`,
+>    `libraries.minecraft.net`). Loom braucht beim Konfigurieren das Versions-Manifest von
+>    dort, `--offline` hilft nicht. Das gecachte Manifest
+>    (`~/.gradle/caches/fabric-loom/mojang_versions_manifest.json`) wurde beim ersten
+>    fehlgeschlagenen Cache-Rebuild gelöscht, und eine verwaiste Lock-Datei
+>    (`~/.gradle/caches/fabric-loom/.bca99….lock`, Inhalt „disowned“) wurde entfernt.
+>    **Der nächste Build braucht also auf jeden Fall Zugriff auf Mojang.** Auch das
+>    Meteor-Jar ist auf diesem Rechner nicht im Gradle-Cache.
+> 3. **Was bisher als Ersatz geprüft wurde:** `ActivatedSpawnerDetector.java` kompiliert
+>    isoliert fehlerfrei gegen `minecraft-merged-deobf-26.2.jar` und das Meteor-26.2-Snapshot-
+>    Jar (`26.2-20261009.074120-35`). Dabei wurde ein echter Fehler gefunden und behoben:
+>    Die Spawner-Konstanten liegen in 26.2 in `BlockEntityTypes`, nicht in `BlockEntityType`.
+>    Spotless-Regeln (keine Tabs, kein Trailing-Whitespace, Newline am Ende) nur von Hand
+>    geprüft.
+> 4. **Danach in-game testen:** `activated-spawner-detector` erscheint in der Kategorie
+>    „Stash-Hunter“ und lässt sich an/aus schalten; Dungeon/Mineshaft/Trial-Chamber mit
+>    aktiviertem Spawner werden gemeldet und gerendert. Ebenso End-Detektor und
+>    OldChunkNotifier (siehe CLAUDE-HANDOFF.md / DSH-HANDOFF.md).
+> 5. **Erst dann committen.** Noch nichts ist committet. Die untracked Dateien
+>    `_ref_ActivatedSpawnerDetector.java.txt`, `_ref_AreaLoader.java.txt`,
+>    `_ref_Firework.java.txt` und `_ref_GrimDuraFirework.java.txt` im Repo-Root sind
+>    Referenzkopien und gehören **nicht** in den Commit.
+> 6. **Sobald der Build grün ist: die ULTRA-WICHTIGEN Korrektheits-Bugs 77–81 fixen**
+>    (Abschnitt „🚨 ULTRA WICHTIG" weiter unten), **bevor** Features (44–47, 68–76)
+>    angefasst werden.
+
 > Kontext für den nächsten Agenten (z. B. Claude Code): Dies ist der Plan der
 > verbleibenden Verbesserungen nach einem Code-Review. Was unten **nicht** als
 > „Offen“ aufgeführt ist, wurde bereits behoben (siehe „Bereits erledigt“).
@@ -8,7 +50,10 @@
 > (Details jeweils im Abschnitt und im CHANGELOG). Auch 34 ist jetzt erledigt (echtes
 > Icon: Truhe + Zielerfassung). Offen sind nur noch die Feature-Ideen 44, 45 und 47
 > (46 erledigt, siehe dort) sowie die Optimierungen 48–51 (52 durch den End-Detektor-Umbau
-> hinfällig). Aus den Feature-Ideen ist 60 (OldChunkNotifier) erledigt.
+> hinfällig). Aus den Feature-Ideen sind 60 (OldChunkNotifier) und 67
+> (ActivatedSpawnerDetector) erledigt.
+> Neu 2026-10-30 (Code-Einblick in Fremd-Addons): Feature-Ideen 67–76 ergänzt
+> (ActivatedSpawnerDetector, Auto-Firework, Spiral-Loader u. a. — siehe Abschnitt unten).
 > Alles ist ungetestet in-game - siehe „Verifikation“.
 
 ## Projekt-Kontext
@@ -487,15 +532,193 @@ legal kopierbar — bei Bedarf den Autor auf Discord (`0x658`) kontaktieren.
 66. **Pitch40Util / GotoPosition / HighlightOldLava / AFKVanillaFly.** Movement-/QoL-Helfer.
     Quelle: jeff mod ⛔ → clean-room.
 
+### Ergänzung aus Code-Einblick in die Fremd-Repos (2026-10-30)
+
+> Modul-Listen und ausgewählte Quellen (PathSeeker Apache-2.0) tatsächlich gelesen. Diese
+> Punkte waren in 53–66 noch nicht erfasst. Lizenzregel wie oben: nur von PathSeeker selbst
+> geschriebene Apache-2.0-Module direkt portieren (mit Attribution), alle anderen clean-room.
+
+67. **ActivatedSpawnerDetector (Struktur-Locator über Spawner-Palette).** Erkennt Dungeons,
+    Mineshafts, Bastions, Woodland Mansions und Trial Chambers anhand der Spawner-Typen in den
+    Chunk-Daten (`MobSpawnerBlockEntity` + `TrialSpawnerBlockEntity`, Trial-Spawner-State) und
+    zusätzlich Amethyst-Geoden, mit Location-Toggles pro Struktur, Render-Distanz und Webhook.
+    Quelle: PathSeeker ✅ (Apache-2.0) → **direkt portierbar** (mit Attribution).
+    - Nutzen für Stash-Hunter: (1) exakte Struktur-Koordinaten als Flug-/Scanziele; (2)
+      `filterNaturalStructures` exakt statt heuristisch (Spawner-Struktur-Chests nicht mehr als
+      Stash falsch melden); (3) Spawner sind ein Base-Signal (gebaute Farmen).
+    - Deutlich breiter als 58 (StackedMinecarts); technisch wie unser `NewerNewChunks`
+      umsetzbar (Palette/BlockEntity-Scan auf der privaten `LevelChunk`-Kopie, Ergebnis per
+      `mc.execute`).
+
+    > **Erledigt (2026-10-30)** als `activated-spawner-detector`
+    > (`modules/ActivatedSpawnerDetector.java`, Attribution im Klassenkopf, README/CHANGELOG
+    > ergänzt). Einzeln gegen MC 26.2 + Meteor 26.2 kompiliert. `./gradlew build` lief nicht durch:
+    > Mojang-Hosts sind im Netz nicht erreichbar, und Loom braucht das Versions-Manifest. In-game
+    > ungetestet. Abweichungen vom Original:
+    > - Spawner kommen aus den Block-Entity-Tags des Chunk-Pakets (`SpawnData.entity.id`,
+    >   `Delay`), nicht aus einem Scan aller geladenen Chunks pro Tick. Es zählt der `Delay` des
+    >   Servers, deshalb fälscht das clientseitige Spawner-Ticken in Spielernähe keine Aktivierung
+    >   mehr. Block-Entities werden dabei nicht erzeugt (leerer Consumer für
+    >   `replaceWithPacketData`).
+    > - Kandidaten werden per `mc.execute` übergeben und erst im Client-Tick geprüft, sobald die
+    >   3×3-Nachbarchunks geladen sind (frühestens nach 20, spätestens nach 200 Ticks). Grund:
+    >   Luft-, Licht- und Truhen-Prüfung sowie Chest-Minecarts.
+    > - Trial-Spawner zählen nur in `ACTIVE`, `WAITING_FOR_REWARD_EJECTION`, `EJECTING_REWARD`
+    >   oder `COOLDOWN`. Das Original nahm alles außer `WAITING_FOR_PLAYERS`, also auch `INACTIVE`
+    >   (nie getickt, gibt Fehlalarme).
+    > - Fortress, Stronghold und „sonstige Spawner“ sind als zusätzliche Toggles erhalten.
+    >   Amethyst-Geoden sind neben dem Geoden-Filter optional als eigene Marker drin (Standard aus).
+    > - Kein Webhook: Meldung über Chat und `StashHunter.LOG`.
+    > - Offen als Folge-Schritt: Positionen als Eingabe für `filterNaturalStructures` bzw. als
+    >   Waypoints bereitstellen.
+
+68. **Auto-Firework (Elytra-Boost).** Feuert automatisch Raketen, wenn die Vorwärts-
+    geschwindigkeit (velocity·Blickrichtung) unter einen Schwellwert fällt; Settings `use-delay`,
+    `min-speed`, `only-when-flying`, `check-cooldown`.
+    - Quelle `Firework`: PathSeeker ✅ (Apache-2.0, keine „Ported from"-Markierung) →
+      **direkt portierbar**.
+    - Quelle `GrimDuraFirework`: **nicht** direkt portierbar! Header „Ported from
+      miles352/meteor-mod" (jeff mod, `license: null`) → ⛔ nur clean-room (Idee).
+    - Direkte Zuverlässigkeits-Verbesserung für `ElytraController.controlFlight`, der heute nur
+      Pitch/Yaw setzt und auf ElytraFly-Takeoff angewiesen ist. Nicht identisch mit 61
+      (ElytraFlyPlusPlus/Y-Boost = Fly-Exploit); hier geht es um legitimen Raketen-Boost zum
+      Halten von Speed/Höhe. Geringer Aufwand, hoher Nutzen für den Langlauf.
+
+69. **AreaLoader / Spiral-Modus.** Spiral-out über den Baritone-Elytra-Prozess mit
+    `gap-distance` (Chunks), `flight-level` und Dimensions-Pause/Resume — lädt/scannt kreisförmig
+    statt nur Rechteck. Quelle: PathSeeker ✅ (Apache-2.0, eigene Implementierung) →
+    **direkt portierbar**. Ergänzt 55 (dort war der Spiral-Modus von jeff mod nur clean-room);
+    hier liegt Apache-2.0-Code vor → als `.sh spiral`-Modus zusätzlich zu `GridWaypoints`.
+    Besonders für „Basis rund um Spawn/Portal suchen".
+
+70. **OnlinePlayerActivityDetector (wer ist online?).** Meldet, ob/sobald überhaupt Spieler
+    online sind (Tab-Liste/Spielerzahl), nicht nur „Spieler < 100 Blöcke" wie die heutige
+    `player-detection`. Für Anarchy: wissen, wann sicher gescannt wird bzw. wann jemand aktiv
+    ist („Server-Pop"-HUD + Discord). Quelle: Trouser-Streak ⛔ → clean-room.
+
+71. **PlayerAlarms (lokaler Alarm).** Lauter Sound-/Blink-Alarm bei Spieler in der Nähe,
+    zusätzlich zur Discord-Meldung. Für unbeaufsichtigten (AFK-)Betrieb schneller wahrgenommen
+    als Discord. Quelle: Trouser-Streak ⛔ → clean-room.
+
+72. **Spawner als Stash-/Base-Signal in `stashBlocks`.** `Config.stashBlocks` enthält keine
+    Spawner (MobSpawner/TrialSpawner). Spawner-Räume (Dungeons) und gebaute Spawner-Farmen sind
+    starke Base-Signale. Eigenes Konzept (kein Fremdcode): optional per Setting in den
+    Full-Scan aufnehmen; dabei in `filterNaturalStructures` berücksichtigen, sonst Dungeon-
+    Fehlalarme. Ergänzt 67.
+
+73. **ChestTracker mit GUI (live Tracking + Screen).** Erweitert 53 (ChestIndex/JSON-Export)
+    um ein live gepflegtes Chest-Verzeichnis mit eigener Übersichts-GUI (`ChestTrackerModule`/
+    `ChestTrackerScreen`/`TrackedContainer`) statt nur Export. Quelle: BepHax ⚠️ (GPL-3.0) →
+    nur Idee, kein Code.
+
+74. **ShulkerOverview.** Shulker-Inhalt in Tooltip/GUI anzeigen, ohne die Box zu platzieren
+    oder zu öffnen — praktisch beim Sichten gefundener Stashes. Quelle: BepHax ⚠️ (GPL-3.0) →
+    nur Idee, kein Code.
+
+75. **Auto-Logout bei Gefahr (AutoLogPlus).** Optionaler Auto-Disconnect/Logout bei Spieler in
+    der Nähe (oder anderen Gefahren), analog zum bestehenden „Out of Elytras"-Disconnect.
+    Sicherheitsfeature für den Anarchy-Langlauf. Quelle: jeff mod ⛔ → clean-room.
+    (Vorsicht: auf manchen Servern als „Combat-Log" bewertet → Opt-in + klare Kennzeichnung.)
+
+76. **Unfocused-FPS-Limiter.** FPS begrenzen, wenn das Fenster nicht fokussiert ist —
+    Ressourcen sparen bei stundenlangem Betrieb im Hintergrund. Quelle: BepHax ⚠️ (GPL-3.0) →
+    nur Idee, kein Code.
+
 ### Querverweise
 
 - 53/54 bauen auf den früheren Vorschlägen „persistente Stash-Liste + `.sh export/import`"
   und „Discord um Server/Dimension ergänzen" auf (siehe Antwort-Kontext, nicht nummeriert).
 - 58/59/62 überschneiden sich thematisch mit dem Feature-Block 44–47 (Seed/Struktur), bleiben
   aber unabhängig vom Welt-Seed.
+- 67 und 69 (Spawner-Locator, Spiral-Loader) sowie der `Firework`-Teil von 68 sind Apache-2.0
+  und damit direkt portierbar; `GrimDuraFirework` (Teil von 68) ist ein jeff-mod-Derivat ohne Lizenz
+  → nur clean-room. 67/72 überschneiden sich mit 44–47 (Struktur via Seed), bleiben aber ohne
+  Welt-Seed nutzbar.
 - `NewerNewChunks`-Teilen (crash-resistent + Ordner kopieren) hat PathSeeker ebenfalls —
   Stash-Hunter kann das im Kern schon (SaveChunkData/LoadChunkData), nur der „Ordner teilen"-
   Komfort fehlt.
+
+
+## 🚨 ULTRA WICHTIG — Korrektheits-Bugs aus finalem Review (2026-10-30)
+
+> Beim finalen Durchgang über den kompletten Code (Module, Utils, Build, Tests, CI) gefunden;
+> **noch nicht** in den Phasen 0–5 / 33–52 / 53–76 enthalten. 77–81 sind **ULTRA WICHTIG**
+> (stille Korrektheitsfehler bzw. verpasste Stashes) und müssen **vor** den restlichen offenen
+> Arbeiten (44–47, 48–52, 68–76) umgesetzt werden — nachdem der Build (siehe „ZUERST ERLEDIGEN")
+> wieder grün ist.
+
+77. **🚨 `NewerNewChunks` schreibt in relative Pfade statt ins Spielverzeichnis.**
+    - Alle Datei-Zugriffe nutzen `Paths.get("StashHunter", "NewChunks", …)` (in `onActivate`,
+      `saveData`, `loadChunkData`, `unqueueData`, dem `onPreTick`-Delete-Block). Das löst gegen
+      `user.dir` (JVM-Arbeitsverzeichnis) auf, **nicht** gegen das Minecraft-Verzeichnis;
+      `Config` und `TripManager` nutzen korrekt `MeteorClient.FOLDER`.
+    - Wirkung: bei Drittanbieter-Launchern (MultiMC/Prism/Dev) landen die Chunk-Daten an der
+      falschen Stelle oder gehen verloren → SaveChunkData/LoadChunkData wirken kaputt.
+    - Fix: überall `MeteorClient.FOLDER.resolve("StashHunter", "NewChunks", …)` verwenden.
+
+78. **🚨 Waypoint-Dedupe vergleicht Dimensionen mit `==` statt `.equals()`.**
+    - `hasStashWaypointNear(...)`: `waypoint.dimension.get() == dimension`. Referenzgleichheit
+      funktioniert nur zufällig für die statischen Konstanten OVERWORLD/NETHER/END; bei
+      deserialisierten oder Custom-Dimension-Keys bricht die Dedupe still → derselbe Stash wird
+      erneut gemeldet.
+    - Fix: `.equals(dimension)`.
+
+79. **🚨 Mineshaft-Erkennung in `isNaturalStructure` ist ein Stub.**
+    - `chestCount` wird nur für den Woodland-Mansion-Check (`chestCount == 44`) genutzt; der
+      Kommentar „mineshaft (mostly chests with some barrels)" hat keine Implementierung.
+      Mineshaft-/Dungeon-Chests werden weiter als Stash falsch gemeldet.
+    - Fix: echte Mineshaft-Heuristik (Anteil Rails/Planken/Cobblestone + viele Chests)
+      implementieren ODER Kommentar/Zweig entfernen und auf 67/44 (Struktur via Seed) verweisen.
+
+80. **🚨 `GridWaypoints` lässt am fernen X-Rand eine ungescannte Lücke.**
+    - Streifen liegen bei `minX + k·stripWidth`; ist `(maxX−minX)` kein Vielfaches von
+      `stripWidth`, deckt der letzte Streifen (Scan-Radius 64) `maxX` nicht ab → Band bis
+      ~64+ Blöcke bleibt offen.
+    - Fix: abschließenden Streifen bei `maxX` anfügen (und `GridWaypoints.count` anpassen).
+
+81. **🚨 Persistente Stash-Dedupe fehlt für Low-Density-Funde.**
+    - `reportedStashes` ist rein in-memory; nur Waypoints sind persistent. Stashes unter
+      `notification-density-threshold` bekommen **keinen** Waypoint → nach Reconnect/
+      Modul-Toggle werden sie jede Session erneut gemeldet (Chat-Spam).
+    - Fix: `reportedStashes` in eine Datei persistieren (analog `NewerNewChunks`) oder für
+      Low-Density-Funde einen unsichtbaren Dedupe-Marker setzen.
+
+82. **Scan-Coverage: `scan-interval` vs. Fluggeschwindigkeit.**
+    - Default 40 Ticks ≈ 2 s; bei ~30 Blöcke/s fliegt der Bot ~60 Blöcke pro Scan bei
+      Radius 64 → nur knapp überlappend; kleinste Abweichungen erzeugen Lücken.
+    - Fix: Scan an zurückgelegter Distanz statt festem Tick-Intervall auslösen (oder
+      Radius/Interval koppeln).
+
+83. **Settings-Persistenz inkonsistent.**
+    - `max-cluster-size` und `report-dedupe-radius` haben weder `Config`-Feld noch
+      `onChanged(Config.saveLater)` → existieren nur als Meteor-Settings.
+    - `flight-altitude`: Slider-Min 100 vs. `Config.validate()`-Min 50; `scan-interval` ohne
+      obere Grenze in `validate()`.
+    - Fix: die zwei fehlenden Settings in `Config` aufnehmen; Grenzen vereinheitlichen.
+
+84. **`AltitudeLossDetector` ohne Discord-Meldung.**
+    - Nur Chat-`info`; StuckDetector hat einen eigenen Webhook, alle anderen Module `notify-…`-
+      Settings. Für unbeaufsichtigten Langlauf inkonsistent.
+    - Fix: optionales `discord`/`notify`-Setting ergänzen.
+
+85. **Player-Detection-Radius (100) und Cooldown (5 min) hartkodiert.**
+    - Fix: als Settings auslagern.
+
+86. **Nach Abschluss kein Sinkflug/Landung.**
+    - `justCompleted` → `stop()` lässt den Spieler auf Reisehöhe glidend hängen.
+    - Fix: optionaler „descend/land and stay put"-Schritt.
+
+87. **Scan läuft auch ohne aktiven Flug.**
+    - `scanForBlocks()` feuert bei aktivem Modul immer, unabhängig von `ElytraController.isActive()`.
+    - Entweder als Feature dokumentieren („stehender Scanner") oder an den Flugstatus koppeln.
+
+88. **Kleinigkeiten (CI/Kosmetik).**
+    - Stray-Tab in `NewerNewChunks.java` (`{<Tab>//` in der `worldchange`-Zeile).
+    - `dev_build.yml`: `on: push` + festes `tag_name: snapshot` überschreibt bei jedem Push die
+      Dev-Release und kollidiert auf Fork-PRs; zusammen mit `pull_request.yml` wird jeder PR
+      doppelt gebaut → `on: push: branches: [main]` + PR nur artifact.
+    - `fabric.mod.json` `recommends.baritone-meteor: "*"` → `"~26.2-"` für Konsistenz.
+    - `fabric-resource-loader-v1:2.0.13+…` hart gepinnt → bei Port auf 26.3/26.4 prüfen.
 
 ---
 

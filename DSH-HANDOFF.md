@@ -1,5 +1,44 @@
 # Handoff an Claude Code — NewerNewChunks: End-OldChunk-Detektor über Biome statt End-Stone
 
+> ## ⚠️ ZUERST ERLEDIGEN — vor jeder anderen Arbeit (Stand 2026-10-30)
+>
+> **Der Build ist seit mehreren Runden nicht mehr verifiziert.** Mehrere Änderungen
+> (End-Detektor in NewerNewChunks, OldChunkNotifier-Dimensionsreset, neues Modul
+> `activated-spawner-detector`) sind nur einzeln mit `javac`/`javap` geprüft und
+> **nie mit `./gradlew build` gebaut**. Spotless und Unit-Tests sind dabei nicht gelaufen.
+> Erst wenn der folgende Punkt erledigt ist, darf weitergearbeitet werden.
+>
+> 1. **In einem Netz ohne Mojang-Sperre bauen** (zu Hause oder per Handy-Hotspot, nicht im
+>    Schulnetz):
+>    ```bash
+>    ./gradlew build
+>    ```
+>    Muss grün sein (JDK 25, inkl. Spotless + Unit-Tests). Bei Fehlern **diese zuerst
+>    beheben**, bevor neue Features angefasst werden.
+> 2. **Warum es hier nicht ging:** Das Schulnetz setzt jede Verbindung zu Mojang zurück
+>    (`piston-meta.mojang.com`, `launchermeta.mojang.com`, `piston-data.mojang.com`,
+>    `libraries.minecraft.net`). Loom braucht beim Konfigurieren das Versions-Manifest von
+>    dort, `--offline` hilft nicht. Das gecachte Manifest
+>    (`~/.gradle/caches/fabric-loom/mojang_versions_manifest.json`) wurde beim ersten
+>    fehlgeschlagenen Cache-Rebuild gelöscht, und eine verwaiste Lock-Datei
+>    (`~/.gradle/caches/fabric-loom/.bca99….lock`, Inhalt „disowned“) wurde entfernt.
+>    **Der nächste Build braucht also auf jeden Fall Zugriff auf Mojang.** Auch das
+>    Meteor-Jar ist auf diesem Rechner nicht im Gradle-Cache.
+> 3. **Was bisher als Ersatz geprüft wurde:** `ActivatedSpawnerDetector.java` kompiliert
+>    isoliert fehlerfrei gegen `minecraft-merged-deobf-26.2.jar` und das Meteor-26.2-Snapshot-
+>    Jar (`26.2-20261009.074120-35`). Dabei wurde ein echter Fehler gefunden und behoben:
+>    Die Spawner-Konstanten liegen in 26.2 in `BlockEntityTypes`, nicht in `BlockEntityType`.
+>    Spotless-Regeln (keine Tabs, kein Trailing-Whitespace, Newline am Ende) nur von Hand
+>    geprüft.
+> 4. **Danach in-game testen:** `activated-spawner-detector` erscheint in der Kategorie
+>    „Stash-Hunter“ und lässt sich an/aus schalten; Dungeon/Mineshaft/Trial-Chamber mit
+>    aktiviertem Spawner werden gemeldet und gerendert. Ebenso End-Detektor und
+>    OldChunkNotifier (siehe CLAUDE-HANDOFF.md / DSH-HANDOFF.md).
+> 5. **Erst dann committen.** Noch nichts ist committet. Die untracked Dateien
+>    `_ref_ActivatedSpawnerDetector.java.txt`, `_ref_AreaLoader.java.txt`,
+>    `_ref_Firework.java.txt` und `_ref_GrimDuraFirework.java.txt` im Repo-Root sind
+>    Referenzkopien und gehören **nicht** in den Commit.
+
 > **Status (2026-10-30): eingebaut** wie unten beschrieben (Schritte 1–5, ohne Abweichung).
 > Offen: Build (`gradlew.bat build`) und In-game-Test der Akzeptanzkriterien.
 >

@@ -249,6 +249,27 @@ Tells you when you fly from new or unclassified terrain into chunks that NewerNe
 | `cooldown` | Minimum seconds between two messages. | 60 |
 | `discord` | Send the message to the webhook from `discord-webhook-url`. | on |
 
+### Activated Spawner Detector (`activated-spawner-detector`)
+
+Finds spawners that a player has already been near, from the chunk data the server sends. The mob type tells you the structure: dungeon (zombie, skeleton, spider), woodland mansion (spider on birch planks), mineshaft (cave spider), stronghold (silverfish), fortress (blaze), bastion (magma cube). Trial spawners count once a player has triggered them. Players often hide loot near such spawners, so the module also checks for storage within 16 blocks (14 for trial spawners). Optionally it marks amethyst geodes too. Works on its own, without the other modules. Ported from [PathSeeker](https://github.com/FaxHack/PathSeeker) (Apache-2.0).
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `chat-feedback`, `display-coords` | Chat message per detection, with coordinates. | on, on |
+| `stash-message`, `less-stash-spam` | Warn about possible stashes, only if storage is nearby. | on, on |
+| `check-air-disturbances` | Also count untouched spawners if air and cave air are mixed around them (blocks placed and removed). | off |
+| `ignore-geodes` | Skip that air check near geode blocks. | on |
+| `storage-blocks` | Blocks that count as storage near a spawner (chest minecarts always count). | chest, barrel, hopper, dispenser |
+| `deactivated-spawner-detector`, `torch-scan-distance` | Mark spawners with light blocks next to them in their own colour. | on, 1 |
+| `dungeon`, `mineshaft`, `stronghold`, `fortress`, `bastion`, `woodland-mansion`, `trial-chamber`, `other-spawners` | One toggle per structure type. | on |
+| `amethyst-geode` | Mark amethyst geodes (budding amethyst). | off |
+| `render-distance` | How far (in chunks) detections are checked and drawn. | 32 |
+| `remove-outside-render-distance` | Forget detections farther away than that. | on |
+| `less-render-spam` | Only draw the range box if storage is nearby. | on |
+| `tracers`, `nearest-tracer-only` | Tracers to all detections or only the nearest. | on, off |
+| `spawner-range-rendering` | Draw the spawner's activation range. | on |
+| `shape-mode` and colours | Look of the boxes: spawner (red), trial spawner (orange), deactivated (magenta), geode (purple), range (light blue). | Both |
+
 ## Discord notifications
 
 Create a webhook in your Discord server (*Server Settings → Integrations → Webhooks*) and paste its URL into `discord-webhook-url`. Depending on your settings, you receive:
@@ -322,3 +343,4 @@ Licensed under the **Apache License 2.0**. See [LICENSE](LICENSE).
 
 - **omtoi**: original author and maintainer.
 - **\_og3**: port to Minecraft 26.2 and the current Meteor Client.
+- **PathSeeker** (FaxHack / dev.journey, Apache-2.0): original `ActivatedSpawnerDetector`, ported and adapted.
