@@ -481,7 +481,24 @@ legal kopierbar — bei Bedarf den Autor auf Discord (`0x658`) kontaktieren.
 
 54. **Xaero-Minimap/World-Map-Integration.** Stash-Funde und Trails als Xaero-Marker
     statt nur Meteor-Waypoints (BetterStashFinder/TrailMaker). Quelle: jeff mod ⛔ → clean-room;
-    Soft-Dependency auf XaeroPlus/Xaero (wie Baritone).
+    Soft-Dependency auf Xaero (wie Baritone). XaeroPlus ist dafür **nicht** nötig — jeff mod
+    nutzt es nur für die Chunk-Erkennung (OldChunks/PaletteNewChunks); für reine Waypoints
+    reicht Xaeros Minimap-API.
+    - **Mod-IDs:** `xaerominimap` (Minimap), `xaeroworldmap` (World Map). Xaero ist ARR
+      (closed source) → kein Code bündeln, nur Runtime-API über `compileOnly` +
+      `FabricLoader.isModLoaded("xaerominimap")` (exakt wie `BaritoneBridge`). XaeroPlus ist
+      **MIT** (Apache-kompatibel), wird hier aber nicht gebraucht.
+    - **Mechanismus** (API-Surface, aus jeff mod als Referenz abgelesen → clean-room umsetzen):
+      `BuiltInHudModules.MINIMAP.getCurrentSession()` → `MinimapSession` →
+      `getWorldManager().getCurrentWorld()` → `getCurrentWaypointSet()` → `.add(new
+      Waypoint(x, y, z, name, symbol, color))`, danach
+      `SupportMods.xaeroMinimap.requestWaypointsRefresh()`. Pakete:
+      `xaero.common.minimap.waypoints.Waypoint`, `xaero.hud.minimap.*`,
+      `xaero.map.mods.SupportMods`. (Exakte `Waypoint`-Konstruktor-Signatur gegen das 26.2-Jar
+      prüfen — die `xaero.hud.minimap.*`-Pakete sind die neue 1.21+-Struktur.)
+    - **Umsetzung:** `XaeroBridge` (analog `BaritoneBridge`), Aufruf in `reportStash` direkt
+      neben dem Meteor-Waypoint; Setting `save-to-xaero` (opt-in). World Map und Minimap teilen
+      denselben `WaypointSet`, es reicht also ein Eintrag für beide.
 
 55. **SearchArea: Spiral-Modus + benannte Pfade.** `.sh start` kann aktuell nur Rechtecke;
     Spiral-Modus und das Speichern/Weiterlaufen unter einem Namen (jeff mod macht das
