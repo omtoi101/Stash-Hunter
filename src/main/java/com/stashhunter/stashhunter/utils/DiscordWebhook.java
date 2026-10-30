@@ -37,7 +37,12 @@ public class DiscordWebhook {
             thread.setDaemon(true);
             return thread;
         },
-        (r, executor) -> StashHunter.LOG.warn("Discord webhook queue is full, dropping message"));
+        (r, executor) -> {
+            // After shutdown() every send is rejected; that isn't a full queue.
+            if (executor.isShutdown()) StashHunter.LOG.debug("Discord webhook dropped, client is shutting down");
+            else StashHunter.LOG.warn("Discord webhook queue is full, dropping message");
+        });
+    private static final long SHUTDOWN_WAIT_MS = 3000;
 
     public static void sendMessage(String content, DiscordEmbed embed) {
         sendMessage(Config.discordWebhookUrl, content, embed);
@@ -69,6 +74,21 @@ public class DiscordWebhook {
         byte[] payload = GSON.toJson(json).getBytes(StandardCharsets.UTF_8);
 
         EXECUTOR.execute(() -> post(webhookUrl, payload));
+    }
+
+    // Called from the JVM shutdown hook: gives queued messages (e.g. the disconnect notice) a short,
+    // bounded window to go out, then interrupts retry waits so exit isn't held up by a dead Discord.
+    public static void shutdown() {
+        EXECUTOR.shutdown();
+        try {
+            if (!EXECUTOR.awaitTermination(SHUTDOWN_WAIT_MS, TimeUnit.MILLISECONDS)) {
+                int dropped = EXECUTOR.shutdownNow().size();
+                if (dropped > 0) StashHunter.LOG.warn("Discord webhook: {} queued message(s) not sent before exit", dropped);
+            }
+        } catch (InterruptedException e) {
+            EXECUTOR.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     // Retries rate limits (429, honouring retry_after) and server/network errors with backoff.

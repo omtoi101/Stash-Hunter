@@ -5,9 +5,13 @@ import com.stashhunter.stashhunter.baritone.BaritoneBridge;
 import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.DiscordEmbed;
 import com.stashhunter.stashhunter.utils.DiscordWebhook;
+import com.stashhunter.stashhunter.utils.DungeonFilter;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.KeyHold;
+import com.stashhunter.stashhunter.utils.ReportedStashes;
+import com.stashhunter.stashhunter.utils.ScanTrigger;
 import com.stashhunter.stashhunter.utils.StashClustering;
+import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.systems.modules.Modules;
@@ -31,7 +35,9 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.storage.LevelResource;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -75,6 +81,7 @@ public class StashHunterModule extends Module {
         .description("The radius to scan for valuable blocks.")
         .defaultValue(Config.scanRadius)
         .min(16)
+        .max(256)
         .sliderMax(256)
         .onChanged(v -> {
             Config.scanRadius = v;
@@ -113,6 +120,33 @@ public class StashHunterModule extends Module {
         .defaultValue(Config.filterNaturalStructures)
         .onChanged(v -> {
             Config.filterNaturalStructures = v;
+            Config.saveLater();
+        })
+        .build()
+    );
+
+    private final Setting<Integer> structureFilterRadius = sgGeneral.add(new IntSetting.Builder()
+        .name("structure-filter-radius")
+        .description("With activated-spawner-detector on: a stash whose center is this close to a spawner of a natural structure (dungeon, mineshaft, trial chamber, ...) counts as that structure's loot and is not reported. Spawners with blocks placed or removed around them (farms) are not counted. 0 = off (default); 6-8 covers dungeon chests. Note: also hides real stashes hidden in such structures.")
+        .defaultValue(Config.structureFilterRadius)
+        .range(0, 64)
+        .sliderRange(0, 64)
+        .visible(filterNaturalStructures::get)
+        .onChanged(v -> {
+            Config.structureFilterRadius = v;
+            Config.saveLater();
+        })
+        .build()
+    );
+
+    // Only the mob spawner: trial spawners can't be obtained or moved in survival and only appear
+    // in trial chambers, which also hold natural chests and vaults, so they'd only add false alarms.
+    private final Setting<Boolean> includeSpawners = sgGeneral.add(new BoolSetting.Builder()
+        .name("include-spawners")
+        .description("Also count mob spawners as stash blocks (spawner farms are built around them). A dungeon with only its spawner and chests is still ignored while filter-natural-structures is on.")
+        .defaultValue(Config.includeSpawners)
+        .onChanged(v -> {
+            Config.includeSpawners = v;
             Config.saveLater();
         })
         .build()
@@ -160,18 +194,26 @@ public class StashHunterModule extends Module {
     private final Setting<Integer> maxClusterSize = sgGeneral.add(new IntSetting.Builder()
         .name("max-cluster-size")
         .description("Maximum diameter of one cluster. Keeps neighbouring stashes from being chained into one huge, low-density cluster.")
-        .defaultValue(64)
+        .defaultValue(Config.maxClusterSize)
         .min(16)
         .sliderMax(256)
+        .onChanged(v -> {
+            Config.maxClusterSize = v;
+            Config.saveLater();
+        })
         .build()
     );
 
     private final Setting<Integer> reportDedupeRadius = sgGeneral.add(new IntSetting.Builder()
         .name("report-dedupe-radius")
         .description("A stash closer than this to an already reported one (or to an existing stash waypoint) is not reported again.")
-        .defaultValue(48)
+        .defaultValue(Config.reportDedupeRadius)
         .min(8)
         .sliderMax(200)
+        .onChanged(v -> {
+            Config.reportDedupeRadius = v;
+            Config.saveLater();
+        })
         .build()
     );
 
@@ -181,6 +223,7 @@ public class StashHunterModule extends Module {
         .description("The altitude to fly at.")
         .defaultValue(Config.flightAltitude)
         .min(100)
+        .max(400)
         .sliderMax(400)
         .onChanged(v -> {
             Config.flightAltitude = v;
@@ -191,12 +234,35 @@ public class StashHunterModule extends Module {
 
     private final Setting<Integer> scanInterval = sgGeneral.add(new IntSetting.Builder()
         .name("scan-interval")
-        .description("The interval in ticks between scans.")
+        .description("Maximum ticks between scans. With scan-by-distance on, fast flight scans earlier.")
         .defaultValue(Config.scanInterval)
         .min(1)
+        .max(1200)
         .sliderMax(100)
         .onChanged(v -> {
             Config.scanInterval = v;
+            Config.saveLater();
+        })
+        .build()
+    );
+
+    private final Setting<Boolean> scanByDistance = sgGeneral.add(new BoolSetting.Builder()
+        .name("scan-by-distance")
+        .description("Also scan after flying half the scan radius since the last scan, so fast flight leaves no gaps.")
+        .defaultValue(Config.scanByDistance)
+        .onChanged(v -> {
+            Config.scanByDistance = v;
+            Config.saveLater();
+        })
+        .build()
+    );
+
+    private final Setting<Boolean> scanOnlyWhileFlying = sgGeneral.add(new BoolSetting.Builder()
+        .name("scan-only-while-flying")
+        .description("Only scan while a flight (.stashhunter start/resume) is running. Off: the module also works as a standing scanner while you walk or stand.")
+        .defaultValue(Config.scanOnlyWhileFlying)
+        .onChanged(v -> {
+            Config.scanOnlyWhileFlying = v;
             Config.saveLater();
         })
         .build()
@@ -208,6 +274,36 @@ public class StashHunterModule extends Module {
         .defaultValue(Config.playerDetection)
         .onChanged(v -> {
             Config.playerDetection = v;
+            Config.saveLater();
+        })
+        .build()
+    );
+
+    private final Setting<Integer> playerDetectionRadius = sgGeneral.add(new IntSetting.Builder()
+        .name("player-detection-radius")
+        .description("Players closer than this many blocks are reported.")
+        .defaultValue(Config.playerDetectionRadius)
+        .min(8)
+        .max(512)
+        .sliderMax(256)
+        .visible(playerDetection::get)
+        .onChanged(v -> {
+            Config.playerDetectionRadius = v;
+            Config.saveLater();
+        })
+        .build()
+    );
+
+    private final Setting<Integer> playerReportCooldown = sgGeneral.add(new IntSetting.Builder()
+        .name("player-report-cooldown")
+        .description("Minutes before the same player is reported again.")
+        .defaultValue(Config.playerReportCooldown)
+        .min(1)
+        .max(120)
+        .sliderMax(30)
+        .visible(playerDetection::get)
+        .onChanged(v -> {
+            Config.playerReportCooldown = v;
             Config.saveLater();
         })
         .build()
@@ -269,11 +365,27 @@ public class StashHunterModule extends Module {
         .build()
     );
 
+    @SuppressWarnings("unused") // value is read via Config.landAfterCompletion
+    private final Setting<Boolean> landAfterCompletion = sgGeneral.add(new BoolSetting.Builder()
+        .name("land-after-completion")
+        .description("After the area is scanned, let Baritone's elytra pathing land on a safe spot near the last waypoint. Needs Baritone; otherwise you keep gliding.")
+        .defaultValue(Config.landAfterCompletion)
+        .onChanged(v -> {
+            Config.landAfterCompletion = v;
+            Config.saveLater();
+        })
+        .build()
+    );
+
     // State
     private final Map<UUID, Long> reportedPlayers = new ConcurrentHashMap<>();
-    private final List<BlockPos> reportedStashes = new ArrayList<>();
+    // One file per server under the Meteor folder; loaded lazily for the server we're on.
+    private static final Path REPORTED_STASHES_DIR = MeteorClient.FOLDER.toPath().resolve("StashHunter").resolve("reported-stashes");
+    private ReportedStashes reportedStashes;
     private static final String STASH_WAYPOINT_MARKER = " Blocks at "; // part of every stash waypoint name
     private int tickCounter = 0;
+    private int ticksSinceScan = Integer.MAX_VALUE / 2; // large = scan on the first tick
+    private double lastScanX, lastScanZ;
     private float lastHealth = -1; // Track health for death detection, -1 = not sampled yet
     private int elytraBrokenTicks = 0;
     private int reEngagingElytraTicks = 0;
@@ -282,13 +394,13 @@ public class StashHunterModule extends Module {
     private ResourceKey<Level> lastDimension = null; // Track dimension for world-change teardown
 
     public StashHunterModule() {
-        super(StashHunter.CATEGORY, "stash-hunter", "Automatically finds stashes by flying around and scanning for valuable blocks.");
+        super(StashHunter.CATEGORY, "stash-hunter", "Automatically finds stashes by flying around and scanning for valuable blocks. Also scans while standing unless scan-only-while-flying is on.");
     }
 
     @Override
     public void onActivate() {
         reportedPlayers.clear();
-        reportedStashes.clear();
+        reportedStashes = null; // reloaded from disk for the current server
         lastHealth = -1; // Reset health tracking
         lastDimension = null;
 
@@ -299,6 +411,7 @@ public class StashHunterModule extends Module {
         wasElytraBroken = false;
         reEngagingElytraTicks = 0;
         tickCounter = 0;
+        ticksSinceScan = Integer.MAX_VALUE / 2;
         setHoldingJump(false);
 
         if (useBaritonePathing.get() && !BaritoneBridge.isModLoaded()) {
@@ -326,8 +439,26 @@ public class StashHunterModule extends Module {
         else KeyHold.release(mc.options.keyJump);
     }
 
+    // Also forgets them on disk, so they can be reported again.
     public void clearReportedStashes() {
-        reportedStashes.clear();
+        if (mc.level != null) reportedStashes().clear();
+        reportedStashes = null;
+    }
+
+    private ReportedStashes reportedStashes() {
+        if (reportedStashes == null) reportedStashes = ReportedStashes.load(REPORTED_STASHES_DIR.resolve(serverKey() + ".txt"));
+        return reportedStashes;
+    }
+
+    private String serverKey() {
+        String key;
+        if (mc.hasSingleplayerServer()) {
+            Path world = mc.getSingleplayerServer().getWorldPath(LevelResource.ROOT).toAbsolutePath().normalize().getFileName();
+            key = "singleplayer_" + (world != null ? world : "world");
+        } else {
+            key = mc.getCurrentServer() != null ? mc.getCurrentServer().ip : "unknown";
+        }
+        return key.replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
     public void clearReportedPlayers() {
@@ -353,7 +484,7 @@ public class StashHunterModule extends Module {
     private void onGameLeft(GameLeftEvent event) {
         notifyDisconnect();
         if (ElytraController.isActive()) ElytraController.pause();
-        reportedStashes.clear();
+        reportedStashes = null; // the next server has its own file
         resetFlightState();
         lastHealth = -1;
         lastDimension = null;
@@ -393,7 +524,6 @@ public class StashHunterModule extends Module {
         ResourceKey<Level> dimension = mc.level.dimension();
         if (lastDimension != null && !dimension.equals(lastDimension)) {
             haltFlight("Dimension changed");
-            reportedStashes.clear(); // positions are per dimension; existing waypoints still dedupe
         }
         lastDimension = dimension;
 
@@ -486,23 +616,30 @@ public class StashHunterModule extends Module {
 
         lastHealth = currentHealth;
 
-        // Scan for blocks every scanInterval ticks
-        if (tickCounter % scanInterval.get() == 0) {
+        // Scan every scanInterval ticks at most, sooner once the player moved half the scan radius.
+        // Without scan-only-while-flying this also runs with no flight active (standing scanner).
+        ticksSinceScan++;
+        if ((!scanOnlyWhileFlying.get() || ElytraController.isActive()) && ScanTrigger.shouldScan(ticksSinceScan, scanInterval.get(),
+            mc.player.getX() - lastScanX, mc.player.getZ() - lastScanZ, scanRadius.get(), scanByDistance.get())) {
+            ticksSinceScan = 0;
+            lastScanX = mc.player.getX();
+            lastScanZ = mc.player.getZ();
             scanForBlocks();
         }
 
         // Player detection logic
+        long playerCooldownMs = playerReportCooldown.get() * 60_000L;
         if (playerDetection.get()) {
             for (Player player : mc.level.players()) {
                 if (player == null || player.equals(mc.player)) {
                     continue;
                 }
 
-                if (mc.player.distanceTo(player) < 100) {
+                if (mc.player.distanceTo(player) < playerDetectionRadius.get()) {
                     // Keyed by UUID: the entity object is recreated whenever a player re-enters render distance
                     UUID playerId = player.getUUID();
                     if (!reportedPlayers.containsKey(playerId) ||
-                        System.currentTimeMillis() - reportedPlayers.get(playerId) > 300000) { // 5 minute cooldown
+                        System.currentTimeMillis() - reportedPlayers.get(playerId) > playerCooldownMs) {
 
                         DiscordEmbed embed = new DiscordEmbed(
                             "Player Detected!",
@@ -521,7 +658,7 @@ public class StashHunterModule extends Module {
         // Clean up old reported players every minute
         if (tickCounter % 1200 == 0) {
             reportedPlayers.entrySet().removeIf(entry ->
-                System.currentTimeMillis() - entry.getValue() > 300000);
+                System.currentTimeMillis() - entry.getValue() > playerCooldownMs);
         }
 
         // Check if ElytraController completed and send notification
@@ -544,6 +681,8 @@ public class StashHunterModule extends Module {
         List<BlockPos> valuableBlocksInRange = new ArrayList<>();
         BlockPos playerPos = mc.player.blockPosition();
         Set<Block> activeBlocks = new HashSet<>(Config.getActiveBlockList());
+        // Spawners have a block entity, so they come through the block-entity pass in either mode.
+        if (includeSpawners.get()) activeBlocks.add(Blocks.SPAWNER);
 
         // Containers are found exactly through the block-entity list, so the block-by-block scan
         // only needs the active blocks without a block entity. That also keeps a container from
@@ -587,10 +726,8 @@ public class StashHunterModule extends Module {
 
         // Check if we've already reported a base near this location
         int dedupeRadius = reportDedupeRadius.get();
-        boolean alreadyReported = reportedStashes.stream()
-            .anyMatch(reportedStash -> reportedStash.closerThan(stashPos, dedupeRadius));
-
-        if (alreadyReported || hasStashWaypointNear(stashPos, dedupeRadius)) {
+        String dimension = PlayerUtils.getDimension().name();
+        if (reportedStashes().isNear(dimension, stashPos, dedupeRadius) || hasStashWaypointNear(stashPos, dedupeRadius)) {
             return;
         }
 
@@ -598,15 +735,16 @@ public class StashHunterModule extends Module {
         double density = cluster.size() / Math.max(volume, 1.0);
 
         // Enhanced filtering for natural structures
-        if (isNaturalStructure(cluster, volume, density)) {
+        if (isNaturalStructure(stashPos, cluster, volume, density)) {
             return;
         }
 
-        reportedStashes.add(stashPos);
+        reportedStashes().add(dimension, stashPos);
         reportStash(stashPos, cluster, volume, density);
     }
 
-    // Survives module toggles and reconnects (Meteor persists waypoints per server), unlike reportedStashes.
+    // Survives module toggles and reconnects (Meteor persists waypoints per server). Also catches
+    // stashes reported before reportedStashes was persisted, or after it was cleared.
     private boolean hasStashWaypointNear(BlockPos pos, int radius) {
         var dimension = PlayerUtils.getDimension();
         for (Waypoint waypoint : Waypoints.get()) {
@@ -622,7 +760,7 @@ public class StashHunterModule extends Module {
     /**
      * Enhanced natural structure detection
      */
-    private boolean isNaturalStructure(List<BlockPos> blocks, double volume, double density) {
+    private boolean isNaturalStructure(BlockPos center, List<BlockPos> blocks, double volume, double density) {
         if (!filterNaturalStructures.get()) {
             return false;
         }
@@ -637,27 +775,40 @@ public class StashHunterModule extends Module {
             return true;
         }
 
-        // Count block types to identify natural structures
-        Map<Block, Integer> blockCounts = countBlockTypes(blocks);
-        int totalBlocks = blocks.size();
-
-        // Check for mineshaft patterns (mostly chests with some barrels)
-        int chestCount = blockCounts.getOrDefault(Blocks.CHEST, 0);
-        // Check for Woodland Mansion: 44 chests and mostly wood/cobblestone
-        if (chestCount == 44) {
-            int darkOakLogCount = blockCounts.getOrDefault(Blocks.DARK_OAK_LOG, 0);
-            int darkOakPlanksCount = blockCounts.getOrDefault(Blocks.DARK_OAK_PLANKS, 0);
-            int cobblestoneCount = blockCounts.getOrDefault(Blocks.COBBLESTONE, 0);
-            double mansionBlockRatio = (double)(darkOakLogCount + darkOakPlanksCount + cobblestoneCount) / totalBlocks;
-
-            if (mansionBlockRatio > 0.5) {
-                return true; // Likely a Woodland Mansion
-            }
+        // A vanilla dungeon (spawner + up to two chests) is no base, however low the threshold is.
+        if (includeSpawners.get() && isDungeonOnly(blocks)) {
+            return true;
         }
 
+        // Exact positions from the spawners activated-spawner-detector has seen (PLAN 67).
+        if (isNearDetectedStructure(center)) {
+            return true;
+        }
 
-
+        // No block-type checks here: the cluster only holds scanned stash blocks, so ratios of
+        // structure materials (the old Woodland Mansion check) were always 0 and never matched.
+        // Mineshaft loot sits in chest minecarts (entities) and never reaches the block scan.
+        // Structures without spawners need the world-seed structure locator (PLAN 44).
         return false;
+    }
+
+    private boolean isNearDetectedStructure(BlockPos center) {
+        int radius = structureFilterRadius.get();
+        if (radius <= 0) return false;
+        ActivatedSpawnerDetector detector = Modules.get().get(ActivatedSpawnerDetector.class);
+        return detector != null && detector.isActive()
+            && detector.isNearNaturalStructure(PlayerUtils.getDimension(), center, radius);
+    }
+
+    private boolean isDungeonOnly(List<BlockPos> blocks) {
+        Set<BlockPos> spawners = new HashSet<>();
+        Set<BlockPos> chests = new HashSet<>();
+        for (BlockPos pos : blocks) {
+            Block block = mc.level.getBlockState(pos).getBlock();
+            if (block == Blocks.SPAWNER) spawners.add(pos);
+            else if (block == Blocks.CHEST) chests.add(pos);
+        }
+        return DungeonFilter.isDungeonOnly(blocks, spawners, chests);
     }
 
     private Map<Block, Integer> countBlockTypes(List<BlockPos> blocks) {

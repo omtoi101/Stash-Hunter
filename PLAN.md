@@ -1,6 +1,38 @@
 # Stash-Hunter — Offene Arbeiten (Plan für die nächste Iteration)
 
-> ## ⚠️ ZUERST ERLEDIGEN — vor jeder anderen Arbeit (Stand 2026-10-30)
+> ## ✅ Stand 2026-10-30 (Nacht): 48–51 und Features 67-Folge, 68–72, 75, 76 erledigt
+>
+> Build + **71 Unit-Tests** (16 Suites) grün, Spotless grün, **alles in-game ungetestet**, nichts
+> committet. Jeder Punkt von zwei Reviewern geprüft (Korrektheit + Regression/Sicherheit):
+> 0 high, 9 medium (alle behoben), 12 low (1 behoben, Rest unten unter „Bekannte Kleinigkeiten“).
+> Alle Features clean-room (kein Fremdcode), alle neuen Module/Settings opt-in bzw. Default aus.
+> README, CHANGELOG und dieser Plan sind nachgezogen (README war auch für 77–88 veraltet).
+>
+> **Noch offen:** In-game-Test (Liste unter „Verifikation“), Commit, Features 44/45/47 (Seed),
+> 53/54/63 (ChestIndex, Xaero, StorageLooter), 55-Rest (benannte Pfade), 56–59, 61, 62, 64–66, 73, 74.
+>
+> **Bekannte Kleinigkeiten (low, aus dem Review, nicht behoben):**
+> - AutoFirework feuert auch während der Abbrems-/Hover-Phase von AutoElytraRepair.
+> - `Config.shutdown()`: ein bereits gestarteter, auf den Lock wartender Debounce-Save kann nach
+>   dem Hook ein zweites Mal schreiben (harmlos, gleicher Inhalt).
+> - `structure-waypoints`: Dedupe über festen 64-Block-Radius → große Mineshafts/Trial Chambers
+>   können mehrere Waypoints bekommen. `NaturalStructures` verdrängt nach Einfüge-, nicht
+>   Nutzungsreihenfolge.
+> - OnlinePlayerActivity: Discord aus- und wieder eingeschaltet → alte, gepufferte Änderungen
+>   werden nachgesendet.
+> - PlayerAlarms: keine Hysterese am Radiusrand (Rein/Raus-Flattern umgeht `repeat-interval`);
+>   `title` überschreibt die HUD-Title-Zeiten und einen Server-Titel; Wanduhr statt monotone Zeit.
+> - UnfocusedFpsLimiter wirkt nicht in Menüs außerhalb einer Welt (MC begrenzt dort selbst).
+> - Aus 86: AltitudeLossDetector ist während `land-after-completion` stumm, bis Baritone landet.
+
+> ## ✅ Build verifiziert (2026-10-30, abends)
+>
+> `./gradlew build` lief auf einem Rechner mit Netzzugang **grün** (Commit `39d2c9d`:
+> End-Detektor, OldChunkNotifier, activated-spawner-detector; Compile + Spotless + Tests).
+> Danach 77–88 bearbeitet, Build + 29 Unit-Tests wieder grün. Offen bleibt der In-game-Test
+> (Punkt 4 unten, plus die neuen Settings aus 82–87). Der Abschnitt darunter ist der alte Stand und nur noch zur Info da.
+>
+> ## (erledigt) ZUERST ERLEDIGEN — vor jeder anderen Arbeit (Stand 2026-10-30)
 >
 > **Der Build ist seit mehreren Runden nicht mehr verifiziert.** Mehrere Änderungen
 > (End-Detektor in NewerNewChunks, OldChunkNotifier-Dimensionsreset, neues Modul
@@ -412,6 +444,7 @@
     - Fix: `replaceWithPacketData` (Decode) muss auf dem Netty-Thread bleiben
       (Packet-Buffer); die private `LevelChunk`-Kopie danach per `mc.execute(...)`
       auf dem Client-Thread klassifizieren.
+    > Erledigt (2026-10-30), bewusst anders als geplant: bleibt auf dem Netty-Thread (private Chunk-Kopie; auf dem Client-Thread nur mehr Ruckler), dafür Sektionen per `maybeHas` überspringen, jeden Block einmal lesen, Abbruch sobald das Ergebnis feststeht; Liquid-Check sektionsweise. Semantik unverändert.
 
 49. **`SlimeChunkOverlay` allokiert pro Chunk ein `Random` und rechnet auf dem Render-Thread.**
     - Belegt: `recompute()` läuft in `onRender` und iteriert `(2·radius+1)²` Chunks
@@ -419,16 +452,19 @@
       `new Random(seed)` pro Chunk (Z.23). Recomputation einmal pro Chunk-Wechsel (Cache).
     - Fix: einen `Random` wiederverwenden (`setSeed`) bzw. den 48-bit-LCG inline;
       Recomputation inkrementell oder auf Hintergrund-Thread.
+    > Erledigt (2026-10-30): LCG von `java.util.Random` inline (Test gegen Vanilla mit 100k Zufallsfällen), Seed-Text nur bei Änderung neu geparst; Neuberechnung bleibt synchron.
 
 50. **`ElytraController.handleNormalNavigation` rechnet pro Tick mit `Math.pow`/`Math.sqrt`.**
     - Belegt: Z.222–224 (läuft pro Tick während des Flugs). `Math.pow(x, 2)` → `x*x`;
       Vergleich `horizontalDistance < 20.0` → `dx²+dz² < 400` (sqrt entfällt).
     - Hinweis: dieselbe Form in `resume()` (Z.132–134) läuft nur einmal — dort egal.
+    > Erledigt (Commit `93a6e47`).
 
 51. **Executor-/Thread-Ressourcen werden nie heruntergefahren.**
     - `Config.SAVER` (ScheduledExecutor, Z.26) und `DiscordWebhook.EXECUTOR`
       (ThreadPoolExecutor) sind Daemon-Threads ohne `shutdown()`. Ein pending
       `saveLater` (1 s) kann beim Beenden verloren gehen → Flush bei Client-Shutdown.
+    > Erledigt (2026-10-30): JVM-Shutdown-Hook → `Config.shutdown()` (ausstehenden Save synchron schreiben) und `DiscordWebhook.shutdown()` (max. 3 s Queue leeren). NewerNewChunks-Writes bewusst nicht aus dem Hook (nicht threadsicher; Flush alle 5 s und bei GameLeft).
 
 52. **Allocation im End-Detektor.**
     - `new BlockPos(x, 64, z)` in `classifyChunk` (Z.766) im 16×16-Loop; funktional
@@ -438,6 +474,7 @@
     > jeden Insel-Chunk als alt) und ist ersetzt: Der Detektor liest jetzt einmal die
     > Biome-Palette (`collectBiomesInPalette`) und prüft außerhalb der Hauptinsel auf
     > `minecraft:the_end`. Kein `BlockPos` mehr. Details: DSH-HANDOFF.md, CHANGELOG *Fixed*.
+    > Hinfällig durch den Biome-basierten End-Detektor.
 
 ---
 
@@ -586,7 +623,7 @@ legal kopierbar — bei Bedarf den Autor auf Discord (`0x658`) kontaktieren.
     > - Fortress, Stronghold und „sonstige Spawner“ sind als zusätzliche Toggles erhalten.
     >   Amethyst-Geoden sind neben dem Geoden-Filter optional als eigene Marker drin (Standard aus).
     > - Kein Webhook: Meldung über Chat und `StashHunter.LOG`.
-    > - Offen als Folge-Schritt: Positionen als Eingabe für `filterNaturalStructures` bzw. als
+    > - ~~Offen als Folge-Schritt~~ **Erledigt (2026-10-30):** Positionen als Eingabe für `filterNaturalStructures` bzw. als
     >   Waypoints bereitstellen.
 
 68. **Auto-Firework (Elytra-Boost).** Feuert automatisch Raketen, wenn die Vorwärts-
@@ -600,6 +637,7 @@ legal kopierbar — bei Bedarf den Autor auf Discord (`0x658`) kontaktieren.
       Pitch/Yaw setzt und auf ElytraFly-Takeoff angewiesen ist. Nicht identisch mit 61
       (ElytraFlyPlusPlus/Y-Boost = Fly-Exploit); hier geht es um legitimen Raketen-Boost zum
       Halten von Speed/Höhe. Geringer Aufwand, hoher Nutzen für den Langlauf.
+    > Erledigt (2026-10-30) als Modul `auto-firework` (clean-room, Default aus). Pausiert bei Screen, Landung und Baritone-Elytra; nur Raketen ohne Sterne. Logik in `utils/FireworkBoost` (getestet).
 
 69. **AreaLoader / Spiral-Modus.** Spiral-out über den Baritone-Elytra-Prozess mit
     `gap-distance` (Chunks), `flight-level` und Dimensions-Pause/Resume — lädt/scannt kreisförmig
@@ -607,21 +645,25 @@ legal kopierbar — bei Bedarf den Autor auf Discord (`0x658`) kontaktieren.
     **direkt portierbar**. Ergänzt 55 (dort war der Spiral-Modus von jeff mod nur clean-room);
     hier liegt Apache-2.0-Code vor → als `.sh spiral`-Modus zusätzlich zu `GridWaypoints`.
     Besonders für „Basis rund um Spawn/Portal suchen".
+    > Erledigt (2026-10-30): `.stashhunter spiral [<x> <z>] <radius> [gap]` (clean-room), Spiral-Generator getestet, Trips speicher-/fortsetzbar wie `start`. Benannte Pfade (55) noch offen.
 
 70. **OnlinePlayerActivityDetector (wer ist online?).** Meldet, ob/sobald überhaupt Spieler
     online sind (Tab-Liste/Spielerzahl), nicht nur „Spieler < 100 Blöcke" wie die heutige
     `player-detection`. Für Anarchy: wissen, wann sicher gescannt wird bzw. wann jemand aktiv
     ist („Server-Pop"-HUD + Discord). Quelle: Trouser-Streak ⛔ → clean-room.
+    > Erledigt (2026-10-30) als Modul `online-player-activity` (nur gelistete Tab-Einträge, Join-Grace, opt-in Discord mit Cooldown/Bündelung).
 
 71. **PlayerAlarms (lokaler Alarm).** Lauter Sound-/Blink-Alarm bei Spieler in der Nähe,
     zusätzlich zur Discord-Meldung. Für unbeaufsichtigten (AFK-)Betrieb schneller wahrgenommen
     als Discord. Quelle: Trouser-Streak ⛔ → clean-room.
+    > Erledigt (2026-10-30) als Modul `player-alarms` (Default aus; Sound/Volume/Intervall/Freunde/Chat/Title).
 
 72. **Spawner als Stash-/Base-Signal in `stashBlocks`.** `Config.stashBlocks` enthält keine
     Spawner (MobSpawner/TrialSpawner). Spawner-Räume (Dungeons) und gebaute Spawner-Farmen sind
     starke Base-Signale. Eigenes Konzept (kein Fremdcode): optional per Setting in den
     Full-Scan aufnehmen; dabei in `filterNaturalStructures` berücksichtigen, sonst Dungeon-
     Fehlalarme. Ergänzt 67.
+    > Erledigt (2026-10-30): Setting `include-spawners` (Default aus, persistiert); reiner Dungeon (Spawner + ≤ 2 Truhen) wird mit `filter-natural-structures` ignoriert; Trial-Spawner nie.
 
 73. **ChestTracker mit GUI (live Tracking + Screen).** Erweitert 53 (ChestIndex/JSON-Export)
     um ein live gepflegtes Chest-Verzeichnis mit eigener Übersichts-GUI (`ChestTrackerModule`/
@@ -636,10 +678,12 @@ legal kopierbar — bei Bedarf den Autor auf Discord (`0x658`) kontaktieren.
     der Nähe (oder anderen Gefahren), analog zum bestehenden „Out of Elytras"-Disconnect.
     Sicherheitsfeature für den Anarchy-Langlauf. Quelle: jeff mod ⛔ → clean-room.
     (Vorsicht: auf manchen Servern als „Combat-Log" bewertet → Opt-in + klare Kennzeichnung.)
+    > Erledigt (2026-10-30) als Modul `auto-logout` (Default aus, als RISKY gekennzeichnet): Spieler im Radius und/oder wenig Leben; pausiert den Flug vorher, opt-out Discord, schaltet sich danach ab; Meteor-Fake-Player ignoriert.
 
 76. **Unfocused-FPS-Limiter.** FPS begrenzen, wenn das Fenster nicht fokussiert ist —
     Ressourcen sparen bei stundenlangem Betrieb im Hintergrund. Quelle: BepHax ⚠️ (GPL-3.0) →
     nur Idee, kein Code.
+    > Erledigt (2026-10-30) als Modul `unfocused-fps-limiter` (Default 10 FPS, min. 5); ändert nie die gespeicherte Option.
 
 ### Querverweise
 
@@ -663,6 +707,48 @@ legal kopierbar — bei Bedarf den Autor auf Discord (`0x658`) kontaktieren.
 > (stille Korrektheitsfehler bzw. verpasste Stashes) und müssen **vor** den restlichen offenen
 > Arbeiten (44–47, 48–52, 68–76) umgesetzt werden — nachdem der Build (siehe „ZUERST ERLEDIGEN")
 > wieder grün ist.
+>
+> **Stand 2026-10-30 (abends): 77–81 bearbeitet**, Build + 26 Unit-Tests grün, in-game ungetestet.
+> - 77 erledigt: Daten liegen unter `MeteorClient.FOLDER/StashHunter/NewChunks/…`; alte Daten im
+>   relativen Pfad werden beim ersten Zugriff einmalig verschoben (bei Fehler: Warnung im Log).
+> - 78 **Fehlalarm**: `waypoint.dimension` ist `Setting<Dimension>`, und Meteors `Dimension` ist ein
+>   Enum (per `javap` geprüft) → `==` ist korrekt, nichts geändert.
+> - 79 über die „ODER“-Variante gelöst: Der Mansion-Zweig war tot (der Cluster enthält nur
+>   Stash-Blöcke, Dark-Oak/Cobblestone-Anteil also immer 0), eine Mineshaft-Heuristik ist sinnlos
+>   (Mineshaft-Loot liegt in Chest-Minecarts = Entities, die der Block-Scan nie sieht). Zweig
+>   entfernt, Kommentar verweist auf 44/67.
+> - 80 erledigt: letzter Streifen immer exakt auf `maxX`; `count()` angepasst, Tests ergänzt.
+> - 81 erledigt: neue Klasse `utils/ReportedStashes` (Datei pro Server unter
+>   `MeteorClient.FOLDER/StashHunter/reported-stashes/`, Zeilen „Dimension x y z“), getestet.
+>   Kein Leeren mehr bei Dimensionswechsel; `.clear-stashes` löscht auch die Datei.
+>
+> **Stand 2026-10-30 (später): 82–88 erledigt**, Build + 29 Unit-Tests grün, in-game ungetestet.
+> Jeder Punkt wurde von zwei Reviewern geprüft (Korrektheit + Regression). Gefunden wurden zwei
+> Punkte, beide in 86: (1) behoben, (2) offen, siehe unten.
+> - 82: neue Hilfsklasse `utils/ScanTrigger` (3 Tests). Scan zusätzlich nach halber
+>   Scan-Radius-Strecke Flug (32 Blöcke bei Radius 64); `scan-interval` ist jetzt das
+>   Maximalintervall. Neues Setting `scan-by-distance` (Default **an**, persistiert) — aus = altes
+>   Verhalten.
+> - 83: `max-cluster-size`/`report-dedupe-radius` in `Config` (load/save/validate, onChanged).
+>   Grenzen vereinheitlicht: `flight-altitude` 100–400, `scan-radius` max 256, `scan-interval`
+>   max 1200, StuckDetector `detection-threshold` ≥ 1. Übrige Settings geprüft, konsistent.
+> - 84: AltitudeLossDetector: opt-in `discord` (Default aus) + `discord-cooldown` (60 s,
+>   übersteht Modul-Toggle); Meldung nur beim Erkennen.
+> - 85: `player-detection-radius` (100) und `player-report-cooldown` (5 min) als persistierte
+>   Settings; Aufräumen der reportedPlayers-Map nutzt denselben Cooldown.
+> - 86: opt-in `land-after-completion` (Default aus, persistiert). Mit Baritone-Elytra wird der
+>   Pfad zum letzten Waypoint nach Scan-Ende nicht abgebrochen → Baritone sucht selbst einen
+>   sicheren Landeplatz. Ohne Baritone nur Chat-Hinweis, kein eigener Sinkflug (ohne In-game-Test
+>   zu riskant). AltitudeLossDetector ignoriert den Sinkflug. Review-Fund behoben:
+>   `.stashhunter stop` bricht jetzt auch eine laufende Landung ab.
+>   **Offen (low):** Während der Landung ist der AltitudeLossDetector komplett stumm (inkl.
+>   Discord), bis Baritones Elytra-Prozess endet. Findet Baritone keinen Landeplatz, bleibt er so
+>   lange stumm. Bei In-game-Test prüfen, ggf. Timeout ergänzen.
+> - 87: Setting `scan-only-while-flying` (Default aus = stehender Scanner wie bisher, persistiert);
+>   Modulbeschreibung nennt den stehenden Scanner.
+> - 88: (a) Tab in NewerNewChunks entfernt; (b) `dev_build.yml` nur noch bei Push auf `main`;
+>   (c) `recommends.baritone-meteor` → `~26.2-` (Mod-ID/Version aus der Baritone-Jar geprüft);
+>   (d) nur Kommentar am `fabric-resource-loader-v1`-Pin.
 
 77. **🚨 `NewerNewChunks` schreibt in relative Pfade statt ins Spielverzeichnis.**
     - Alle Datei-Zugriffe nutzen `Paths.get("StashHunter", "NewChunks", …)` (in `onActivate`,
@@ -742,8 +828,17 @@ legal kopierbar — bei Bedarf den Autor auf Discord (`0x658`) kontaktieren.
 ## Verifikation
 
 - Nach jeder Änderung: `./gradlew build` (JDK 25 nötig).
-- Phasen 0–4 sind committed (Branch `code-revision`), Phase 5 und 33–43 liegen
-  noch uncommitted im Working Tree.
+- Bis Commit `39d2c9d` ist alles committed (Branch `code-revision`); 48–51, 67-Folge, 68–72,
+  75–88 liegen noch uncommitted im Working Tree.
+- In-game zusätzlich prüfen: `scan-by-distance` (CPU-Last beim Flug), `land-after-completion`
+  mit Baritone, `scan-only-while-flying`, AltitudeLossDetector-Discord, Umzug der
+  NewChunks-Daten in den Meteor-Ordner, `reported-stashes`-Datei nach Reconnect.
+- Und aus der Runde 48–76: NewerNewChunks markiert Overworld/Nether weiter korrekt (48);
+  Slime-Overlay (49); Config-Änderung kurz vor Beenden bleibt erhalten (51); `include-spawners`
+  + `structure-filter-radius` + `structure-waypoints`; `auto-firework` (auch: feuert nicht
+  während Baritone-Flug, ignoriert Sternraketen); `.sh spiral` inkl. pause/resume;
+  `online-player-activity`; `player-alarms`; `auto-logout` (vorsichtig, Testserver!);
+  `unfocused-fps-limiter`.
 - `./gradlew build` führt jetzt auch die Unit-Tests und den Spotless-Check aus.
 - Funktionsprüfung in-game: Modul an/aus, Death/Respawn, Dimensionswechsel,
   /stashhunter start + stop, Stuck-Auto-Fix, Elytra-Reparatur.

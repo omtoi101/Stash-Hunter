@@ -4,6 +4,7 @@ import com.stashhunter.stashhunter.modules.StashHunterModule;
 import com.stashhunter.stashhunter.modules.AutoElytraRepair;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.GridWaypoints;
+import com.stashhunter.stashhunter.utils.SpiralWaypoints;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -59,10 +60,49 @@ public class StashHunterCommand extends Command {
             )
         );
 
+        // Spiral outward from a center: nearest ground first, for searching around spawn or a portal
+        builder.then(literal("spiral")
+            .then(argument("args", StringArgumentType.greedyString())
+                .executes(context -> {
+                    String[] parts = StringArgumentType.getString(context, "args").trim().split("\\s+");
+
+                    // 1-2 args: centered on the player; 3-4 args: explicit center first
+                    if (parts.length < 1 || parts.length > 4) {
+                        error("Invalid arguments. Usage: spiral [<x> <z>] <radius> [gap]");
+                        return SINGLE_SUCCESS;
+                    }
+
+                    try {
+                        boolean explicitCenter = parts.length >= 3;
+                        int centerX = parseCoordinate(explicitCenter ? parts[0] : "~", true);
+                        int centerZ = parseCoordinate(explicitCenter ? parts[1] : "~", false);
+                        int offset = explicitCenter ? 2 : 0;
+                        int radius = Integer.parseInt(parts[offset]);
+
+                        int gap = 128; // Same default as the rectangle's strip width
+                        if (parts.length > offset + 1) {
+                            gap = Integer.parseInt(parts[offset + 1]);
+                            if (gap < 50 || gap > 500) {
+                                error("Gap must be between 50 and 500.");
+                                return SINGLE_SUCCESS;
+                            }
+                        }
+
+                        return startSpiral(centerX, centerZ, radius, gap);
+
+                    } catch (NumberFormatException e) {
+                        error("Invalid coordinate, radius or gap format. Use numbers, ~, or ~<offset>.");
+                        return SINGLE_SUCCESS;
+                    }
+                })
+            )
+        );
+
         // Stop scanning
         builder.then(literal("stop")
             .executes(context -> {
-                if (ElytraController.isActive()) {
+                // A post-completion Baritone landing runs with active=false; stop must still cancel it.
+                if (ElytraController.isActive() || ElytraController.isLandingAfterCompletion()) {
                     ElytraController.stop();
                     info("Stash hunter flight stopped.");
                 } else {
@@ -147,6 +187,7 @@ public class StashHunterCommand extends Command {
             .executes(context -> {
                 info("Stash-Hunter Commands:");
                 info("§7.stashhunter start <x1> <z1> <x2> <z2> [stripWidth] §f- Start scanning an area");
+                info("§7.stashhunter spiral [<x> <z>] <radius> [gap] §f- Scan in a square spiral (centered on you without x/z)");
                 info("§7.stashhunter stop §f- Stop the current scanning operation");
                 info("§7.stashhunter pause §f- Pause the current scanning operation");
                 info("§7.stashhunter resume [timestamp] §f- Resume the latest or a specific trip");
@@ -160,6 +201,7 @@ public class StashHunterCommand extends Command {
                 info("§f.stashhunter start 1000 1000 5000 5000 150 §7- Absolute coordinates");
                 info("§f.stashhunter start ~ ~ ~4000 ~4000 150 §7- Relative to current position");
                 info("§f.stashhunter start ~-2000 ~-2000 ~2000 ~2000 120 §7- Relative with offsets");
+                info("§f.stashhunter spiral 3000 §7- Spiral out to 3000 blocks around you");
                 info("");
                 info("§7Use §f~§7 for relative coordinates (current position)");
                 info("§7Use §f~<number>§7 for relative coordinates with offset");
@@ -277,6 +319,34 @@ public class StashHunterCommand extends Command {
 
         ensureModuleActive();
         ElytraController.start(x1, z1, x2, z2, stripWidth);
+        return SINGLE_SUCCESS;
+    }
+
+    private int startSpiral(int centerX, int centerZ, int radius, int gap) {
+        if (ElytraController.isActive()) {
+            error("Stash hunter is already active! Use '.stashhunter stop' first.");
+            return SINGLE_SUCCESS;
+        }
+
+        // Same bounds as the rectangle mode: 50..25000 radius = 100..50000 blocks across.
+        if (radius < 50) {
+            error("Spiral radius too small! Minimum is 50 blocks.");
+            return SINGLE_SUCCESS;
+        }
+        if (radius > 25000) {
+            error("Spiral radius too large! Maximum is 25000 blocks.");
+            return SINGLE_SUCCESS;
+        }
+
+        info("Starting spiral search:");
+        info("§7Center: §f(" + centerX + ", " + centerZ + ")");
+        info("§7Radius: §f" + radius + " blocks");
+        info("§7Gap: §f" + gap + " blocks");
+        info("§7Estimated waypoints: §f" + SpiralWaypoints.count(radius, gap));
+        info("§7Make sure you have an Elytra equipped and are at flight altitude!");
+
+        ensureModuleActive();
+        ElytraController.startSpiral(centerX, centerZ, radius, gap);
         return SINGLE_SUCCESS;
     }
 

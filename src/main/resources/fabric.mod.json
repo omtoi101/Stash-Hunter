@@ -28,6 +28,6 @@
     "meteor-client": "~26.2-"
   },
   "recommends": {
-    "baritone-meteor": "*"
+    "baritone-meteor": "~26.2-"
   }
 }

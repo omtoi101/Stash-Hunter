@@ -1,5 +1,6 @@
 package com.stashhunter.stashhunter.modules;
 
+import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.events.game.OpenScreenEvent;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
@@ -275,6 +276,11 @@ public class NewerNewChunks extends Module {
     );
     private int deletewarningTicks=666;
     private int deletewarning=0;
+    // Under the Meteor folder like Config and TripManager. The old relative path resolved against the
+    // JVM working directory, which launchers like MultiMC/Prism set to something else.
+    private static final Path DATA_ROOT = MeteorClient.FOLDER.toPath().resolve("StashHunter").resolve("NewChunks");
+    private static final Path LEGACY_DATA_ROOT = Paths.get("StashHunter", "NewChunks");
+    private static boolean legacyDataChecked;
     private String serverip;
     private String world;
     // Client thread only: the packet handler passes every set access through mc.execute(...).
@@ -443,7 +449,7 @@ public class NewerNewChunks extends Module {
         }
         if (save.get()){
             try {
-                Files.createDirectories(Paths.get("StashHunter", "NewChunks", serverip, world));
+                Files.createDirectories(dataDir());
             } catch (IOException e) {
                 StashHunter.LOG.warn("Could not create the chunk data folder", e);
             }
@@ -456,7 +462,7 @@ public class NewerNewChunks extends Module {
             info("PaletteExploit enabled - make sure your server is version 1.18 or higher!");
         }
         if (save.get() || load.get()) {
-            Path baseDir = Paths.get("StashHunter", "NewChunks", serverip, world);
+            Path baseDir = dataDir();
 
             for (Path fileName : FILE_PATHS) {
                 Path fullPath = baseDir.resolve(fileName);
@@ -472,6 +478,24 @@ public class NewerNewChunks extends Module {
         }
         if (load.get()){
             loadData();
+        }
+    }
+    private Path dataDir() {
+        migrateLegacyData();
+        return DATA_ROOT.resolve(serverip).resolve(world);
+    }
+    // One-time move of data saved by older versions under <working dir>/StashHunter/NewChunks.
+    private static void migrateLegacyData() {
+        if (legacyDataChecked) return;
+        legacyDataChecked = true;
+        Path legacy = LEGACY_DATA_ROOT.toAbsolutePath().normalize();
+        if (!Files.isDirectory(legacy) || Files.exists(DATA_ROOT) || legacy.equals(DATA_ROOT.toAbsolutePath().normalize())) return;
+        try {
+            Files.createDirectories(DATA_ROOT.getParent());
+            Files.move(legacy, DATA_ROOT);
+            StashHunter.LOG.info("Moved chunk data from {} to {}", legacy, DATA_ROOT);
+        } catch (IOException e) {
+            StashHunter.LOG.warn("Could not move old chunk data from {} to {} - move it by hand to keep it", legacy, DATA_ROOT, e);
         }
     }
     private void updateServerIp() {
@@ -528,14 +552,14 @@ public class NewerNewChunks extends Module {
         if (deletewarning>=2){
             updateServerIp();
             clearChunkData();
-            Path dataDir = Paths.get("StashHunter", "NewChunks", serverip, world);
+            Path dataDir = dataDir();
             pendingWrites.keySet().removeIf(path -> path.startsWith(dataDir));
             try {
-                Files.deleteIfExists(Paths.get("StashHunter", "NewChunks", serverip, world, "NewChunkData.txt"));
-                Files.deleteIfExists(Paths.get("StashHunter", "NewChunks", serverip, world, "OldChunkData.txt"));
-                Files.deleteIfExists(Paths.get("StashHunter", "NewChunks", serverip, world, "BeingUpdatedChunkData.txt"));
-                Files.deleteIfExists(Paths.get("StashHunter", "NewChunks", serverip, world, "OldGenerationChunkData.txt"));
-                Files.deleteIfExists(Paths.get("StashHunter", "NewChunks", serverip, world, "BlockExploitChunkData.txt"));
+                Files.deleteIfExists(dataDir.resolve("NewChunkData.txt"));
+                Files.deleteIfExists(dataDir.resolve("OldChunkData.txt"));
+                Files.deleteIfExists(dataDir.resolve("BeingUpdatedChunkData.txt"));
+                Files.deleteIfExists(dataDir.resolve("OldGenerationChunkData.txt"));
+                Files.deleteIfExists(dataDir.resolve("BlockExploitChunkData.txt"));
             } catch (IOException e) {
                 StashHunter.LOG.warn("Could not delete the chunk data of this dimension", e);
             }
@@ -578,7 +602,7 @@ public class NewerNewChunks extends Module {
             }
         }
 
-        if (load.get() && worldchange){		//autoreload when entering different dimensions
+        if (load.get() && worldchange){ //autoreload when entering different dimensions
             if (worldleaveremove.get()){
                 clearChunkData();
             }
@@ -727,20 +751,35 @@ public class NewerNewChunks extends Module {
             // Vanilla layout (min Y -64): section 4 holds y=0..15, the scan covers y < 208.
             int zeroSection = level.getSectionIndex(0);
             int overworldEnd = Math.min(sections.length, level.getSectionIndex(208));
+            // Runs on the Netty thread (see onReadPacket), so keep it cheap: maybeHas() checks the
+            // section palette first, each block state is read once, and the scan stops as soon as
+            // new generation is found (that settles the result; the ore flag no longer matters).
+            overworldScan:
             for (int i = 0; i < overworldEnd; i++) {
                 LevelChunkSection section = sections[i];
                 // Bug fix: was "!!section.hasOnlyAir()" (double negation cancels out), which
                 // only ever scanned sections that were pure air - the detectors below need
                 // sections that actually have content, i.e. NOT only air.
-                if (section != null && !section.hasOnlyAir()) {
-                    for (int x = 0; x < 16; x++) {
-                        for (int y = 0; y < 16; y++) {
-                            for (int z = 0; z < 16; z++) {
-                                if (!foundAnyOre && ORE_BLOCKS.contains(section.getBlockState(x, y, z).getBlock())) foundAnyOre = true; //prevent false flags in flat world
-                                if (((y >= 5 && i == zeroSection) || i > zeroSection) && !isNewOverworldGeneration && (NEW_OVERWORLD_BLOCKS.contains(section.getBlockState(x, y, z).getBlock()) || DEEPSLATE_BLOCKS.contains(section.getBlockState(x, y, z).getBlock()))) {
-                                    isNewOverworldGeneration = true;
-                                    break;
-                                }
+                if (section == null || section.hasOnlyAir()) continue;
+                // maybeHas() can report stale palette entries, so hits are still confirmed per block.
+                boolean wantOre = !foundAnyOre && section.maybeHas(NewerNewChunks::isOre);
+                boolean wantNew = i >= zeroSection && section.maybeHas(NewerNewChunks::isNewOverworldBlock);
+                if (!wantOre && !wantNew) continue;
+                for (int y = 0; y < 16; y++) {
+                    // Unchanged rule: in the zero section new-generation blocks only count from y=5 up.
+                    boolean newAllowed = wantNew && (i > zeroSection || y >= 5);
+                    if (!wantOre && !newAllowed) continue;
+                    for (int z = 0; z < 16; z++) {
+                        for (int x = 0; x < 16; x++) {
+                            BlockState state = section.getBlockState(x, y, z);
+                            if (wantOre && isOre(state)) {
+                                foundAnyOre = true; //prevent false flags in flat world
+                                wantOre = false;
+                                if (!wantNew) continue overworldScan; // nothing left to look for in this section
+                            }
+                            if (newAllowed && isNewOverworldBlock(state)) {
+                                isNewOverworldGeneration = true;
+                                break overworldScan;
                             }
                         }
                     }
@@ -751,17 +790,18 @@ public class NewerNewChunks extends Module {
 
         if (netherOldChunksDetector.get() && level.dimension() == Level.NETHER && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
             int netherEnd = Math.min(sections.length, level.getSectionIndex(128)); // below the bedrock roof
+            // Same Netty-thread budget as the overworld scan: palette prefilter, stop at the first hit.
+            netherScan:
             for (int i = 0; i < netherEnd; i++) {
                 LevelChunkSection section = sections[i];
                 // See the double-negation fix note in the overworld detector above.
-                if (section != null && !section.hasOnlyAir()) {
-                    for (int x = 0; x < 16; x++) {
-                        for (int y = 0; y < 16; y++) {
-                            for (int z = 0; z < 16; z++) {
-                                if (!isNewNetherGeneration && NEW_NETHER_BLOCKS.contains(section.getBlockState(x, y, z).getBlock())) {
-                                    isNewNetherGeneration = true;
-                                    break;
-                                }
+                if (section == null || section.hasOnlyAir() || !section.maybeHas(NewerNewChunks::isNewNetherBlock)) continue;
+                for (int y = 0; y < 16; y++) {
+                    for (int z = 0; z < 16; z++) {
+                        for (int x = 0; x < 16; x++) {
+                            if (isNewNetherBlock(section.getBlockState(x, y, z))) {
+                                isNewNetherGeneration = true;
+                                break netherScan;
                             }
                         }
                     }
@@ -859,16 +899,38 @@ public class NewerNewChunks extends Module {
             if (!isNewChunk) return ChunkKind.OLD;
         }
         if (liquidexploit.get()) {
-            for (int x = 0; x < 16; x++) {
-                for (int y = level.getMinY(); y < level.getMaxY(); y++) {
+            // Section-wise instead of chunk.getFluidState() over the full height: the fluid state
+            // derives from the block state, so maybeHas() rules out most sections via the palette.
+            for (LevelChunkSection section : sections) {
+                if (section == null || section.hasOnlyAir() || !section.maybeHas(NewerNewChunks::isFlowingFluid)) continue;
+                for (int y = 0; y < 16; y++) {
                     for (int z = 0; z < 16; z++) {
-                        FluidState fluid = chunk.getFluidState(x, y, z);
-                        if (!fluid.isEmpty() && !fluid.isSource()) return ChunkKind.OLD;
+                        for (int x = 0; x < 16; x++) {
+                            if (isFlowingFluid(section.getBlockState(x, y, z))) return ChunkKind.OLD;
+                        }
                     }
                 }
             }
         }
         return null;
+    }
+
+    private static boolean isOre(BlockState state) {
+        return ORE_BLOCKS.contains(state.getBlock());
+    }
+
+    private static boolean isNewOverworldBlock(BlockState state) {
+        Block block = state.getBlock();
+        return NEW_OVERWORLD_BLOCKS.contains(block) || DEEPSLATE_BLOCKS.contains(block);
+    }
+
+    private static boolean isNewNetherBlock(BlockState state) {
+        return NEW_NETHER_BLOCKS.contains(state.getBlock());
+    }
+
+    private static boolean isFlowingFluid(BlockState state) {
+        FluidState fluid = state.getFluidState();
+        return !fluid.isEmpty() && !fluid.isSource();
     }
 
     private boolean isKnownChunk(ChunkPos pos) {
@@ -907,7 +969,7 @@ public class NewerNewChunks extends Module {
         loadChunkData(Paths.get("OldGenerationChunkData.txt"), OldGenerationOldChunks);
     }
     private void loadChunkData(Path savedDataLocation, Set<ChunkPos> chunkSet) {
-        Path filePath = Paths.get("StashHunter/NewChunks", serverip, world).resolve(savedDataLocation);
+        Path filePath = dataDir().resolve(savedDataLocation);
         List<String> allLines;
         try {
             allLines = Files.readAllLines(filePath);
@@ -933,14 +995,14 @@ public class NewerNewChunks extends Module {
     // Only queues the line; flushPendingWrites() appends each file's batch in a single write.
     private void saveData(Path savedDataLocation, ChunkPos chunkpos) {
         if (serverip == null || world == null) return;
-        Path filePath = Paths.get("StashHunter", "NewChunks", serverip, world).resolve(savedDataLocation);
+        Path filePath = dataDir().resolve(savedDataLocation);
         pendingWrites.computeIfAbsent(filePath, path -> new ArrayList<>()).add(chunkpos);
     }
     // Drops a queued line again. Lines already flushed stay in the file; loadData() reads
     // BlockExploitChunkData.txt first, so such a chunk comes back as block-exploit, not new.
     private void unqueueData(Path savedDataLocation, ChunkPos chunkpos) {
         if (serverip == null || world == null) return;
-        List<ChunkPos> queued = pendingWrites.get(Paths.get("StashHunter", "NewChunks", serverip, world).resolve(savedDataLocation));
+        List<ChunkPos> queued = pendingWrites.get(dataDir().resolve(savedDataLocation));
         if (queued != null) queued.remove(chunkpos);
     }
     private void flushPendingWrites() {

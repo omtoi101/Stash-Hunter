@@ -1,7 +1,6 @@
 package com.stashhunter.stashhunter.utils;
 
 import java.util.OptionalLong;
-import java.util.Random;
 
 /**
  * Java Edition slime chunks. Unlike Bedrock, they depend on the world seed: the formula below is
@@ -10,6 +9,10 @@ import java.util.Random;
  */
 public final class SlimeChunks {
     private static final long SALT = 987234911L;
+    // java.util.Random's LCG constants.
+    private static final long MULTIPLIER = 0x5DEECE66DL;
+    private static final long ADDEND = 0xBL;
+    private static final long MASK = (1L << 48) - 1;
 
     private SlimeChunks() {}
 
@@ -20,7 +23,20 @@ public final class SlimeChunks {
             + (long) (chunkZ * chunkZ) * 4392871L
             + (long) (chunkZ * 389711)
             ^ SALT;
-        return new Random(chunkSeed).nextInt(10) == 0;
+        return nextIntTen(chunkSeed) == 0;
+    }
+
+    // new Random(seed).nextInt(10) without the allocation: the overlay calls this up to 16641
+    // times per chunk change. Same scramble, next(31) and rejection loop as java.util.Random.
+    private static int nextIntTen(long seed) {
+        long state = (seed ^ MULTIPLIER) & MASK;
+        while (true) {
+            state = (state * MULTIPLIER + ADDEND) & MASK;
+            int bits = (int) (state >>> 17);
+            int val = bits % 10;
+            // Rejects the top partial range so all ten values stay equally likely.
+            if (bits - val + 9 >= 0) return val;
+        }
     }
 
     /**

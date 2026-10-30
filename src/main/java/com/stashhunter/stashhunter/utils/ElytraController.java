@@ -31,6 +31,10 @@ public class ElytraController {
     // True only if initiateFlight() switched ElytraFly on, so stop() leaves a user-enabled ElytraFly alone.
     private static boolean elytraFlyEnabledByUs = false;
 
+    // True while Baritone's elytra process lands the player after a completed scan (opt-in,
+    // Config.landAfterCompletion). Cleared once Baritone lets go or anything stops/starts a flight.
+    private static boolean landingAfterCompletion = false;
+
     // Navigation state for edge following
     private static NavigationMode navigationMode = NavigationMode.NORMAL;
     private static long edgeFollowStartTime = 0;
@@ -51,34 +55,47 @@ public class ElytraController {
     public static void start(int x1, int z1, int x2, int z2, int stripWidth) {
         // Checked before any state changes, so a bad call can't leave an active flight without waypoints.
         if (stripWidth <= 0) throw new IllegalArgumentException("stripWidth must be positive, got " + stripWidth);
+        // Always generate grid-based waypoints for systematic exploration
+        // The bot will dynamically avoid new chunks during flight
+        startWith(GridWaypoints.generate(x1, z1, x2, z2, stripWidth, Config.flightAltitude));
+    }
+
+    public static void startSpiral(int centerX, int centerZ, int radius, int gap) {
+        // Generated before any state changes, so bad arguments throw without leaving an active empty flight.
+        startWith(SpiralWaypoints.generate(centerX, centerZ, radius, gap, Config.flightAltitude));
+    }
+
+    // Trips store the plain waypoint list, so pause/resume works the same for every search pattern.
+    private static void startWith(List<Vec3> generated) {
         waypoints.clear();
         currentWaypoint = 0;
         active = true;
         justCompleted = false;
+        landingAfterCompletion = false;
         navigationMode = NavigationMode.NORMAL;
         visitedChunks.clear();
         boundaryDirection = null;
 
-        generateWaypoints(x1, z1, x2, z2, stripWidth);
+        waypoints.addAll(generated);
         TripManager.addTrip(waypoints, currentWaypoint);
 
         initiateFlight();
     }
 
-    private static void generateWaypoints(int x1, int z1, int x2, int z2, int stripWidth) {
-        // Always generate grid-based waypoints for systematic exploration
-        // The bot will dynamically avoid new chunks during flight
-        waypoints.addAll(GridWaypoints.generate(x1, z1, x2, z2, stripWidth, Config.flightAltitude));
+    public static void stop() {
+        stop(true);
     }
 
-    public static void stop() {
+    // cancelBaritone=false keeps Baritone's elytra process running so it can finish the landing.
+    private static void stop(boolean cancelBaritone) {
         active = false;
+        if (cancelBaritone) landingAfterCompletion = false;
         currentTarget = null;
         navigationMode = NavigationMode.NORMAL;
         visitedChunks.clear();
         boundaryDirection = null;
         baritoneTargetPos = null;
-        BaritoneBridge.cancel();
+        if (cancelBaritone) BaritoneBridge.cancel();
 
         ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
         if (elytraFlyEnabledByUs && elytraFly != null && elytraFly.isActive()) {
@@ -118,6 +135,7 @@ public class ElytraController {
         currentWaypoint = tripData.currentWaypoint;
         active = true;
         justCompleted = false;
+        landingAfterCompletion = false;
         navigationMode = NavigationMode.NORMAL;
 
         initiateFlight();
@@ -137,6 +155,20 @@ public class ElytraController {
                 BaritoneBridge.startGroundPath(BlockPos.containing(waypoint.x, waypoint.y, waypoint.z));
             }
         }
+    }
+
+    /**
+     * Lets Baritone's elytra process land the player: once its path to the destination is
+     * complete it searches a safe landing spot (solid, flat, open sky) nearby and lands there by
+     * itself. So we only need the elytra path to the last waypoint running and must not cancel it.
+     */
+    private static boolean handOffLandingToBaritone() {
+        if (!Config.useBaritonePathing || !BaritoneBridge.isElytraPathingReady()) return false;
+        if (MeteorClient.mc.player == null || !MeteorClient.mc.player.isFallFlying()) return false; // nothing to land
+        Vec3 last = waypoints.get(waypoints.size() - 1);
+        BlockPos lastPos = BlockPos.containing(last.x, last.y, last.z);
+        if (lastPos.equals(baritoneTargetPos) && BaritoneBridge.isElytraActive()) return true;
+        return BaritoneBridge.startElytraPath(lastPos);
     }
 
     private static void initiateFlight() {
@@ -159,6 +191,10 @@ public class ElytraController {
     }
 
     public static void onTick() {
+        if (landingAfterCompletion && !BaritoneBridge.isElytraActive()) {
+            landingAfterCompletion = false; // Baritone landed ("Done"), gave up, or was cancelled elsewhere
+        }
+
         if (!active || MeteorClient.mc.player == null || waypoints.isEmpty()) {
             return;
         }
@@ -173,7 +209,17 @@ public class ElytraController {
                 MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§aCompleted scanning area!"));
             }
             justCompleted = true;
-            stop();
+            if (Config.landAfterCompletion && handOffLandingToBaritone()) {
+                stop(false);
+                landingAfterCompletion = true;
+                MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§aBaritone is landing at the end of the area..."));
+            } else {
+                if (Config.landAfterCompletion && MeteorClient.mc.player.isFallFlying()) {
+                    // No built-in landing: an untested descent could crash into terrain at glide speed.
+                    MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§eLand after completion needs Baritone elytra pathing - staying airborne."));
+                }
+                stop();
+            }
             return;
         }
 
@@ -493,6 +539,11 @@ public class ElytraController {
 
     public static boolean isActive() {
         return active;
+    }
+
+    /** True while Baritone lands the player after a completed scan (see Config.landAfterCompletion). */
+    public static boolean isLandingAfterCompletion() {
+        return landingAfterCompletion;
     }
 
     public static Vec3 getCurrentTarget() {

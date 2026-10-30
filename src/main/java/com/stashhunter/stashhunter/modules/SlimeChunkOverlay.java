@@ -74,6 +74,9 @@ public class SlimeChunkOverlay extends Module {
     private long cachedSeed;
     private int cachedCenterX, cachedCenterZ, cachedRadius = -1;
     private boolean warnedNoSeed;
+    // Parsed world-seed, re-parsed only when the text changes (onRender runs every frame).
+    private String parsedSeedText;
+    private OptionalLong parsedSeed = OptionalLong.empty();
 
     public SlimeChunkOverlay() {
         super(StashHunter.CATEGORY, "slime-chunks", "Marks slime chunks around you (needs the world seed in multiplayer).");
@@ -123,7 +126,12 @@ public class SlimeChunkOverlay extends Module {
             ServerLevel overworld = server.overworld();
             return overworld != null ? OptionalLong.of(overworld.getSeed()) : OptionalLong.empty();
         }
-        return SlimeChunks.parseSeed(worldSeed.get());
+        String text = worldSeed.get();
+        if (!text.equals(parsedSeedText)) {
+            parsedSeed = SlimeChunks.parseSeed(text);
+            parsedSeedText = text;
+        }
+        return parsedSeed;
     }
 
     private void recompute(long seed, int cx, int cz, int r) {

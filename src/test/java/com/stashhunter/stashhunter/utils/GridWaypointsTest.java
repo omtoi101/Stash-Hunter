@@ -20,6 +20,25 @@ class GridWaypointsTest {
     }
 
     @Test
+    void lastStripCoversTheFarEdge() {
+        List<Vec3> waypoints = GridWaypoints.generate(0, 0, 250, 1000, 100, 160);
+
+        assertEquals(List.of(
+            new Vec3(0, 160, 0), new Vec3(0, 160, 1000),
+            new Vec3(100, 160, 1000), new Vec3(100, 160, 0),
+            new Vec3(200, 160, 0), new Vec3(200, 160, 1000),
+            new Vec3(250, 160, 1000), new Vec3(250, 160, 0)
+        ), waypoints);
+    }
+
+    @Test
+    void singleStripForZeroWidthArea() {
+        assertEquals(List.of(new Vec3(7, 160, 0), new Vec3(7, 160, 50)),
+            GridWaypoints.generate(7, 0, 7, 50, 100, 160));
+        assertEquals(2, GridWaypoints.count(7, 7, 100));
+    }
+
+    @Test
     void cornersInAnyOrderGiveTheSameGrid() {
         assertEquals(GridWaypoints.generate(0, 0, 200, 1000, 100, 160),
             GridWaypoints.generate(200, 1000, 0, 0, 100, 160));
@@ -27,7 +46,7 @@ class GridWaypointsTest {
 
     @Test
     void countMatchesGenerate() {
-        for (int width : new int[] {50, 128, 333, 500}) {
+        for (int width : new int[] {50, 100, 128, 333, 500, 6912, 10000}) {
             assertEquals(GridWaypoints.generate(-1234, 0, 5678, 100, width, 160).size(),
                 GridWaypoints.count(-1234, 5678, width), "stripWidth " + width);
         }

@@ -21,7 +21,10 @@ public final class GridWaypoints {
         List<Vec3> waypoints = new ArrayList<>();
         boolean forward = true;
 
-        for (int x = minX; x <= maxX; x += stripWidth) {
+        // The last strip sits exactly on maxX: stepping by stripWidth alone left a band of up to
+        // stripWidth at the far edge unscanned whenever the width wasn't a multiple of it.
+        for (long next = minX; ; next += stripWidth) {
+            int x = (int) Math.min(next, maxX);
             if (forward) {
                 waypoints.add(new Vec3(x, altitude, minZ));
                 waypoints.add(new Vec3(x, altitude, maxZ));
@@ -30,12 +33,15 @@ public final class GridWaypoints {
                 waypoints.add(new Vec3(x, altitude, minZ));
             }
             forward = !forward;
+            if (x == maxX) break;
         }
         return waypoints;
     }
 
     /** Number of waypoints {@link #generate} produces for the given X extent. */
     public static long count(int x1, int x2, int stripWidth) {
-        return (Math.abs((long) x2 - x1) / stripWidth + 1) * 2;
+        long extent = Math.abs((long) x2 - x1);
+        long strips = extent == 0 ? 1 : (extent + stripWidth - 1) / stripWidth + 1;
+        return strips * 2;
     }
 }

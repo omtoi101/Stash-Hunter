@@ -87,6 +87,7 @@ After each detour it returns to its strips.
 | Command | What it does |
 | --- | --- |
 | `.sh start <x1> <z1> <x2> <z2> [stripWidth]` | Scans the rectangle between the two corners. |
+| `.sh spiral [<x> <z>] <radius> [gap]` | Scans a square spiral outward from your position (or from `x z`; `~` works) up to `radius` blocks (50-25000), rings `gap` blocks apart (default 128, 50-500). Pause/resume like `start`. Example: `.sh spiral 3000`. |
 | `.sh stop` | Stops the current flight. |
 | `.sh pause` | Stops the flight and saves it as a trip. |
 | `.sh resume [timestamp]` | Continues the latest saved trip, or the one with the given timestamp. |
@@ -95,7 +96,7 @@ After each detour it returns to its strips.
 | `.sh repair` | Shows the Auto Elytra Repair state and your elytra's durability. |
 | `.sh repair toggle` | Turns Auto Elytra Repair on or off. |
 | `.sh help` | Prints a short command reference in chat. |
-| `.clear-stashes` | Forgets the already reported stashes, so they can be reported again. Existing stash waypoints still prevent a repeat report until you delete them. |
+| `.clear-stashes` | Forgets the already reported stashes of the current server (also on disk), so they can be reported again. Existing stash waypoints still prevent a repeat report until you delete them. |
 | `.clear-players` | Forgets the recently reported players, so they are reported again. |
 
 ### `start` in detail
@@ -128,20 +129,27 @@ Scans for stashes, drives the flight and sends the notifications. It must be ena
 | `scan-radius` | Horizontal scan radius in blocks; the scan always covers the full world height. | 64 |
 | `storage-only-mode` | Only look for storage containers (see [How it works](#how-it-works)). | true |
 | `max-volume-threshold` | Clusters with a larger bounding box are treated as natural structures. | 5000 |
-| `filter-natural-structures` | Apply the natural-structure filters (volume, density, woodland mansion check). | true |
+| `filter-natural-structures` | Apply the natural-structure filters (volume, density, and the structure filter below). | true |
+| `structure-filter-radius` | With `activated-spawner-detector` on: ignore clusters whose center is within this many blocks of a natural-structure spawner (dungeon, mineshaft, trial chamber, ...). Spawners with blocks placed/removed around them (farms) don't count. 0 = off; 6-8 covers dungeon chests. | 0 |
+| `include-spawners` | Also count mob spawners as stash blocks (spawner farms are a base signal). A plain dungeon (spawner + up to two chests) is still ignored while `filter-natural-structures` is on. | false |
 | `min-density-threshold` | Minimum blocks per bounding-box volume for a cluster to count. | 0.002 |
 | `notification-density-threshold` | Minimum density for a Discord message and waypoint. 0 reports every find. | 0.005 |
 | `max-cluster-distance` | Maximum distance between neighbouring blocks of one cluster. | 30 |
 | `max-cluster-size` | Maximum diameter of one cluster, so neighbouring stashes aren't merged. | 64 |
 | `report-dedupe-radius` | A stash this close to a reported one or to a stash waypoint isn't reported again. | 48 |
 | `flight-altitude` | Y level to fly at. | 160 |
-| `scan-interval` | Ticks between scans (20 ticks = 1 second). | 40 |
-| `player-detection` | Report other players within 100 blocks (at most once per player every 5 minutes). | true |
+| `scan-interval` | Longest wait between scans in ticks (20 ticks = 1 second, max 1200). | 40 |
+| `scan-by-distance` | Also scan after flying half the scan radius since the last scan, so fast flight leaves no gaps. | true |
+| `scan-only-while-flying` | Only scan while a flight (`.sh start`/`spiral`/`resume`) runs. Off: also works as a standing scanner. | false |
+| `player-detection` | Report other players nearby. | true |
+| `player-detection-radius` | Distance in blocks for `player-detection`. | 100 |
+| `player-report-cooldown` | Minutes before the same player is reported again. | 5 |
 | `notify-on-death` | Notify on death and respawn. | true |
 | `notify-on-completion` | Notify when an area is fully scanned. | true |
 | `notify-on-disconnect` | Notify when you leave or lose the server. | true |
 | `mention-everyone` | Ping `@everyone` for stash finds, deaths, disconnects and other important messages. | false |
 | `use-baritone-pathing` | Let Baritone steer when it is installed. No effect without Baritone. | true |
+| `land-after-completion` | After the area is scanned, let Baritone's elytra pathing land on a safe spot near the last waypoint. Without Baritone you keep gliding (a chat hint says so). `.sh stop` cancels the landing. | false |
 
 ### Auto Elytra Repair (`auto-elytra-repair`)
 
@@ -190,6 +198,8 @@ Notices when you drop faster than `altitude-drop-threshold` blocks per second wh
 | --- | --- | --- |
 | `altitude-drop-threshold` | Blocks lost within one second that trigger it. | 10 |
 | `auto-fix` | Hold jump to recover. | true |
+| `discord` | Send a message to the Stash-Hunter webhook when a drop is detected. | false |
+| `discord-cooldown` | Minimum seconds between two Discord messages. | 60 |
 
 ### NewerNewChunks (`NewerNewChunks`)
 
@@ -263,12 +273,73 @@ Finds spawners that a player has already been near, from the chunk data the serv
 | `deactivated-spawner-detector`, `torch-scan-distance` | Mark spawners with light blocks next to them in their own colour. | on, 1 |
 | `dungeon`, `mineshaft`, `stronghold`, `fortress`, `bastion`, `woodland-mansion`, `trial-chamber`, `other-spawners` | One toggle per structure type. | on |
 | `amethyst-geode` | Mark amethyst geodes (budding amethyst). | off |
+| `structure-waypoints` | Create a Meteor waypoint for every structure with an activated spawner, named `<Type> structure @ x, y, z`. Deduplicated within 64 blocks. | off |
 | `render-distance` | How far (in chunks) detections are checked and drawn. | 32 |
 | `remove-outside-render-distance` | Forget detections farther away than that. | on |
 | `less-render-spam` | Only draw the range box if storage is nearby. | on |
 | `tracers`, `nearest-tracer-only` | Tracers to all detections or only the nearest. | on, off |
 | `spawner-range-rendering` | Draw the spawner's activation range. | on |
 | `shape-mode` and colours | Look of the boxes: spawner (red), trial spawner (orange), deactivated (magenta), geode (purple), range (light blue). | Both |
+
+### Auto Firework (`auto-firework`)
+
+**Automation, off by default.** Keeps up elytra speed with firework rockets: while gliding, when your forward speed (along your look direction) drops below `min-speed`, it uses a plain rocket from the offhand or hotbar (switching the hotbar slot briefly and back). Rockets with firework stars are never used, since they explode on you. It pauses while a screen is open, during Baritone's elytra flight (Baritone boosts on its own) and during the post-scan landing. It uses up rockets, and anti-cheat on some servers may flag automated item use.
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `min-speed` | Fire below this forward speed, in blocks per second. | 20 |
+| `use-delay` | Minimum ticks between two rockets. | 40 |
+| `check-cooldown` | Ticks between two speed checks. | 5 |
+| `only-when-flying` | Only fire during the Stash-Hunter scan flight. Off: during any elytra flight. | false |
+
+### Online Player Activity (`online-player-activity`)
+
+Watches the server's tab list and reports when other players join or leave, anywhere on the server. Only players shown in the tab list count (plugin NPCs and vanished players are not seen).
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `chat` | Report joins and leaves in chat. | true |
+| `count-only` | Only report the player count, without names. | false |
+| `show-count` | Show the online count next to the module name. | true |
+| `join-grace` | Seconds after joining or changing dimension in which changes aren't reported (tab list filling up). | 5 |
+| `discord` | Send changes to the Stash-Hunter webhook; changes during the cooldown are sent together. | false |
+| `discord-cooldown` | Minimum seconds between two Discord messages. | 60 |
+
+### Player Alarms (`player-alarms`)
+
+Plays a repeating local alarm while another player is within `radius`, for unattended runs. Only players inside render distance can be seen. For Discord messages use `player-detection` of the Stash Hunter module.
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `radius` | Ring while a player is closer than this many blocks. | 100 |
+| `sound` | Bell, Pling, Anvil, LevelUp or Orb. | Bell |
+| `volume` | Alarm volume (also scaled by the game's sound sliders). | 1.0 |
+| `repeat-interval` | Seconds between two rings while a player stays in range. | 3 |
+| `ignore-friends` | Don't ring for Meteor friends. | true |
+| `chat` | List the players in range whenever that set changes. | true |
+| `title` | Flash an on-screen title with every ring. | false |
+
+### Auto Logout (`auto-logout`)
+
+**Risky, off by default.** Disconnects when danger is detected. Some servers count this as combat logging - check the rules first. A running flight is paused and saved as a trip before disconnecting, so `.sh resume` continues it. Meteor's fake players (Blink, FakePlayer) are ignored.
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `player-nearby` | Disconnect when another player comes within `radius`. | true |
+| `radius` | Distance in blocks. | 32 |
+| `ignore-friends` | Ignore Meteor friends. | true |
+| `low-health` | Disconnect when health drops below `min-health`. | false |
+| `min-health` | Threshold in half-hearts (20 = full health). | 10 |
+| `discord` | Notify the Stash-Hunter webhook before disconnecting. | true |
+| `disable-after-logout` | Turn the module off after it triggers, so reconnecting doesn't log out again at once. | true |
+
+### Unfocused FPS Limiter (`unfocused-fps-limiter`)
+
+Lowers the framerate while the game window is in the background, to save resources during long runs. Your saved framerate option is never changed; your own limit is kept if it is lower. It has no effect in menus outside a world (Minecraft caps those itself).
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `fps-limit` | Framerate cap while unfocused (5-120). | 10 |
 
 ## Discord notifications
 
@@ -302,7 +373,8 @@ Add the **stash-hunter-status** element in Meteor's HUD editor. It shows the bot
 | --- | --- |
 | `meteor-client/stash-hunter.properties` | Addon configuration (also stored in Meteor's own settings). |
 | `meteor-client/stashhunter_trips.json` | Saved trips for `.sh resume`. If it is ever unreadable, it is moved to `stashhunter_trips.json.corrupt` instead of being overwritten. |
-| `StashHunter/NewChunks/<server>/<dimension>/*.txt` | Chunk data saved by NewerNewChunks, one `[x, z]` chunk position per line. |
+| `meteor-client/StashHunter/NewChunks/<server>/<dimension>/*.txt` | Chunk data saved by NewerNewChunks, one `[x, z]` chunk position per line. Older versions saved it under `StashHunter/NewChunks/` relative to the launcher's working directory; that folder is moved here automatically the first time it's needed. |
+| `meteor-client/StashHunter/reported-stashes/<server>.txt` | Stashes already reported on that server (`dimension x y z` per line), so they aren't reported again after a reconnect. `.clear-stashes` deletes it. |
 
 All paths are relative to your Minecraft game directory. Log output goes to the normal game log (`logs/latest.log`).
 

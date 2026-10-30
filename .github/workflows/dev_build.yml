@@ -1,5 +1,9 @@
 name: Publish Development Build
-on: push
+# Only pushes to the default branch publish the rolling "snapshot" release; PRs are built
+# (artifact only) by pull_request.yml, so feature-branch pushes do not overwrite it.
+on:
+  push:
+    branches: [main]
 permissions:
   contents: write
 jobs:

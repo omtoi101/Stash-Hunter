@@ -3,6 +3,8 @@ package com.stashhunter.stashhunter.utils;
 import net.minecraft.world.level.levelgen.WorldgenRandom;
 import org.junit.jupiter.api.Test;
 
+import java.util.SplittableRandom;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class SlimeChunksTest {
@@ -18,6 +20,18 @@ class SlimeChunksTest {
                     assertEquals(vanilla, SlimeChunks.isSlimeChunk(seed, x, z), "seed " + seed + " at " + x + ", " + z);
                 }
             }
+        }
+    }
+
+    @Test
+    void matchesVanillaOnRandomInputs() {
+        SplittableRandom rng = new SplittableRandom(0x5114EL);
+        for (int i = 0; i < 100_000; i++) {
+            long seed = rng.nextLong();
+            int x = rng.nextInt(-1_875_000, 1_875_001);
+            int z = rng.nextInt(-1_875_000, 1_875_001);
+            boolean vanilla = WorldgenRandom.seedSlimeChunk(x, z, seed, 987234911L).nextInt(10) == 0;
+            assertEquals(vanilla, SlimeChunks.isSlimeChunk(seed, x, z), "seed " + seed + " at " + x + ", " + z);
         }
     }
 

@@ -1,6 +1,7 @@
 package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.utils.NaturalStructures;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
@@ -8,9 +9,13 @@ import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.systems.waypoints.Waypoint;
+import meteordevelopment.meteorclient.systems.waypoints.Waypoints;
+import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.meteorclient.utils.render.RenderUtils;
 import meteordevelopment.meteorclient.utils.render.color.Color;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
+import meteordevelopment.meteorclient.utils.world.Dimension;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
@@ -65,6 +70,11 @@ public class ActivatedSpawnerDetector extends Module {
         Kind(String title) {
             this.title = title;
         }
+
+        // OTHER is any other mob, usually a placed spawner, i.e. a base signal rather than a structure.
+        boolean isNaturalStructure() {
+            return this != OTHER && this != GEODE;
+        }
     }
 
     private static final Set<Block> GEODE_BLOCKS = Set.of(
@@ -95,6 +105,11 @@ public class ActivatedSpawnerDetector extends Module {
     private static final int MIN_CANDIDATE_AGE = 20;
     // Checks run once the neighbouring chunks are loaded, or after this many ticks regardless.
     private static final int MAX_CANDIDATE_AGE = 200;
+    // Bounds memory on long flights; StashHunter only asks about positions near the player.
+    private static final int MAX_STRUCTURES_PER_DIMENSION = 4096;
+    private static final String STRUCTURE_WAYPOINT_MARKER = " structure @ ";
+    // Mineshafts, trial chambers and mansions hold many spawners: one waypoint per structure.
+    private static final int STRUCTURE_WAYPOINT_DEDUPE_RADIUS = 64;
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgLocations = settings.createGroup("Location Toggles");
@@ -159,6 +174,12 @@ public class ActivatedSpawnerDetector extends Module {
             .range(1, 10)
             .sliderRange(1, 10)
             .visible(deactivatedSpawner::get)
+            .build()
+    );
+    private final Setting<Boolean> structureWaypoints = sgGeneral.add(new BoolSetting.Builder()
+            .name("structure-waypoints")
+            .description("Create a Meteor waypoint for every structure with a detected activated spawner (dungeon, mineshaft, trial chamber, ...). One per structure, not per spawner.")
+            .defaultValue(false)
             .build()
     );
 
@@ -342,6 +363,9 @@ public class ActivatedSpawnerDetector extends Module {
     private final Map<BlockPos, Detection> detections = new LinkedHashMap<>();
     private final Set<BlockPos> checkedPositions = new HashSet<>();
     private final List<PendingCandidate> pending = new ArrayList<>();
+    // Every unmodified natural spawner seen, activated or not and regardless of the location toggles; kept
+    // across dimension changes for StashHunter's natural-structure filter.
+    private final NaturalStructures structures = new NaturalStructures(MAX_STRUCTURES_PER_DIMENSION);
     private ClientLevel lastLevel;
     private long ticks;
 
@@ -352,18 +376,26 @@ public class ActivatedSpawnerDetector extends Module {
     @Override
     public void onActivate() {
         clearData();
+        structures.clear();
         lastLevel = mc.level;
     }
 
     @Override
     public void onDeactivate() {
         clearData();
+        structures.clear();
     }
 
     @EventHandler
     private void onGameLeft(GameLeftEvent event) {
         clearData();
+        structures.clear();
         lastLevel = null;
+    }
+
+    /** Client thread only. True if a natural-structure spawner was seen within radius (3D) of pos. */
+    public boolean isNearNaturalStructure(Dimension dimension, BlockPos pos, int radius) {
+        return structures.isNear(dimension.name(), pos, radius);
     }
 
     private void clearData() {
@@ -517,6 +549,8 @@ public class ActivatedSpawnerDetector extends Module {
             return;
         }
         if (c.type() == BlockEntityTypes.TRIAL_SPAWNER) {
+            // Trial spawners only generate in trial chambers, triggered or not.
+            structures.add(PlayerUtils.getDimension().name(), c.pos());
             if (!enableTrialChamber.get() || !isTriggered(c.trialState())) return;
             report(level, c.pos(), Kind.TRIAL_CHAMBER, 14);
             return;
@@ -524,11 +558,15 @@ public class ActivatedSpawnerDetector extends Module {
 
         String mob = c.mobId().substring(c.mobId().indexOf(':') + 1);
         Kind kind = classify(level, c.pos(), mob);
+        // A spawner with blocks placed/removed around it is a farm, i.e. a base signal: keep it out
+        // of the index so StashHunter's structure filter doesn't hide the storage next to it.
+        boolean modified = kind.isNaturalStructure() && hasAirDisturbance(level, c.pos(), mob);
+        if (kind.isNaturalStructure() && !modified) structures.add(PlayerUtils.getDimension().name(), c.pos());
         if (!isEnabled(kind)) return;
 
         boolean activated;
         if (airChecker.get() && (c.delay() == UNTOUCHED_DELAY || c.delay() == 0)) {
-            activated = hasAirDisturbance(level, c.pos(), mob);
+            activated = kind.isNaturalStructure() ? modified : hasAirDisturbance(level, c.pos(), mob);
         } else {
             // Nether spawners sit at Delay 0 without a player ever being near; only the air check can tell.
             activated = c.delay() != UNTOUCHED_DELAY && !(level.dimension() == Level.NETHER && c.delay() == 0);
@@ -617,6 +655,7 @@ public class ActivatedSpawnerDetector extends Module {
         boolean storage = hasStorageNearby(level, pos, m, storageRadius);
         detections.put(pos, new Detection(pos, kind, deactivated, storage));
         StashHunter.LOG.info("Activated {} spawner at {} (storage nearby: {})", kind.title, pos.toShortString(), storage);
+        if (structureWaypoints.get() && kind.isNaturalStructure()) addStructureWaypoint(pos, kind);
 
         if (!chatFeedback.get()) return;
         String where = displayCoords.get() ? " at " + pos.toShortString() : "";
@@ -625,6 +664,26 @@ public class ActivatedSpawnerDetector extends Module {
         if (stashMessage.get() && (storage || !lessStashSpam.get())) {
             warning("There may be stashed items in storage near the spawner!");
         }
+    }
+
+    // Deduped against Meteor's persisted waypoints, so toggles and reconnects don't add duplicates.
+    private void addStructureWaypoint(BlockPos pos, Kind kind) {
+        Dimension dimension = PlayerUtils.getDimension();
+        String prefix = kind.title + STRUCTURE_WAYPOINT_MARKER;
+        for (Waypoint waypoint : Waypoints.get()) {
+            if (waypoint.dimension.get() == dimension
+                    && waypoint.name.get().startsWith(prefix)
+                    && waypoint.pos.get().closerThan(pos, STRUCTURE_WAYPOINT_DEDUPE_RADIUS)) {
+                return;
+            }
+        }
+        String name = prefix + pos.toShortString();
+        Waypoints.get().add(new Waypoint.Builder()
+                .name(name)
+                .pos(pos)
+                .dimension(dimension)
+                .build());
+        StashHunter.LOG.info("Created waypoint: {}", name);
     }
 
     // One pass over the cube instead of an entity query per block like the original.
