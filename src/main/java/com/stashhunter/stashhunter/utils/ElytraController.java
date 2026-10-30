@@ -8,6 +8,7 @@ import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
@@ -30,6 +31,19 @@ public class ElytraController {
 
     // True only if initiateFlight() switched ElytraFly on, so stop() leaves a user-enabled ElytraFly alone.
     private static boolean elytraFlyEnabledByUs = false;
+
+    // Saved so a flight can leave the user's ElytraFly auto-takeoff setting exactly as it found it.
+    private static boolean originalAutoTakeOffState = false;
+    private static boolean autoTakeOffSaved = false;
+
+    // Baritone's elytraAutoJump is turned on for the flight so the elytra process can walk to a
+    // jump spot and take off from flat ground; the user's value is restored in stop().
+    private static boolean originalElytraAutoJump = false;
+    private static boolean elytraAutoJumpSaved = false;
+
+    // True while the built-in controller holds the forward key (the fallback when Baritone is
+    // unavailable). Refcounted via KeyHold so it never steals the key from the player or another module.
+    private static boolean forwardHeldByUs = false;
 
     // True while Baritone's elytra process lands the player after a completed scan (opt-in,
     // Config.landAfterCompletion). Cleared once Baritone lets go or anything stops/starts a flight.
@@ -75,6 +89,7 @@ public class ElytraController {
         navigationMode = NavigationMode.NORMAL;
         visitedChunks.clear();
         boundaryDirection = null;
+        baritoneTargetPos = null;
 
         waypoints.addAll(generated);
         TripManager.addTrip(waypoints, currentWaypoint);
@@ -102,6 +117,15 @@ public class ElytraController {
             elytraFly.toggle();
         }
         elytraFlyEnabledByUs = false;
+        if (elytraFly != null && autoTakeOffSaved) {
+            elytraFly.autoTakeOff.set(originalAutoTakeOffState);
+            autoTakeOffSaved = false;
+        }
+        if (elytraAutoJumpSaved) {
+            BaritoneBridge.setElytraAutoJump(originalElytraAutoJump);
+            elytraAutoJumpSaved = false;
+        }
+        setForwardHeld(false);
 
         if (MeteorClient.mc.player != null) {
             MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§aStash hunter flight stopped"));
@@ -137,24 +161,9 @@ public class ElytraController {
         justCompleted = false;
         landingAfterCompletion = false;
         navigationMode = NavigationMode.NORMAL;
+        baritoneTargetPos = null;
 
         initiateFlight();
-
-        // If we resumed already within precision-landing range of the current waypoint, let
-        // Baritone walk/land the player exactly on it instead of relying on the coarser elytra
-        // approach - elytra flight tends to overshoot at short range.
-        if (Config.useBaritonePathing && BaritoneBridge.isModLoaded()
-            && MeteorClient.mc.player != null && currentWaypoint < waypoints.size()) {
-            Vec3 waypoint = waypoints.get(currentWaypoint);
-            Vec3 playerPos = MeteorClient.mc.player.position();
-            double horizontalDistance = Math.sqrt(
-                Math.pow(waypoint.x - playerPos.x, 2) +
-                Math.pow(waypoint.z - playerPos.z, 2)
-            );
-            if (horizontalDistance < 20.0) {
-                BaritoneBridge.startGroundPath(BlockPos.containing(waypoint.x, waypoint.y, waypoint.z));
-            }
-        }
     }
 
     /**
@@ -164,7 +173,7 @@ public class ElytraController {
      */
     private static boolean handOffLandingToBaritone() {
         if (!Config.useBaritonePathing || !BaritoneBridge.isElytraPathingReady()) return false;
-        if (MeteorClient.mc.player == null || !MeteorClient.mc.player.isFallFlying()) return false; // nothing to land
+        if (MeteorClient.mc.player == null || !MeteorClient.mc.player.isFallFlying() || MeteorClient.mc.player.onGround()) return false; // nothing to land
         Vec3 last = waypoints.get(waypoints.size() - 1);
         BlockPos lastPos = BlockPos.containing(last.x, last.y, last.z);
         if (lastPos.equals(baritoneTargetPos) && BaritoneBridge.isElytraActive()) return true;
@@ -180,10 +189,34 @@ public class ElytraController {
                 return;
             }
 
+            // Meteor's ElytraFly is only used by the built-in fallback controller. When Baritone's
+            // elytra process drives the flight, leaving ElytraFly off avoids two flight controllers
+            // fighting over the player, which caused rubber-banding and "stuck" flights/landings.
+            boolean useBaritone = useBaritone();
+            if (useBaritone && MeteorClient.mc.player != null && !hasFireworkRockets()) {
+                MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§eWarning: no firework rockets in inventory - Baritone's elytra flight needs rockets to take off and climb."));
+            }
             ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
-            if (elytraFly != null && !elytraFly.isActive()) {
+            if (useBaritone && elytraFly != null && elytraFly.isActive() && MeteorClient.mc.player != null) {
+                MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§eWarning: ElytraFly is enabled and fights Baritone's elytra flight - turn it off (and ElytraBoost) for reliable flight."));
+            }
+            if (!useBaritone && elytraFly != null && !elytraFly.isActive()) {
                 elytraFly.toggle();
                 elytraFlyEnabledByUs = true;
+            }
+            // Launch from the ground (fallback only): ElytraFly's auto-takeoff jumps + deploys the
+            // elytra. Save the user's setting once so stop() can restore it.
+            if (!useBaritone && elytraFly != null && !autoTakeOffSaved) {
+                originalAutoTakeOffState = elytraFly.autoTakeOff.get();
+                autoTakeOffSaved = true;
+                elytraFly.autoTakeOff.set(true);
+            }
+            // Baritone's elytra process only takes off from flat ground when elytraAutoJump is on;
+            // without it the player just stands there. Save + enable it, restore it in stop().
+            if (useBaritone && !elytraAutoJumpSaved) {
+                originalElytraAutoJump = BaritoneBridge.getElytraAutoJump();
+                elytraAutoJumpSaved = true;
+                BaritoneBridge.setElytraAutoJump(true);
             }
 
             flyToNextWaypoint();
@@ -214,9 +247,13 @@ public class ElytraController {
                 landingAfterCompletion = true;
                 MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§aBaritone is landing at the end of the area..."));
             } else {
-                if (Config.landAfterCompletion && MeteorClient.mc.player.isFallFlying()) {
-                    // No built-in landing: an untested descent could crash into terrain at glide speed.
-                    MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§eLand after completion needs Baritone elytra pathing - staying airborne."));
+                if (Config.landAfterCompletion && MeteorClient.mc.player != null) {
+                    if (MeteorClient.mc.player.onGround()) {
+                        MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§aAlready on the ground - nothing to land."));
+                    } else if (MeteorClient.mc.player.isFallFlying()) {
+                        // No built-in landing: an untested descent could crash into terrain at glide speed.
+                        MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§eLand after completion needs Baritone elytra pathing - staying airborne."));
+                    }
                 }
                 stop();
             }
@@ -436,8 +473,9 @@ public class ElytraController {
      * the caller's target-selection logic (grid/trail following etc.) is unchanged either way.
      */
     private static void driveTowards(Vec3 target) {
-        if (!Config.useBaritonePathing || !BaritoneBridge.isElytraPathingReady()) {
+        if (!useBaritone()) {
             baritoneTargetPos = null;
+            setForwardHeld(true);
             controlFlight(target);
             return;
         }
@@ -448,7 +486,9 @@ public class ElytraController {
             // New target - (re)issue the path.
             if (BaritoneBridge.startElytraPath(targetPos)) {
                 baritoneTargetPos = targetPos;
+                setForwardHeld(false);
             } else {
+                setForwardHeld(true);
                 controlFlight(target);
             }
             return;
@@ -457,15 +497,50 @@ public class ElytraController {
         if (!BaritoneBridge.isElytraActive()) {
             // Baritone's elytra process dropped the path before we arrived - fall back to the built-in
             // controller for this stretch. StuckDetector also watches for this and can trigger recovery.
+            setForwardHeld(true);
             controlFlight(target);
             return;
         }
 
         // Baritone is actively driving movement toward targetPos - nothing to do this tick.
+        setForwardHeld(false);
+    }
+
+    // Holds/releases the forward key for the built-in controller. Refcounted via KeyHold so it
+    // never steals the key from the player or another module; Baritone's pathing releases it.
+    private static void setForwardHeld(boolean hold) {
+        if (hold == forwardHeldByUs) return;
+        forwardHeldByUs = hold;
+        if (hold) KeyHold.press(MeteorClient.mc.options.keyUp);
+        else KeyHold.release(MeteorClient.mc.options.keyUp);
+    }
+
+    // Single decision point for "Baritone drives the flight", used by both initiateFlight() and
+    // driveTowards() so the two can never disagree about whether the fallback/ElytraFly is active.
+    private static boolean useBaritone() {
+        return Config.useBaritonePathing && BaritoneBridge.isElytraPathingReady();
+    }
+
+    // Baritone's elytra process refuses to take off without rockets (and cannot climb without them).
+    private static boolean hasFireworkRockets() {
+        if (MeteorClient.mc.player == null) return false;
+        for (int i = 0; i < MeteorClient.mc.player.getInventory().getContainerSize(); i++) {
+            ItemStack stack = MeteorClient.mc.player.getInventory().getItem(i);
+            if (!stack.isEmpty() && stack.getItem() == Items.FIREWORK_ROCKET) return true;
+        }
+        return false;
     }
 
     private static void controlFlight(Vec3 target) {
         if (MeteorClient.mc.player == null) return;
+
+        // Get (and keep) the player airborne. On a server the client can only move itself by
+        // sending real inputs (jump + deploy the elytra), not by writing the velocity vector.
+        if (MeteorClient.mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA
+                && !MeteorClient.mc.player.isFallFlying()) {
+            if (MeteorClient.mc.player.onGround()) KeyHold.hold(ElytraController.class, MeteorClient.mc.options.keyJump, 4, null);
+            MeteorClient.mc.player.startFallFlying();
+        }
 
         Vec3 playerPos = MeteorClient.mc.player.position();
         double dx = target.x - playerPos.x;
@@ -475,12 +550,15 @@ public class ElytraController {
         if (horizontalDistance > 1.0) {
             double yaw = Math.atan2(dz, dx) * 180.0 / Math.PI - 90.0;
             double dy = target.y - playerPos.y;
-            double pitch = Math.atan2(dy, horizontalDistance) * 180.0 / Math.PI;
+            // Minecraft's pitch is positive looking down, so negate the atan2 result to climb
+            // toward a higher target. The old un-negated value aimed the wrong way vertically.
+            double pitch = -Math.atan2(dy, horizontalDistance) * 180.0 / Math.PI;
 
             pitch = Math.max(-30.0, Math.min(30.0, pitch));
 
             if (MeteorClient.mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
-                pitch = Math.max(-15.0, Math.min(5.0, pitch));
+                // Elytra can't sustain a very steep climb, but allow enough to gain cruise altitude.
+                pitch = Math.max(-25.0, Math.min(10.0, pitch));
             }
 
             float currentYaw = MeteorClient.mc.player.getYRot();
@@ -497,23 +575,9 @@ public class ElytraController {
             MeteorClient.mc.player.setXRot(newPitch);
         }
 
-        if (MeteorClient.mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
-            boolean isGliding = MeteorClient.mc.player.isFallFlying();
-
-            if (isGliding) {
-                Vec3 forward = new Vec3(
-                    -Math.sin(Math.toRadians(MeteorClient.mc.player.getYRot())),
-                    -Math.sin(Math.toRadians(MeteorClient.mc.player.getXRot())) * 0.3,
-                    Math.cos(Math.toRadians(MeteorClient.mc.player.getYRot()))
-                ).normalize().scale(0.8);
-
-                MeteorClient.mc.player.setDeltaMovement(forward);
-            } else {
-                if (MeteorClient.mc.player.getDeltaMovement().y < -0.5 && !MeteorClient.mc.player.onGround()) {
-                    MeteorClient.mc.player.startFallFlying();
-                }
-            }
-        }
+        // Forward motion comes from the forward key held by driveTowards(). The old
+        // setDeltaMovement() here was client-side only (it does not move the player on a server)
+        // and fought Meteor's ElytraFly, which is what made the flight stall/get stuck.
     }
 
     private static void flyToNextWaypoint() {

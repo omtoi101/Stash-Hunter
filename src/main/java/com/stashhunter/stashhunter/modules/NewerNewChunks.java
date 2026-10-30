@@ -42,6 +42,7 @@ import net.minecraft.world.level.chunk.status.ChunkStatus;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
@@ -973,6 +974,8 @@ public class NewerNewChunks extends Module {
         List<String> allLines;
         try {
             allLines = Files.readAllLines(filePath);
+        } catch (NoSuchFileException e) {
+            return; // no data saved for this kind yet - normal, not an error
         } catch (IOException e) {
             StashHunter.LOG.warn("Could not read chunk data file {}", filePath, e);
             return;

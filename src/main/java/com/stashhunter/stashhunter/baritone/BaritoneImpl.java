@@ -43,4 +43,12 @@ final class BaritoneImpl {
     static boolean isElytraActive() {
         return primary().getElytraProcess().isActive();
     }
+
+    static boolean getElytraAutoJump() {
+        return BaritoneAPI.getSettings().elytraAutoJump.value;
+    }
+
+    static void setElytraAutoJump(boolean value) {
+        BaritoneAPI.getSettings().elytraAutoJump.value = value;
+    }
 }

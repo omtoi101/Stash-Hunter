@@ -13,13 +13,18 @@ import com.stashhunter.stashhunter.utils.ScanTrigger;
 import com.stashhunter.stashhunter.utils.StashClustering;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
+import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.waypoints.Waypoint;
 import meteordevelopment.meteorclient.systems.waypoints.Waypoints;
 import meteordevelopment.meteorclient.utils.player.PlayerUtils;
+import meteordevelopment.meteorclient.utils.render.RenderUtils;
+import meteordevelopment.meteorclient.utils.render.color.SettingColor;
+import meteordevelopment.meteorclient.utils.world.Dimension;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -377,8 +382,70 @@ public class StashHunterModule extends Module {
         .build()
     );
 
+    // Stash ESP
+    private final SettingGroup sgRender = settings.createGroup("Stash ESP");
+
+    private final Setting<Boolean> renderStashes = sgRender.add(new BoolSetting.Builder()
+        .name("render-stashes")
+        .description("Outlines the containers of stashes found this session.")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Integer> stashRenderDistance = sgRender.add(new IntSetting.Builder()
+        .name("stash-render-distance")
+        .description("Maximum distance in blocks at which found stashes are rendered.")
+        .defaultValue(128)
+        .min(16)
+        .sliderMax(512)
+        .visible(renderStashes::get)
+        .build()
+    );
+
+    private final Setting<ShapeMode> stashShapeMode = sgRender.add(new EnumSetting.Builder<ShapeMode>()
+        .name("stash-shape-mode")
+        .description("How the stash containers are rendered.")
+        .defaultValue(ShapeMode.Both)
+        .visible(renderStashes::get)
+        .build()
+    );
+
+    private final Setting<SettingColor> stashSideColor = sgRender.add(new ColorSetting.Builder()
+        .name("stash-side-color")
+        .description("Side color of stash containers.")
+        .defaultValue(new SettingColor(0, 255, 0, 50))
+        .visible(renderStashes::get)
+        .build()
+    );
+
+    private final Setting<SettingColor> stashLineColor = sgRender.add(new ColorSetting.Builder()
+        .name("stash-line-color")
+        .description("Line color of stash containers, their bounding box and tracer.")
+        .defaultValue(new SettingColor(0, 255, 0, 235))
+        .visible(renderStashes::get)
+        .build()
+    );
+
+    private final Setting<Boolean> stashBoundingBox = sgRender.add(new BoolSetting.Builder()
+        .name("stash-bounding-box")
+        .description("Also draws one box around all containers of a stash.")
+        .defaultValue(false)
+        .visible(renderStashes::get)
+        .build()
+    );
+
+    private final Setting<Boolean> stashTracers = sgRender.add(new BoolSetting.Builder()
+        .name("stash-tracers")
+        .description("Draws a tracer to the nearest found stash.")
+        .defaultValue(false)
+        .visible(renderStashes::get)
+        .build()
+    );
+
     // State
     private final Map<UUID, Long> reportedPlayers = new ConcurrentHashMap<>();
+    // Containers of stashes reported this session, for the Stash ESP. Not persisted.
+    private final List<StashHighlight> foundStashes = new ArrayList<>();
     // One file per server under the Meteor folder; loaded lazily for the server we're on.
     private static final Path REPORTED_STASHES_DIR = MeteorClient.FOLDER.toPath().resolve("StashHunter").resolve("reported-stashes");
     private ReportedStashes reportedStashes;
@@ -424,6 +491,7 @@ public class StashHunterModule extends Module {
     public void onDeactivate() {
         ElytraController.stop();
         setHoldingJump(false);
+        foundStashes.clear();
     }
 
     // Looked up lazily: this module is registered before AutoElytraRepair, so it isn't available at construction time.
@@ -443,6 +511,7 @@ public class StashHunterModule extends Module {
     public void clearReportedStashes() {
         if (mc.level != null) reportedStashes().clear();
         reportedStashes = null;
+        foundStashes.clear(); // they get reported (and highlighted) again, so no duplicate boxes
     }
 
     private ReportedStashes reportedStashes() {
@@ -485,6 +554,7 @@ public class StashHunterModule extends Module {
         notifyDisconnect();
         if (ElytraController.isActive()) ElytraController.pause();
         reportedStashes = null; // the next server has its own file
+        foundStashes.clear();
         resetFlightState();
         lastHealth = -1;
         lastDimension = null;
@@ -740,7 +810,85 @@ public class StashHunterModule extends Module {
         }
 
         reportedStashes().add(dimension, stashPos);
+        rememberStashContainers(cluster);
         reportStash(stashPos, cluster, volume, density);
+    }
+
+    // In full mode a cluster also holds ores/spawners etc., so only the real containers are kept.
+    private void rememberStashContainers(List<BlockPos> cluster) {
+        List<BlockPos> containers = new ArrayList<>();
+        for (BlockPos pos : cluster) {
+            if (isContainer(mc.level.getBlockState(pos).getBlock())) containers.add(pos.immutable());
+        }
+        if (!containers.isEmpty()) foundStashes.add(new StashHighlight(PlayerUtils.getDimension(), containers));
+    }
+
+    private static final Set<Block> EXTRA_CONTAINERS = Set.of(
+        Blocks.HOPPER, Blocks.FURNACE, Blocks.BLAST_FURNACE, Blocks.SMOKER,
+        Blocks.DISPENSER, Blocks.DROPPER, Blocks.ENDER_CHEST
+    );
+
+    private boolean isContainer(Block block) {
+        return Config.storageBlocks.contains(block) || EXTRA_CONTAINERS.contains(block);
+    }
+
+    @EventHandler
+    private void onRender(Render3DEvent event) {
+        if (!renderStashes.get() || foundStashes.isEmpty()) return;
+        if (mc.level == null || mc.player == null || event.renderer == null) return;
+
+        Dimension dimension = PlayerUtils.getDimension();
+        double maxDistanceSq = (double) stashRenderDistance.get() * stashRenderDistance.get();
+        ShapeMode mode = stashShapeMode.get();
+        SettingColor sides = stashSideColor.get();
+        SettingColor lines = stashLineColor.get();
+
+        StashHighlight nearest = null;
+        double nearestDistSq = Double.MAX_VALUE;
+        for (StashHighlight stash : foundStashes) {
+            if (stash.dimension() != dimension) continue;
+            double distSq = mc.player.distanceToSqr(stash.centerX(), stash.centerY(), stash.centerZ());
+            if (distSq > maxDistanceSq) continue;
+
+            for (BlockPos p : stash.containers()) {
+                // Skip containers that were broken since; unloaded chunks read as air, so keep those.
+                if (mc.level.isLoaded(p) && !isContainer(mc.level.getBlockState(p).getBlock())) continue;
+                event.renderer.box(p.getX(), p.getY(), p.getZ(), p.getX() + 1, p.getY() + 1, p.getZ() + 1, sides, lines, mode, 0);
+            }
+            if (stashBoundingBox.get()) {
+                event.renderer.box(stash.min().getX(), stash.min().getY(), stash.min().getZ(),
+                    stash.max().getX() + 1, stash.max().getY() + 1, stash.max().getZ() + 1, sides, lines, ShapeMode.Lines, 0);
+            }
+            if (distSq < nearestDistSq) {
+                nearestDistSq = distSq;
+                nearest = stash;
+            }
+        }
+
+        if (stashTracers.get() && nearest != null) {
+            event.renderer.line(RenderUtils.center.x, RenderUtils.center.y, RenderUtils.center.z,
+                nearest.centerX(), nearest.centerY(), nearest.centerZ(), lines);
+        }
+    }
+
+    private record StashHighlight(Dimension dimension, List<BlockPos> containers, BlockPos min, BlockPos max) {
+        StashHighlight(Dimension dimension, List<BlockPos> containers) {
+            this(dimension, List.copyOf(containers), corner(containers, true), corner(containers, false));
+        }
+
+        private static BlockPos corner(List<BlockPos> blocks, boolean min) {
+            int x = blocks.get(0).getX(), y = blocks.get(0).getY(), z = blocks.get(0).getZ();
+            for (BlockPos p : blocks) {
+                x = min ? Math.min(x, p.getX()) : Math.max(x, p.getX());
+                y = min ? Math.min(y, p.getY()) : Math.max(y, p.getY());
+                z = min ? Math.min(z, p.getZ()) : Math.max(z, p.getZ());
+            }
+            return new BlockPos(x, y, z);
+        }
+
+        double centerX() { return (min.getX() + max.getX() + 1) / 2.0; }
+        double centerY() { return (min.getY() + max.getY() + 1) / 2.0; }
+        double centerZ() { return (min.getZ() + max.getZ() + 1) / 2.0; }
     }
 
     // Survives module toggles and reconnects (Meteor persists waypoints per server). Also catches

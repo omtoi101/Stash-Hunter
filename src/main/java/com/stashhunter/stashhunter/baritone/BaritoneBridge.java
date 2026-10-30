@@ -78,4 +78,23 @@ public final class BaritoneBridge {
             return false;
         }
     }
+
+    /** Baritone's elytraAutoJump must be on for its elytra process to take off from flat ground. */
+    public static boolean getElytraAutoJump() {
+        if (!isModLoaded()) return false;
+        try {
+            return BaritoneImpl.getElytraAutoJump();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static void setElytraAutoJump(boolean value) {
+        if (!isModLoaded()) return;
+        try {
+            BaritoneImpl.setElytraAutoJump(value);
+        } catch (Throwable t) {
+            // Baritone's settings can't be touched - ignore.
+        }
+    }
 }
