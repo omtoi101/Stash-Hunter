@@ -1,5 +1,6 @@
 package com.stashhunter.stashhunter.utils;
 
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 
@@ -22,7 +23,7 @@ public final class TrailAnalysis {
     }
 
     public static Trail analyze(Vec3 playerPos, Predicate<ChunkPos> isNewChunk) {
-        ChunkPos playerChunk = new ChunkPos((int)playerPos.x >> 4, (int)playerPos.z >> 4);
+        ChunkPos playerChunk = new ChunkPos(Mth.floor(playerPos.x) >> 4, Mth.floor(playerPos.z) >> 4);
 
         // Find new chunks within analysis radius by probing the (small) neighbourhood instead of
         // iterating every new chunk ever detected.

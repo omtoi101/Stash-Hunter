@@ -47,6 +47,23 @@ public final class StashBlockIndex<V> {
         if (chunks == null) return result;
 
         double radiusSq = (double) radius * radius;
+        // Chunks whose centre (chunk * 16 + 8) can lie within the radius. Probing that square is
+        // cheaper than walking the whole index once a long flight has filled it.
+        int minChunkX = (int) Math.ceil((x - radius - 8) / 16.0), maxChunkX = (int) Math.floor((x + radius - 8) / 16.0);
+        int minChunkZ = (int) Math.ceil((z - radius - 8) / 16.0), maxChunkZ = (int) Math.floor((z + radius - 8) / 16.0);
+        long squareSize = (long) (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
+        if (squareSize < chunks.size()) {
+            for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+                for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                    Map<BlockPos, V> blocks = chunks.get(ChunkPos.pack(cx, cz));
+                    if (blocks == null) continue;
+                    double dx = cx * 16 + 8 - x;
+                    double dz = cz * 16 + 8 - z;
+                    if (dx * dx + dz * dz <= radiusSq) result.putAll(blocks);
+                }
+            }
+            return result;
+        }
         for (Map.Entry<Long, Map<BlockPos, V>> entry : chunks.entrySet()) {
             long key = entry.getKey();
             double dx = ChunkPos.getX(key) * 16 + 8 - x;

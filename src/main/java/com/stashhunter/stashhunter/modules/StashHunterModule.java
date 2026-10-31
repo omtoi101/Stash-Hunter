@@ -2,6 +2,7 @@ package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
 import com.stashhunter.stashhunter.baritone.BaritoneBridge;
+import com.stashhunter.stashhunter.utils.ChunkScanSchedule;
 import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.DiscordEmbed;
 import com.stashhunter.stashhunter.utils.DiscordWebhook;
@@ -16,6 +17,8 @@ import com.stashhunter.stashhunter.utils.StashGrowth;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
+import meteordevelopment.meteorclient.events.world.BlockUpdateEvent;
+import meteordevelopment.meteorclient.events.world.ChunkDataEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.systems.modules.Modules;
@@ -223,7 +226,7 @@ public class StashHunterModule extends Module {
         .build()
     );
 
-    @SuppressWarnings("unused") // value is read via Config.flightAltitude
+    // Value is read via Config.flightAltitude; setFlightAltitude goes through the setting so the GUI stays in sync.
     private final Setting<Integer> flightAltitude = sgGeneral.add(new IntSetting.Builder()
         .name("flight-altitude")
         .description("The altitude to fly at.")
@@ -234,6 +237,7 @@ public class StashHunterModule extends Module {
         .onChanged(v -> {
             Config.flightAltitude = v;
             Config.saveLater();
+            ElytraController.applyFlightAltitude();
         })
         .build()
     );
@@ -383,6 +387,34 @@ public class StashHunterModule extends Module {
         .build()
     );
 
+    @SuppressWarnings("unused") // value is read via Config.landOnLowFireworks
+    private final Setting<Boolean> landOnLowFireworks = sgGeneral.add(new BoolSetting.Builder()
+        .name("land-on-low-fireworks")
+        .description("Pause the scan and let Baritone land on a safe spot nearby when the rockets in your inventory drop to the threshold. Resume with .stashhunter resume.")
+        .defaultValue(Config.landOnLowFireworks)
+        .onChanged(v -> {
+            Config.landOnLowFireworks = v;
+            Config.saveLater();
+        })
+        .build()
+    );
+
+    @SuppressWarnings("unused") // value is read via Config.lowFireworkThreshold
+    private final Setting<Integer> lowFireworkThreshold = sgGeneral.add(new IntSetting.Builder()
+        .name("low-firework-threshold")
+        .description("Rocket count (whole inventory) at which the scan pauses and lands.")
+        .defaultValue(Config.lowFireworkThreshold)
+        .min(1)
+        .max(64)
+        .sliderMax(64)
+        .visible(landOnLowFireworks::get)
+        .onChanged(v -> {
+            Config.lowFireworkThreshold = v;
+            Config.saveLater();
+        })
+        .build()
+    );
+
     // Stash ESP
     private final SettingGroup sgRender = settings.createGroup("Stash ESP");
 
@@ -452,6 +484,13 @@ public class StashHunterModule extends Module {
     private ReportedStashes reportedStashes;
     // Stash blocks of every scanned chunk, so clusters can span several scans/flight strips.
     private final StashBlockIndex<Block> stashBlockIndex = new StashBlockIndex<>(8192);
+    // A chunk is only read again when it changed or after this long (catches missed updates).
+    private static final int RESCAN_TICKS = 1200;
+    private final ChunkScanSchedule scanSchedule = new ChunkScanSchedule(RESCAN_TICKS);
+    // Block set of the last scan: a settings change makes every cached chunk result stale.
+    private Set<Block> lastScanBlocks = Set.of();
+    private Set<Block> lastPlainBlocks = Set.of();
+    private int lastSchedulePruneTick = 0;
     private static final String STASH_WAYPOINT_MARKER = " Blocks at "; // part of every stash waypoint name
     private int tickCounter = 0;
     private int ticksSinceScan = Integer.MAX_VALUE / 2; // large = scan on the first tick
@@ -472,6 +511,7 @@ public class StashHunterModule extends Module {
         reportedPlayers.clear();
         reportedStashes = null; // reloaded from disk for the current server
         stashBlockIndex.clear();
+        scanSchedule.clear();
         lastHealth = -1; // Reset health tracking
         lastDimension = null;
 
@@ -482,6 +522,7 @@ public class StashHunterModule extends Module {
         wasElytraBroken = false;
         reEngagingElytraTicks = 0;
         tickCounter = 0;
+        lastSchedulePruneTick = 0;
         ticksSinceScan = Integer.MAX_VALUE / 2;
         setHoldingJump(false);
 
@@ -496,6 +537,12 @@ public class StashHunterModule extends Module {
         ElytraController.stop();
         setHoldingJump(false);
         foundStashes.clear();
+    }
+
+    /** Sets the cruise altitude (clamped to the setting's 100-400 range); a running flight follows at once. */
+    public int setFlightAltitude(int altitude) {
+        flightAltitude.set(Math.max(100, Math.min(400, altitude)));
+        return flightAltitude.get();
     }
 
     // Looked up lazily: this module is registered before AutoElytraRepair, so it isn't available at construction time.
@@ -559,6 +606,7 @@ public class StashHunterModule extends Module {
         if (ElytraController.isActive()) ElytraController.pause();
         reportedStashes = null; // the next server has its own file
         stashBlockIndex.clear();
+        scanSchedule.clear();
         foundStashes.clear();
         resetFlightState();
         lastHealth = -1;
@@ -705,12 +753,13 @@ public class StashHunterModule extends Module {
         // Player detection logic
         long playerCooldownMs = playerReportCooldown.get() * 60_000L;
         if (playerDetection.get()) {
+            double radiusSq = (double) playerDetectionRadius.get() * playerDetectionRadius.get();
             for (Player player : mc.level.players()) {
                 if (player == null || player.equals(mc.player)) {
                     continue;
                 }
 
-                if (mc.player.distanceTo(player) < playerDetectionRadius.get()) {
+                if (mc.player.distanceToSqr(player) < radiusSq) {
                     // Keyed by UUID: the entity object is recreated whenever a player re-enters render distance
                     UUID playerId = player.getUUID();
                     if (!reportedPlayers.containsKey(playerId) ||
@@ -768,6 +817,15 @@ public class StashHunterModule extends Module {
                 if (!block.defaultBlockState().hasBlockEntity()) plainBlocks.add(block);
             }
         }
+        if (!activeBlocks.equals(lastScanBlocks) || !plainBlocks.equals(lastPlainBlocks)) {
+            scanSchedule.clear();
+            lastScanBlocks = Set.copyOf(activeBlocks);
+            lastPlainBlocks = Set.copyOf(plainBlocks);
+        }
+        if (tickCounter - lastSchedulePruneTick >= RESCAN_TICKS) {
+            scanSchedule.prune(tickCounter);
+            lastSchedulePruneTick = tickCounter;
+        }
 
         // Every loaded chunk touching the scan circle is scanned whole, so its index entry is complete.
         // Horizontal (cylindrical) distance on purpose: the bot flies far above the ground, so a
@@ -778,6 +836,7 @@ public class StashHunterModule extends Module {
         int chunkRadius = (radius >> 4) + 1;
         int playerChunkX = px >> 4, playerChunkZ = pz >> 4;
 
+        boolean scannedAny = false;
         for (int cx = playerChunkX - chunkRadius; cx <= playerChunkX + chunkRadius; cx++) {
             for (int cz = playerChunkZ - chunkRadius; cz <= playerChunkZ + chunkRadius; cz++) {
                 // Unloaded chunks read as an empty chunk and would wipe what we know about them.
@@ -785,10 +844,16 @@ public class StashHunterModule extends Module {
                 long dx = Math.clamp(px, cx << 4, (cx << 4) + 15) - px;
                 long dz = Math.clamp(pz, cz << 4, (cz << 4) + 15) - pz;
                 if (dx * dx + dz * dz > radiusSq) continue;
+                // Unchanged since its last scan: the index still holds its result.
+                if (!scanSchedule.isDue(dimension, cx, cz, tickCounter)) continue;
 
                 stashBlockIndex.update(dimension, cx, cz, scanChunk(mc.level.getChunk(cx, cz), activeBlocks, plainBlocks));
+                scanSchedule.markScanned(dimension, cx, cz, tickCounter);
+                scannedAny = true;
             }
         }
+        // Nothing new around here, so clustering would reach the same result as last time.
+        if (!scannedAny) return;
 
         // Cluster over everything found around here, including chunks scanned on earlier passes,
         // so a stash split across two flight strips is seen whole. The margin lets a cluster that
@@ -873,13 +938,20 @@ public class StashHunterModule extends Module {
                               Waypoint waypoint, StashHighlight highlight) {
     }
 
-    private static final Set<Block> EXTRA_CONTAINERS = Set.of(
-        Blocks.HOPPER, Blocks.FURNACE, Blocks.BLAST_FURNACE, Blocks.SMOKER,
-        Blocks.DISPENSER, Blocks.DROPPER, Blocks.ENDER_CHEST
-    );
+    // A set, not Config.storageBlocks (a list): onRender asks for every highlighted container each frame.
+    private static final Set<Block> CONTAINERS = containers();
+
+    private static Set<Block> containers() {
+        Set<Block> containers = new HashSet<>(Config.storageBlocks);
+        containers.addAll(List.of(
+            Blocks.HOPPER, Blocks.FURNACE, Blocks.BLAST_FURNACE, Blocks.SMOKER,
+            Blocks.DISPENSER, Blocks.DROPPER, Blocks.ENDER_CHEST
+        ));
+        return Set.copyOf(containers);
+    }
 
     private boolean isContainer(Block block) {
-        return Config.storageBlocks.contains(block) || EXTRA_CONTAINERS.contains(block);
+        return CONTAINERS.contains(block);
     }
 
     @EventHandler
@@ -1021,6 +1093,22 @@ public class StashHunterModule extends Module {
 
     // The whole chunk, not just the part inside the scan circle: the result replaces the chunk's
     // index entry, so a partial scan would forget blocks found there on an earlier pass.
+    // Chunk data arrived (again): its cached scan result may be outdated.
+    @EventHandler
+    private void onChunkData(ChunkDataEvent event) {
+        if (mc.level == null) return;
+        scanSchedule.invalidate(PlayerUtils.getDimension().name(), event.chunk().getPos().x(), event.chunk().getPos().z());
+    }
+
+    // Only changes involving a scanned block type matter (a chest placed or broken, ...).
+    @EventHandler
+    private void onBlockUpdate(BlockUpdateEvent event) {
+        if (mc.level == null) return;
+        if (!lastScanBlocks.contains(event.oldState.getBlock()) && !lastScanBlocks.contains(event.newState.getBlock())) return;
+        scanSchedule.invalidate(PlayerUtils.getDimension().name(), SectionPos.blockToSectionCoord(event.pos.getX()),
+            SectionPos.blockToSectionCoord(event.pos.getZ()));
+    }
+
     private Map<BlockPos, Block> scanChunk(LevelChunk chunk, Set<Block> activeBlocks, Set<Block> plainBlocks) {
         Map<BlockPos, Block> found = new HashMap<>();
 
@@ -1041,9 +1129,10 @@ public class StashHunterModule extends Module {
                 || !section.maybeHas(state -> plainBlocks.contains(state.getBlock()))) continue;
 
             int baseY = SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(i));
-            for (int x = 0; x < 16; x++) {
+            // y, z, x: the order the section stores its blocks in.
+            for (int y = 0; y < 16; y++) {
                 for (int z = 0; z < 16; z++) {
-                    for (int y = 0; y < 16; y++) {
+                    for (int x = 0; x < 16; x++) {
                         Block block = section.getBlockState(x, y, z).getBlock();
                         if (plainBlocks.contains(block)) found.put(new BlockPos(minX + x, baseY + y, minZ + z), block);
                     }

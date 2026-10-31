@@ -2,10 +2,12 @@
 
 ## Stand (2026-10-31)
 
-- Branch `code-revision`, zuletzt `0a3c0da`. Die Kleinigkeiten aus Abschnitt 2 sind behoben, aber
-  noch nicht committet.
-- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **83 Unit-Tests in 18 Suites**.
-- **Nichts davon ist in-game getestet.** Das ist der nächste Schritt (Checkliste unten).
+- Branch `code-revision`, zuletzt `0a3c0da`. Die Kleinigkeiten aus Abschnitt 2, das Entfernen von
+  `unfocused-fps-limiter`, Punkt 58 (`stacked-minecarts`) und das Speichern über eine Temp-Datei
+  (`AtomicFiles`) sind fertig, aber noch nicht committet.
+- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **99 Unit-Tests in 22 Suites**.
+- **Zuerst die Punkte aus dem Code-Review (Abschnitt 0)**, vor allem 89.
+- **Nichts davon ist in-game getestet.** Das ist der Schritt danach (Checkliste in Abschnitt 1).
 - Offen sind danach nur noch Feature-Ideen.
 
 Die letzten Änderungen beschreiben [CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md) (OldChunkNotifier,
@@ -26,7 +28,33 @@ Baritone-Cancel, Landungs-Timeout, Stashfinden, ActivatedSpawnerDetector) und
 
 ---
 
-## 1. In-game-Test (als Nächstes)
+## 0. Offen aus dem Code-Review (zuerst)
+
+Review vom 2026-10-31 über alle nicht committeten Änderungen und das Speichern/Laden. Nach
+Priorität sortiert; Details, Fundstellen und Fix-Vorschläge stehen in
+[CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md) („Offene Punkte aus dem Code-Review“, Punkte 1–8).
+
+- [ ] **89 Speichern scheitert unter Windows, solange die Datei offen ist** (mittel, getestet):
+      `AtomicFiles` ersetzt per `Files.move(ATOMIC_MOVE)`. Hält ein anderes Programm (Virenscanner,
+      OneDrive, Editor) Config oder Trips gerade offen, kommt `AccessDeniedException`, und das
+      Speichern fällt aus. Das alte direkte Schreiben hätte geklappt. Fix: Move kurz wiederholen
+      (oder Minecrafts `Util.safeReplaceFile`).
+- [ ] **90 Fehlgeschlagener Config-Save wird nicht wiederholt** (niedrig): `Config.save()` setzt
+      `dirty = false` schon vor dem Schreiben. Zusammen mit 89 angehen.
+- [ ] **91 Abgebrochene Zeile in angehängten Dateien frisst den nächsten Eintrag** (niedrig):
+      `ReportedStashes` und die NewChunks-Dateien. Vor dem Anhängen fehlendes Zeilenende ergänzen.
+- [ ] **92 `clearGroundGlide()` greift auch ohne laufenden Flug** (niedrig–mittel, ungeprüft):
+      beendet bei eingeschaltetem `stash-hunter` jeden Gleitflug am Boden und stört vermutlich
+      ElytraFly `Bounce`. Nur bei aktivem Flug/Landung ausführen; in-game prüfen.
+- [ ] **93 Verwaiste `.tmp`-Dateien** (niedrig): bleiben nach hartem Beenden mitten im Speichern in
+      `meteor-client/` liegen. Beim Laden aufräumen.
+- [ ] **94 `stacked-minecarts` meldet Stapel auf einer Blockgrenze doppelt** (niedrig).
+- [ ] **95 Trip mit leerer Waypoint-Liste blockiert den Flug** (niedrig): `loadTrips()` soll leere
+      Listen verwerfen.
+- [ ] **96 Trip-Save mit `fsync` auf dem Client-Thread** (niedrig, beobachten): nur angehen, wenn
+      es beim Pausieren/Landen spürbar ruckelt.
+
+## 1. In-game-Test (nach Abschnitt 0)
 
 Grundfunktionen:
 - [ ] Modul an/aus, Tod/Respawn, Dimensionswechsel, `.stashhunter start` + `stop`
@@ -66,6 +94,8 @@ Sonstige Module:
 - [ ] `online-player-activity` (Discord aus/an sendet keine alten Änderungen nach),
       `player-alarms` (`action-bar`, kein Flattern am Radiusrand)
 - [ ] `auto-logout` (vorsichtig, nur auf einem Testserver!)
+- [ ] `stacked-minecarts`: gestapelte Chest-Minecarts werden einmal gemeldet und gerendert,
+      `storage-only` ignoriert normale Minecarts, nach Dimensionswechsel wird neu gemeldet
 - [ ] Config-Änderung kurz vor dem Beenden bleibt erhalten
 
 ## 2. Bekannte Kleinigkeiten
@@ -134,7 +164,6 @@ bauen und testen.
 
 - **56 PortalPatternFinder:** entfernte/kaputte Nether-Portale als Base-Signal. Trouser-Streak ⛔.
 - **57 CaveDisturbanceDetector:** einzelne Luft-Blöcke in Cave-Air als Spuren. Trouser-Streak ⛔.
-- **58 StackedMinecartDetector:** gestapelte Minecarts als Stash-Signal. PathSeeker ✅.
 - **59 Base Finder:** Base-Erkennung über Spieleraktivität. PathSeeker ✅.
 - **62 ESP-Suite:** PotESP, MobGearESP, DroppedItemESP, EntityClusterESP, Hole/Tunnel/Stair-ESP.
   Nur die von PathSeeker selbst geschriebenen ✅ übernehmen, Rest clean-room.
@@ -203,7 +232,8 @@ bauen und testen.
   (aus PathSeeker portiert, Attribution im Klassenkopf; Positionen fließen in
   `filterNaturalStructures` und Waypoints). **68** `auto-firework`. **69** `.stashhunter spiral`.
   **70** `online-player-activity`. **71** `player-alarms`. **72** Setting `include-spawners`.
-  **75** `auto-logout`.
+  **75** `auto-logout`. **58** `stacked-minecarts` (aus PathSeeker portiert, Attribution im
+  Klassenkopf).
 - **77** NewChunks-Daten unter `MeteorClient.FOLDER` (alte Daten werden einmalig verschoben).
   **80** letzter Grid-Streifen immer auf `maxX`. **81** `ReportedStashes` persistent pro Server.
   **82** Scan zusätzlich nach Flugstrecke (`scan-by-distance`). **83** Settings-Persistenz und
@@ -218,4 +248,5 @@ bauen und testen.
   liest die echte Palette-Reihenfolge (`PaletteOrder`).
 - **Außerhalb des Plans:** End-Detektor über Biome, Baritone-Cancel-Fix, Stashes über Streifengrenzen
   (`StashBlockIndex`) und wachsende Stashes (`StashGrowth`), Stash-ESP, verbesserter Takeoff/Flug
-  mit Wiederherstellen der Flug-Settings beim Stop.
+  mit Wiederherstellen der Flug-Settings beim Stop. Config und Trips werden über eine Temp-Datei
+  gespeichert (`AtomicFiles`), ein Absturz beim Schreiben lässt die alte Datei stehen.

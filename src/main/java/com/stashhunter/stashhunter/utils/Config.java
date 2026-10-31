@@ -3,7 +3,6 @@ package com.stashhunter.stashhunter.utils;
 import com.stashhunter.stashhunter.StashHunter;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -74,6 +73,11 @@ public class Config {
     // Opt-in: after a completed scan let Baritone's elytra process land instead of leaving the
     // player gliding at cruise altitude. Needs Baritone elytra pathing; no built-in fallback.
     public static boolean landAfterCompletion = false;
+
+    // Pause the scan and let Baritone land once the rockets in the inventory drop to this count:
+    // Baritone's elytra flight can't climb or take off again without them.
+    public static boolean landOnLowFireworks = true;
+    public static int lowFireworkThreshold = 8;
 
 
     // Storage containers only (for stash finding)
@@ -169,6 +173,8 @@ public class Config {
 
                 useBaritonePathing = getBoolProperty("useBaritonePathing", true);
                 landAfterCompletion = getBoolProperty("landAfterCompletion", false);
+                landOnLowFireworks = getBoolProperty("landOnLowFireworks", true);
+                lowFireworkThreshold = getIntProperty("lowFireworkThreshold", 8);
 
             } catch (IOException e) {
                 StashHunter.LOG.warn("Failed to load Stash-Hunter config", e);
@@ -208,12 +214,8 @@ public class Config {
     public static synchronized void save() {
         dirty = false;
         try {
-            // Ensure the meteor client folder exists
-            if (!MeteorClient.FOLDER.exists()) {
-                MeteorClient.FOLDER.mkdirs();
-            }
-
-            try (FileOutputStream fos = new FileOutputStream(CONFIG_FILE)) {
+            // AtomicFiles also creates the meteor client folder if it is missing.
+            AtomicFiles.write(CONFIG_FILE.toPath(), fos -> {
                 properties.setProperty("discordWebhookUrl", discordWebhookUrl);
                 properties.setProperty("blockDetectionThreshold", String.valueOf(blockDetectionThreshold));
                 properties.setProperty("scanRadius", String.valueOf(scanRadius));
@@ -246,9 +248,11 @@ public class Config {
 
                 properties.setProperty("useBaritonePathing", String.valueOf(useBaritonePathing));
                 properties.setProperty("landAfterCompletion", String.valueOf(landAfterCompletion));
+                properties.setProperty("landOnLowFireworks", String.valueOf(landOnLowFireworks));
+                properties.setProperty("lowFireworkThreshold", String.valueOf(lowFireworkThreshold));
 
                 properties.store(fos, "Stash-Hunter Configuration - Auto-generated");
-            }
+            });
         } catch (IOException e) {
             StashHunter.LOG.warn("Failed to save Stash-Hunter config", e);
         }
@@ -294,6 +298,14 @@ public class Config {
             changed = true;
         } else if (scanRadius > 256) {
             scanRadius = 256;
+            changed = true;
+        }
+
+        if (lowFireworkThreshold < 1) {
+            lowFireworkThreshold = 1;
+            changed = true;
+        } else if (lowFireworkThreshold > 64) {
+            lowFireworkThreshold = 64;
             changed = true;
         }
 
@@ -375,18 +387,5 @@ public class Config {
         if (changed) {
             save();
         }
-    }
-
-    /**
-     * Determines if a collection of blocks is likely a natural structure
-     * This is a legacy method kept for compatibility
-     */
-    public static boolean isLikelyNaturalStructure(List<Block> blocks, double volume) {
-        if (!filterNaturalStructures) {
-            return false;
-        }
-
-        // Simple volume check for backwards compatibility
-        return volume > maxVolumeThreshold;
     }
 }

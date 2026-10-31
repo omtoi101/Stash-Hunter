@@ -7,6 +7,8 @@ import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -15,12 +17,12 @@ import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
-import java.util.HashSet;
 
 public class ElytraController {
     private static List<Vec3> waypoints = new ArrayList<>();
     private static int currentWaypoint = 0;
+    // Saved-trip entry of the current flight; the next save replaces it instead of adding a copy.
+    private static long tripTimestamp = 0;
     private static boolean active = false;
     private static boolean justCompleted = false;
     private static Vec3 currentTarget = null;
@@ -56,11 +58,29 @@ public class ElytraController {
     // a stuck landing otherwise keeps the altitude-loss detector and auto-firework muted forever.
     private static final long LANDING_TIMEOUT_MS = 120_000; // 2 minutes
 
+    // Ticks since the last rocket count, and how far ahead landSafely lets Baritone land.
+    private static int fireworkCheckTicks = 0;
+    private static final double SAFE_LANDING_DISTANCE = 64;
+
+    // Restarting Baritone after it landed mid-scan: spacing between tries, how many before pausing,
+    // and how close to a waypoint the landing counts as having reached it.
+    private static long lastBaritoneRestartMs = 0;
+    private static int baritoneRestarts = 0;
+    private static final long BARITONE_RESTART_COOLDOWN_MS = 5_000;
+    // After a restart Baritone may walk to a jump spot first; don't re-issue the path (which would
+    // restart that walk) before it had this long to get airborne.
+    private static final long BARITONE_TAKEOFF_GRACE_MS = 20_000;
+    private static final int MAX_BARITONE_RESTARTS = 3;
+    private static final double WAYPOINT_LANDED_RADIUS = 64;
+
+    // deployElytra jumps at most this often, so repeated calls don't stack jump holds.
+    private static long lastTakeoffJumpMs = 0;
+    private static final long TAKEOFF_JUMP_INTERVAL_MS = 500;
+
     // Navigation state for edge following
     private static NavigationMode navigationMode = NavigationMode.NORMAL;
     private static long edgeFollowStartTime = 0;
     private static final long MAX_EDGE_FOLLOW_TIME = 30000; // 30 seconds max edge following
-    private static Set<ChunkPos> visitedChunks = new HashSet<>();
     private static Vec3 boundaryDirection = null;
 
     // Trail analysis state
@@ -95,12 +115,11 @@ public class ElytraController {
         landingAfterCompletion = false;
         landingStartTime = 0;
         navigationMode = NavigationMode.NORMAL;
-        visitedChunks.clear();
         boundaryDirection = null;
         baritoneTargetPos = null;
 
         waypoints.addAll(generated);
-        TripManager.addTrip(waypoints, currentWaypoint);
+        tripTimestamp = TripManager.saveTrip(0, waypoints, currentWaypoint);
 
         initiateFlight();
     }
@@ -118,7 +137,6 @@ public class ElytraController {
         }
         currentTarget = null;
         navigationMode = NavigationMode.NORMAL;
-        visitedChunks.clear();
         boundaryDirection = null;
         baritoneTargetPos = null;
         if (cancelBaritone) BaritoneBridge.cancel();
@@ -145,7 +163,7 @@ public class ElytraController {
 
     public static void pause() {
         if (!active) return;
-        TripManager.addTrip(waypoints, currentWaypoint);
+        tripTimestamp = TripManager.saveTrip(tripTimestamp, waypoints, currentWaypoint);
         stop();
     }
 
@@ -166,8 +184,10 @@ public class ElytraController {
     }
 
     private static void resume(TripManager.TripData tripData) {
-        waypoints = tripData.waypoints;
+        tripTimestamp = tripData.timestamp;
         currentWaypoint = tripData.currentWaypoint;
+        // A trip keeps the altitude it was started with; the current setting wins on resume.
+        waypoints = withAltitude(tripData.waypoints, currentWaypoint, Config.flightAltitude);
         active = true;
         justCompleted = false;
         landingAfterCompletion = false;
@@ -183,16 +203,68 @@ public class ElytraController {
      * complete it searches a safe landing spot (solid, flat, open sky) nearby and lands there by
      * itself. So we only need the elytra path to the last waypoint running and must not cancel it.
      */
-    private static boolean handOffLandingToBaritone() {
+    private static boolean handOffLandingToBaritone(BlockPos destination) {
         if (!Config.useBaritonePathing || !BaritoneBridge.isElytraPathingReady()) return false;
         if (MeteorClient.mc.player == null || !MeteorClient.mc.player.isFallFlying() || MeteorClient.mc.player.onGround()) return false; // nothing to land
-        Vec3 last = waypoints.get(waypoints.size() - 1);
-        BlockPos lastPos = BlockPos.containing(last.x, last.y, last.z);
-        if (lastPos.equals(baritoneTargetPos) && BaritoneBridge.isElytraActive()) return true;
-        return BaritoneBridge.startElytraPath(lastPos);
+        if (destination.equals(baritoneTargetPos) && BaritoneBridge.isElytraActive()) return true;
+        return BaritoneBridge.startElytraPath(destination);
+    }
+
+    private static void beginBaritoneLanding() {
+        stop(false);
+        landingAfterCompletion = true;
+        landingStartTime = System.currentTimeMillis();
+    }
+
+    /**
+     * Baritone's elytra flight needs rockets to hold altitude. Once the inventory runs low, save the
+     * trip and let Baritone land a short way ahead (it picks a safe spot there by itself) instead
+     * of gliding on until the player comes down wherever the last rocket ran out.
+     */
+    private static boolean landIfFireworksLow() {
+        if (!Config.landOnLowFireworks || ++fireworkCheckTicks < 20) return false; // once per second
+        fireworkCheckTicks = 0;
+        if (!useBaritone() || !MeteorClient.mc.player.isFallFlying()) return false; // ElytraFly needs no rockets
+
+        int rockets = countFireworkRockets();
+        if (rockets > Config.lowFireworkThreshold) return false;
+
+        String status = "Fireworks low (" + rockets + " left) - scan paused at waypoint " + (currentWaypoint + 1) + "/" + waypoints.size() + ".";
+        if (landSafely()) {
+            MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§e" + status + " Baritone is landing nearby. Restock and use .stashhunter resume."));
+            DiscordWebhook.sendMessage("", new DiscordEmbed("Fireworks Low - Landing", status + " Baritone is landing at a safe spot nearby.", 0xFFAA00));
+        } else {
+            MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c" + status + " Baritone couldn't take over the landing - land manually!"));
+            DiscordWebhook.sendMessage("", new DiscordEmbed("Fireworks Low - Land Manually", status + " Automatic landing failed; the player is still gliding.", 0xFF0000));
+        }
+        return true;
+    }
+
+    /**
+     * Saves the trip (resumable) and lets Baritone land a short way ahead; it picks a safe spot
+     * there by itself. Returns false when Baritone can't take over: the flight is stopped then and
+     * the player still glides.
+     */
+    public static boolean landSafely() {
+        if (!active || MeteorClient.mc.player == null) return false;
+        Vec3 pos = MeteorClient.mc.player.position();
+        Vec3 heading = currentTarget != null ? currentTarget.subtract(pos) : MeteorClient.mc.player.getLookAngle();
+        heading = new Vec3(heading.x, 0, heading.z);
+        if (heading.lengthSqr() < 1.0E-4) heading = new Vec3(1, 0, 0);
+        Vec3 ahead = pos.add(heading.normalize().scale(SAFE_LANDING_DISTANCE));
+        BlockPos destination = BlockPos.containing(ahead.x, pos.y, ahead.z);
+
+        tripTimestamp = TripManager.saveTrip(tripTimestamp, waypoints, currentWaypoint);
+        if (handOffLandingToBaritone(destination)) {
+            beginBaritoneLanding();
+            return true;
+        }
+        stop();
+        return false;
     }
 
     private static void initiateFlight() {
+        baritoneRestarts = 0;
         if (!waypoints.isEmpty()) {
             if (MeteorClient.mc.player != null &&
                 MeteorClient.mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) {
@@ -207,6 +279,10 @@ public class ElytraController {
             boolean useBaritone = useBaritone();
             if (useBaritone && MeteorClient.mc.player != null && !hasFireworkRockets()) {
                 MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§eWarning: no firework rockets in inventory - Baritone's elytra flight needs rockets to take off and climb."));
+            } else if (useBaritone && MeteorClient.mc.player != null && Config.landOnLowFireworks
+                && countFireworkRockets() <= Config.lowFireworkThreshold) {
+                MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§eWarning: only " + countFireworkRockets()
+                    + " rockets (low-firework-threshold " + Config.lowFireworkThreshold + ") - the scan will land as soon as you are airborne."));
             }
             ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
             if (useBaritone && elytraFly != null && elytraFly.isActive() && MeteorClient.mc.player != null) {
@@ -236,6 +312,8 @@ public class ElytraController {
     }
 
     public static void onTick() {
+        clearGroundGlide();
+
         if (landingAfterCompletion) {
             if (!BaritoneBridge.isElytraActive()) {
                 landingAfterCompletion = false; // Baritone landed ("Done"), gave up, or was cancelled elsewhere
@@ -254,9 +332,7 @@ public class ElytraController {
             return;
         }
 
-        Vec3 playerPos = MeteorClient.mc.player.position();
-        ChunkPos currentChunkPos = new ChunkPos((int)playerPos.x >> 4, (int)playerPos.z >> 4);
-        visitedChunks.add(currentChunkPos);
+        if (landIfFireworksLow()) return;
 
         // Check if we've completed all waypoints
         if (currentWaypoint >= waypoints.size() && navigationMode == NavigationMode.NORMAL) {
@@ -264,10 +340,9 @@ public class ElytraController {
                 MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§aCompleted scanning area!"));
             }
             justCompleted = true;
-            if (Config.landAfterCompletion && handOffLandingToBaritone()) {
-                stop(false);
-                landingAfterCompletion = true;
-                landingStartTime = System.currentTimeMillis();
+            Vec3 last = waypoints.get(waypoints.size() - 1);
+            if (Config.landAfterCompletion && handOffLandingToBaritone(BlockPos.containing(last.x, last.y, last.z))) {
+                beginBaritoneLanding();
                 MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§aBaritone is landing at the end of the area..."));
             } else {
                 if (Config.landAfterCompletion && MeteorClient.mc.player != null) {
@@ -300,8 +375,32 @@ public class ElytraController {
         }
     }
 
+    /**
+     * Applies a changed Config.flightAltitude to the running flight: the remaining waypoints move
+     * to the new height (driveTowards re-issues Baritone's path for the changed target).
+     */
+    public static void applyFlightAltitude() {
+        if (!active || waypoints.isEmpty()) return;
+        waypoints = withAltitude(waypoints, currentWaypoint, Config.flightAltitude);
+        if (MeteorClient.mc.player != null && MeteorClient.mc.player.getY() < Config.flightAltitude - 2) {
+            climbToAltitude();
+        }
+    }
+
+    private static List<Vec3> withAltitude(List<Vec3> source, int from, double altitude) {
+        List<Vec3> result = new ArrayList<>(source);
+        for (int i = Math.max(0, from); i < result.size(); i++) {
+            Vec3 waypoint = result.get(i);
+            result.set(i, new Vec3(waypoint.x, altitude, waypoint.z));
+        }
+        return result;
+    }
+
     public static void climbToAltitude() {
         if (MeteorClient.mc.player == null) return;
+        // Baritone climbs on its way to the next waypoint, which carries the altitude. A climb target
+        // straight overhead would be a destination it reaches and then lands at.
+        if (useBaritone()) return;
         navigationMode = NavigationMode.CLIMBING;
         Vec3 playerPos = MeteorClient.mc.player.position();
         currentTarget = new Vec3(playerPos.x, Config.flightAltitude, playerPos.z);
@@ -368,9 +467,7 @@ public class ElytraController {
 
         // Follow the edge by maintaining direction parallel to the boundary
         if (boundaryDirection != null) {
-            Vec3 edgeTarget = playerPos.add(boundaryDirection.scale(50)); // Look 50 blocks ahead along edge
-            currentTarget = new Vec3(edgeTarget.x, Config.flightAltitude, edgeTarget.z);
-            driveTowards(currentTarget);
+            driveTowards(lookAheadTarget(playerPos));
 
             // Check if we can return to normal navigation
             ChunkBoundaryInfo boundaryInfo = checkForBoundaries(playerPos);
@@ -392,9 +489,7 @@ public class ElytraController {
         }
 
         if (boundaryDirection != null) {
-            Vec3 trailTarget = playerPos.add(boundaryDirection.scale(50));
-            currentTarget = new Vec3(trailTarget.x, Config.flightAltitude, trailTarget.z);
-            driveTowards(currentTarget);
+            driveTowards(lookAheadTarget(playerPos));
 
             // Continue following the trail of new chunks
             ChunkBoundaryInfo boundaryInfo = checkForBoundaries(playerPos);
@@ -404,6 +499,21 @@ public class ElytraController {
                 StashHunter.LOG.info("New chunk trail ended, returning to normal navigation");
             }
         }
+    }
+
+    // Edge/trail following aims LOOK_AHEAD blocks ahead along the boundary. The point is kept until
+    // the player is halfway there: re-aiming every tick handed Baritone a new destination each tick,
+    // and every pathTo() starts a fresh elytra behaviour that repacks all loaded chunks.
+    private static final double LOOK_AHEAD = 50;
+
+    private static Vec3 lookAheadTarget(Vec3 playerPos) {
+        if (currentTarget != null) {
+            double dx = currentTarget.x - playerPos.x, dz = currentTarget.z - playerPos.z;
+            if (dx * dx + dz * dz > LOOK_AHEAD * LOOK_AHEAD / 4) return currentTarget;
+        }
+        Vec3 ahead = playerPos.add(boundaryDirection.scale(LOOK_AHEAD));
+        currentTarget = new Vec3(ahead.x, Config.flightAltitude, ahead.z);
+        return currentTarget;
     }
 
     private static class ChunkBoundaryInfo {
@@ -436,7 +546,7 @@ public class ElytraController {
         // If no good trail, check for immediate obstacles to avoid
         for (int distance = 16; distance <= 64; distance += 16) {
             Vec3 checkPos = playerPos.add(forwardVec.scale(distance));
-            ChunkPos checkChunk = new ChunkPos((int)checkPos.x >> 4, (int)checkPos.z >> 4);
+            ChunkPos checkChunk = new ChunkPos(Mth.floor(checkPos.x) >> 4, Mth.floor(checkPos.z) >> 4);
 
             // Check if chunk is new (AVOID these unless they form a trail)
             if (newerNewChunks.isNewChunk(checkChunk)) {
@@ -468,6 +578,7 @@ public class ElytraController {
         navigationMode = NavigationMode.EDGE_FOLLOWING;
         edgeFollowStartTime = System.currentTimeMillis();
         boundaryDirection = boundaryInfo.boundaryDirection;
+        currentTarget = null; // still the waypoint; lookAheadTarget aims along the edge
 
         StashHunter.LOG.info("Switching to edge following: " + boundaryInfo.description);
 
@@ -480,6 +591,7 @@ public class ElytraController {
         navigationMode = NavigationMode.TRAIL_FOLLOWING;
         edgeFollowStartTime = System.currentTimeMillis();
         boundaryDirection = boundaryInfo.boundaryDirection;
+        currentTarget = null; // still the waypoint; lookAheadTarget aims along the trail
 
         StashHunter.LOG.info("New chunk boundary detected - following trail for potential stash locations");
 
@@ -518,15 +630,53 @@ public class ElytraController {
         }
 
         if (!BaritoneBridge.isElytraActive()) {
-            // Baritone's elytra process dropped the path before we arrived - fall back to the built-in
+            if (MeteorClient.mc.player.onGround()) {
+                // Baritone landed on its own (out of rockets, destination reached, gave up). The
+                // built-in controller can't take off without ElytraFly, so hand it back to Baritone.
+                restartBaritoneAfterLanding(target);
+                return;
+            }
+            // Baritone's elytra process dropped the path in mid-air - fall back to the built-in
             // controller for this stretch. StuckDetector also watches for this and can trigger recovery.
+            baritoneRestarts = 0; // airborne again, so the last restart worked
             setForwardHeld(true);
             controlFlight(target);
             return;
         }
 
         // Baritone is actively driving movement toward targetPos - nothing to do this tick.
+        baritoneRestarts = 0;
         setForwardHeld(false);
+    }
+
+    private static void restartBaritoneAfterLanding(Vec3 target) {
+        setForwardHeld(false);
+        long now = System.currentTimeMillis();
+        long wait = baritoneRestarts == 0 ? BARITONE_RESTART_COOLDOWN_MS : BARITONE_TAKEOFF_GRACE_MS;
+        if (now - lastBaritoneRestartMs < wait) return;
+        lastBaritoneRestartMs = now;
+
+        String reason = !hasFireworkRockets() ? "no firework rockets left"
+            : baritoneRestarts >= MAX_BARITONE_RESTARTS ? "Baritone did not take off after " + MAX_BARITONE_RESTARTS + " tries"
+            : null;
+        if (reason != null) {
+            String status = "Landed and " + reason + " - flight paused at waypoint " + (currentWaypoint + 1) + "/" + waypoints.size() + ".";
+            pause();
+            MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§e" + status + " Use .stashhunter resume to continue."));
+            DiscordWebhook.sendMessage("", new DiscordEmbed("Flight Paused After Landing", status, 0xFFAA00));
+            return;
+        }
+
+        // Landed close to the waypoint: count it as reached so Baritone isn't sent to land there again.
+        Vec3 pos = MeteorClient.mc.player.position();
+        double dx = target.x - pos.x, dz = target.z - pos.z;
+        if (dx * dx + dz * dz < WAYPOINT_LANDED_RADIUS * WAYPOINT_LANDED_RADIUS) {
+            currentWaypoint++;
+            if (currentWaypoint >= waypoints.size()) return; // onTick finishes the scan next tick
+            flyToNextWaypoint();
+        }
+        baritoneRestarts++;
+        baritoneTargetPos = null; // driveTowards re-issues the path; Baritone takes off via elytraAutoJump
     }
 
     // Holds/releases the forward key for the built-in controller. Refcounted via KeyHold so it
@@ -538,6 +688,11 @@ public class ElytraController {
         else KeyHold.release(MeteorClient.mc.options.keyUp);
     }
 
+    /** True while Baritone's elytra process (not the built-in controller) does the steering. */
+    public static boolean isBaritoneFlight() {
+        return useBaritone();
+    }
+
     // Single decision point for "Baritone drives the flight", used by both initiateFlight() and
     // driveTowards() so the two can never disagree about whether the fallback/ElytraFly is active.
     private static boolean useBaritone() {
@@ -546,12 +701,46 @@ public class ElytraController {
 
     // Baritone's elytra process refuses to take off without rockets (and cannot climb without them).
     private static boolean hasFireworkRockets() {
-        if (MeteorClient.mc.player == null) return false;
+        return countFireworkRockets() > 0;
+    }
+
+    private static int countFireworkRockets() {
+        if (MeteorClient.mc.player == null) return 0;
+        int count = 0;
         for (int i = 0; i < MeteorClient.mc.player.getInventory().getContainerSize(); i++) {
             ItemStack stack = MeteorClient.mc.player.getInventory().getItem(i);
-            if (!stack.isEmpty() && stack.getItem() == Items.FIREWORK_ROCKET) return true;
+            if (!stack.isEmpty() && stack.getItem() == Items.FIREWORK_ROCKET) count += stack.getCount();
         }
-        return false;
+        return count;
+    }
+
+    /**
+     * Opens the elytra the way vanilla does: jump off the ground, deploy in the air and tell the
+     * server. A client-only startFallFlying() left the player gliding while standing on the ground,
+     * a state the server never corrects (and Baritone then thinks it is still flying).
+     */
+    public static void deployElytra() {
+        var player = MeteorClient.mc.player;
+        if (player == null || player.isFallFlying()) return;
+        if (player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) return;
+
+        if (player.onGround()) {
+            long now = System.currentTimeMillis();
+            if (now - lastTakeoffJumpMs > TAKEOFF_JUMP_INTERVAL_MS) {
+                lastTakeoffJumpMs = now;
+                KeyHold.hold(ElytraController.class, MeteorClient.mc.options.keyJump, 4, null);
+            }
+            return;
+        }
+        if (player.tryToStartFallFlying() && MeteorClient.mc.getConnection() != null) {
+            MeteorClient.mc.getConnection().send(new ServerboundPlayerCommandPacket(player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
+        }
+    }
+
+    // Undoes a glide that only exists client-side: on the ground the server has ended it already.
+    private static void clearGroundGlide() {
+        var player = MeteorClient.mc.player;
+        if (player != null && player.isFallFlying() && player.onGround()) player.stopFallFlying();
     }
 
     private static void controlFlight(Vec3 target) {
@@ -559,11 +748,7 @@ public class ElytraController {
 
         // Get (and keep) the player airborne. On a server the client can only move itself by
         // sending real inputs (jump + deploy the elytra), not by writing the velocity vector.
-        if (MeteorClient.mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA
-                && !MeteorClient.mc.player.isFallFlying()) {
-            if (MeteorClient.mc.player.onGround()) KeyHold.hold(ElytraController.class, MeteorClient.mc.options.keyJump, 4, null);
-            MeteorClient.mc.player.startFallFlying();
-        }
+        deployElytra();
 
         Vec3 playerPos = MeteorClient.mc.player.position();
         double dx = target.x - playerPos.x;

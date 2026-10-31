@@ -2,10 +2,12 @@ package com.stashhunter.stashhunter.commands;
 
 import com.stashhunter.stashhunter.modules.StashHunterModule;
 import com.stashhunter.stashhunter.modules.AutoElytraRepair;
+import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.GridWaypoints;
 import com.stashhunter.stashhunter.utils.SpiralWaypoints;
 import meteordevelopment.meteorclient.systems.modules.Modules;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -105,6 +107,8 @@ public class StashHunterCommand extends Command {
                 if (ElytraController.isActive() || ElytraController.isLandingAfterCompletion()) {
                     ElytraController.stop();
                     info("Stash hunter flight stopped.");
+                } else if (keepPausedAfterRepair()) {
+                    info("Elytra repair in progress - it finishes, then the flight stays stopped.");
                 } else {
                     error("Stash hunter is not currently active.");
                 }
@@ -118,6 +122,8 @@ public class StashHunterCommand extends Command {
                 if (ElytraController.isActive()) {
                     ElytraController.pause();
                     info("Stash hunter flight paused.");
+                } else if (keepPausedAfterRepair()) {
+                    info("Elytra repair in progress - the flight is saved and stays paused afterwards.");
                 } else {
                     error("Stash hunter is not currently active.");
                 }
@@ -182,6 +188,26 @@ public class StashHunterCommand extends Command {
             })
         );
 
+        // Flight altitude command
+        builder.then(literal("altitude")
+            .executes(context -> {
+                info("Flight altitude: §fY=" + Config.flightAltitude + " §7(100-400)");
+                return SINGLE_SUCCESS;
+            })
+            .then(argument("y", IntegerArgumentType.integer(100, 400))
+                .executes(context -> {
+                    StashHunterModule module = Modules.get().get(StashHunterModule.class);
+                    if (module == null) {
+                        error("Stash-Hunter module not found.");
+                        return SINGLE_SUCCESS;
+                    }
+                    int altitude = module.setFlightAltitude(IntegerArgumentType.getInteger(context, "y"));
+                    info("Flight altitude set to §fY=" + altitude + (ElytraController.isActive() ? " §7- the current flight follows." : "."));
+                    return SINGLE_SUCCESS;
+                })
+            )
+        );
+
         // Help command
         builder.then(literal("help")
             .executes(context -> {
@@ -193,6 +219,7 @@ public class StashHunterCommand extends Command {
                 info("§7.stashhunter resume [timestamp] §f- Resume the latest or a specific trip");
                 info("§7.stashhunter list §f- List all saved trips");
                 info("§7.stashhunter status §f- Show current status and progress");
+                info("§7.stashhunter altitude [y] §f- Show or set the flight altitude (100-400, applies to the current flight)");
                 info("§7.stashhunter repair §f- Show elytra repair status");
                 info("§7.stashhunter repair toggle §f- Toggle auto elytra repair");
                 info("§7.stashhunter help §f- Show this help message");
@@ -287,6 +314,14 @@ public class StashHunterCommand extends Command {
             // Absolute coordinate
             return Integer.parseInt(coordStr);
         }
+    }
+
+    // A running elytra repair has paused the flight itself; tell it not to resume afterwards.
+    private static boolean keepPausedAfterRepair() {
+        AutoElytraRepair repair = Modules.get().get(AutoElytraRepair.class);
+        if (repair == null || !repair.isActive() || !repair.isRepairing()) return false;
+        repair.keepFlightPaused();
+        return true;
     }
 
     private int startScanning(int x1, int z1, int x2, int z2, int stripWidth) {

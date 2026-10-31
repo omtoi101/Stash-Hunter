@@ -62,7 +62,7 @@ The command enables the `stash-hunter` module and Meteor's ElytraFly if they are
 
 After each detour it returns to its strips.
 
-**Scanning.** Every `scan-interval` ticks the addon scans a cylinder of `scan-radius` blocks around the player over the **full world height**, so stashes far below the flight altitude are found too.
+**Scanning.** Every `scan-interval` ticks the addon scans a cylinder of `scan-radius` blocks around the player over the **full world height**, so stashes far below the flight altitude are found too. Each chunk is read once when it loads and again only when a stash block in it changes or after a minute, so a large radius stays cheap.
 
 - **Storage-only mode (default):** looks for chests, trapped chests, barrels and shulker boxes of every colour.
 - **Full mode:** also counts furnaces, blast furnaces, smokers, brewing stands, enchanting tables, anvils, crafting tables, beacons, conduits, hoppers, dispensers, droppers and beds.
@@ -91,8 +91,9 @@ After each detour it returns to its strips.
 | `.sh stop` | Stops the current flight. |
 | `.sh pause` | Stops the flight and saves it as a trip. |
 | `.sh resume [timestamp]` | Continues the latest saved trip, or the one with the given timestamp. |
-| `.sh list` | Lists the timestamps of all saved trips. |
+| `.sh list` | Lists the timestamps of all saved trips. Only the 20 newest are kept; a flight that is paused again replaces its own entry. |
 | `.sh status` | Shows the status, the current waypoint and the current target. |
+| `.sh altitude [y]` | Shows or sets the flight altitude (100-400). A running flight moves its remaining waypoints to the new height; resumed trips also use the current value. |
 | `.sh repair` | Shows the Auto Elytra Repair state and your elytra's durability. |
 | `.sh repair toggle` | Turns Auto Elytra Repair on or off. |
 | `.sh help` | Prints a short command reference in chat. |
@@ -137,7 +138,7 @@ Scans for stashes, drives the flight and sends the notifications. It must be ena
 | `max-cluster-distance` | Maximum distance between neighbouring blocks of one cluster. | 30 |
 | `max-cluster-size` | Maximum diameter of one cluster, so neighbouring stashes aren't merged. | 64 |
 | `report-dedupe-radius` | A stash this close to a reported one or to a stash waypoint isn't reported again. | 48 |
-| `flight-altitude` | Y level to fly at. | 160 |
+| `flight-altitude` | Y level to fly at (100-400, also `.sh altitude <y>`). Changing it during a flight applies to the remaining waypoints. | 160 |
 | `scan-interval` | Longest wait between scans in ticks (20 ticks = 1 second, max 1200). | 40 |
 | `scan-by-distance` | Also scan after flying half the scan radius since the last scan, so fast flight leaves no gaps. | true |
 | `scan-only-while-flying` | Only scan while a flight (`.sh start`/`spiral`/`resume`) runs. Off: also works as a standing scanner. | false |
@@ -150,15 +151,17 @@ Scans for stashes, drives the flight and sends the notifications. It must be ena
 | `mention-everyone` | Ping `@everyone` for stash finds, deaths, disconnects and other important messages. | false |
 | `use-baritone-pathing` | Let Baritone steer when it is installed. No effect without Baritone. | true |
 | `land-after-completion` | After the area is scanned, let Baritone's elytra pathing land on a safe spot near the last waypoint. Without Baritone you keep gliding (a chat hint says so). `.sh stop` cancels the landing. | false |
+| `land-on-low-fireworks` | With Baritone flight: once the rockets in your inventory drop to `low-firework-threshold`, the scan is saved as a trip and Baritone lands on a safe spot about 64 blocks ahead. Restock and `.sh resume`. Without Baritone, ElytraFly needs no rockets, so nothing happens. | true |
+| `low-firework-threshold` | Rocket count (whole inventory) that triggers the landing. | 8 |
 
 ### Auto Elytra Repair (`auto-elytra-repair`)
 
-When the elytra's remaining durability drops to `repair-threshold`, the module runs a repair sequence:
+When the elytra's remaining durability drops to `repair-threshold`, the module first looks for a spare elytra in your inventory with more durability than that (`swap-to-spare`) and puts it on - no stop needed. Without a spare it runs a repair sequence:
 
-1. It stops the autopilot and waits until you have slowed down.
-2. It places a block below you with Meteor's **Scaffold**.
+1. It pauses the flight (Baritone included) and hovers with Meteor's **ElytraFly** until you have stopped.
+2. It places a block below you with Meteor's **Scaffold** (up to 3 tries).
 3. It hovers on that block and lets Meteor's **AutoEXP** throw XP bottles until the elytra is repaired.
-4. It climbs back to cruise altitude and resumes the flight.
+4. It resumes the flight. With Baritone, Baritone climbs back to cruise altitude on its way to the next waypoint.
 
 **What you need:**
 - A **Mending** elytra
@@ -166,13 +169,15 @@ When the elytra's remaining durability drops to `repair-threshold`, the module r
 - **Blocks** for Scaffold
 
 **When it gives up:**
-- **No XP bottles:** the repair does not start.
+- **No XP bottles or no Mending:** the repair does not start. With Baritone flight the scan is saved and Baritone lands on a safe spot nearby (`.sh resume` later); otherwise the bot disconnects.
+- **Scaffold places no block in 3 tries:** the bot disconnects.
 - **No progress for 5 seconds:** the repair stops. If the elytra is still below the threshold, the bot disconnects.
-- **Elytra about to break (≤ 10 durability) while still gliding:** the bot disconnects rather than risk a fall.
+- **Elytra about to break (≤ 10 durability) while still gliding** (also during a Baritone landing): the bot disconnects rather than risk a fall.
 
 | Setting | Description | Default |
 | --- | --- | --- |
 | `repair-threshold` | Remaining durability that starts a repair (minimum 30, so the sequence has headroom). | 50 |
+| `swap-to-spare` | Put on a spare elytra from the inventory (above `repair-threshold`) instead of repairing mid-air. | true |
 | `notify-repairs` | Send Discord messages about repairs. | true |
 | `repair-timeout` | Maximum repair time in seconds. | 300 |
 | `debug-mode` | Print detailed progress in chat. | false |
@@ -183,6 +188,8 @@ Detects elytra rubber-banding: you are gliding but haven't moved for `detection-
 
 1. It toggles ElytraFly off and on.
 2. If you still haven't moved after 2 seconds, it stops gliding and briefly holds jump.
+
+Stopping the glide only happens within 4 blocks of the ground (or water), so a fix never drops you from cruise altitude. Higher up, the flight controller takes over. It also pauses during an elytra repair and treats a Baritone landing as normal, not as being stuck.
 
 | Setting | Description | Default |
 | --- | --- | --- |
@@ -333,6 +340,20 @@ Plays a repeating local alarm while another player is within `radius`, for unatt
 | `discord` | Notify the Stash-Hunter webhook before disconnecting. | true |
 | `disable-after-logout` | Turn the module off after it triggers, so reconnecting doesn't log out again at once. | true |
 
+### Stacked Minecarts (`stacked-minecarts`)
+
+Marks minecarts stacked in one spot. Stacked chest or hopper minecarts are a common way to hide storage, and stacks are easy to miss because they look like a single cart. Only loaded entities can be seen, i.e. within the server's entity range. Each new stack is reported once per world. Ported from [PathSeeker](https://github.com/FaxHack/PathSeeker) (Apache-2.0).
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `detection-radius` | Maximum distance in blocks between carts of one stack. | 0.5 |
+| `minimum-stack-size` | Minimum number of carts in one spot. | 2 |
+| `storage-only` | Only count chest and hopper minecarts. | false |
+| `chat-feedback` | Report each new stack in chat. | true |
+| `discord` | Send each new stack to the Stash-Hunter webhook. | false |
+| `render`, `shape-mode` and colours | Box on each stack, growing with its size (up to 2 blocks). | on, Both, red |
+| `tracers` | Tracers to all stacks. | on |
+
 ## Discord notifications
 
 Create a webhook in your Discord server (*Server Settings → Integrations → Webhooks*) and paste its URL into `discord-webhook-url`. Depending on your settings, you receive:
@@ -348,6 +369,7 @@ Create a webhook in your Discord server (*Server Settings → Integrations → W
 | **Elytra Repair Started / Finished / Failed** | A repair runs (`notify-repairs`). |
 | **Elytra Stuck Detected** | Rubber-banding is detected (Stuck Detector's own webhook). |
 | **Old Chunks Entered** | You enter old chunks (Old Chunk Notifier). Includes chunk, coordinates and dimension. |
+| **Stacked Minecarts** | A new minecart stack is found (`stacked-minecarts`, `discord` on). Includes count, coordinates and dimension. |
 
 Pings are opt-in: `@everyone` is only used when `mention-everyone` is on. Rate limits and temporary Discord errors are retried automatically. While Discord is unreachable, at most 50 messages are queued.
 
@@ -407,4 +429,4 @@ Licensed under the **Apache License 2.0**. See [LICENSE](LICENSE).
 
 - **omtoi**: original author and maintainer.
 - **\_og3**: port to Minecraft 26.2 and the current Meteor Client.
-- **PathSeeker** (FaxHack / dev.journey, Apache-2.0): original `ActivatedSpawnerDetector`, ported and adapted.
+- **PathSeeker** (FaxHack / dev.journey, Apache-2.0): original `ActivatedSpawnerDetector` and `StackedMinecartsDetector`, ported and adapted.

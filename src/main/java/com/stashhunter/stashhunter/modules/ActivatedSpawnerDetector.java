@@ -1,6 +1,7 @@
 package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.utils.ChunkPacketDecoder;
 import com.stashhunter.stashhunter.utils.NaturalStructures;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
@@ -22,7 +23,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.world.entity.vehicle.minecart.MinecartChest;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -449,14 +449,10 @@ public class ActivatedSpawnerDetector extends Module {
         boolean wantGeode = enableGeode.get();
         if (trialSpawners.isEmpty() && !wantGeode) return candidates;
 
-        // Trial spawner state and budding amethyst live in the block states, so decode a private copy.
-        // No block-entity consumer: we don't want block entities created (and registered) from here.
-        LevelChunk chunk = new LevelChunk(level, new ChunkPos(packet.getX(), packet.getZ()));
-        try {
-            chunk.replaceWithPacketData(packet.getChunkData().getReadBuffer(), packet.getChunkData().getHeightmaps(), output -> {});
-        } catch (RuntimeException e) {
-            return candidates; // a half-decoded chunk would only produce false positives
-        }
+        // Trial spawner state and budding amethyst live in the block states, so read the private copy
+        // (decoded once and shared with NewerNewChunks, without block entities).
+        LevelChunk chunk = ChunkPacketDecoder.decode(level, packet);
+        if (chunk == null) return candidates; // a half-decoded chunk would only produce false positives
 
         for (BlockPos pos : trialSpawners) {
             BlockState state = chunk.getBlockState(pos);

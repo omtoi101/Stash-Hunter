@@ -28,6 +28,7 @@ import net.minecraft.network.protocol.game.*;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.ChunkPos;
@@ -35,6 +36,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
 import com.stashhunter.stashhunter.StashHunter;
 import com.stashhunter.stashhunter.utils.ChunkDataFormat;
+import com.stashhunter.stashhunter.utils.ChunkPacketDecoder;
 import com.stashhunter.stashhunter.utils.PaletteOrder;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
@@ -286,6 +288,8 @@ public class NewerNewChunks extends Module {
     private static boolean legacyDataChecked;
     private String serverip;
     private String world;
+    private ResourceKey<Level> worldKey;
+    private String worldName;
     // Client thread only: the packet handler passes every set access through mc.execute(...).
     private final Set<ChunkPos> newChunks = new HashSet<>();
     private final Set<ChunkPos> oldChunks = new HashSet<>();
@@ -481,6 +485,7 @@ public class NewerNewChunks extends Module {
         }
         if (load.get()){
             loadData();
+            loadingticks=1; // loaded already, onPreTick must not read all files a second time
         }
     }
     private Path dataDir() {
@@ -542,7 +547,13 @@ public class NewerNewChunks extends Module {
     @EventHandler
     private void onPreTick(TickEvent.Pre event) {
         if (mc.level == null) return;
-        String currentWorld = mc.level.dimension().identifier().toString().replace(':', '_');
+        // The folder name only changes with the dimension, so it isn't rebuilt every tick.
+        ResourceKey<Level> dimension = mc.level.dimension();
+        if (dimension != worldKey) {
+            worldKey = dimension;
+            worldName = dimension.identifier().toString().replace(':', '_');
+        }
+        String currentWorld = worldName;
         if (!currentWorld.equals(world) || ++flushTicks >= FLUSH_INTERVAL_TICKS) {
             flushPendingWrites();
             flushTicks = 0;
@@ -672,16 +683,33 @@ public class NewerNewChunks extends Module {
     }
 
     // Runs every frame: plain int/double math only, no per-chunk BlockPos/Vec3/AABB allocations.
+    // Loaded chunk data grows with every flight, so once a set holds more chunks than the render
+    // square around the player, that square is probed instead of walking the whole set.
     private void renderChunks(Set<ChunkPos> chunks, Color sides, Color lines, ShapeMode mode, Render3DEvent event, int px, int pz, double y, double maxDistanceSq) {
-        for (ChunkPos c : chunks) {
-            if (c == null) continue;
-            double dx = c.getMiddleBlockX() - px;
-            double dz = c.getMiddleBlockZ() - pz;
-            if (dx * dx + dz * dz >= maxDistanceSq) continue;
-            double minX = c.getMinBlockX();
-            double minZ = c.getMinBlockZ();
-            event.renderer.box(minX, y, minZ, minX + 16, y, minZ + 16, sides, lines, mode, 0);
+        int range = (int) Math.ceil(Math.sqrt(maxDistanceSq) / 16.0) + 1;
+        long squareSize = (2L * range + 1) * (2L * range + 1);
+        if (squareSize < chunks.size()) {
+            int pcx = px >> 4, pcz = pz >> 4;
+            for (int cx = pcx - range; cx <= pcx + range; cx++) {
+                for (int cz = pcz - range; cz <= pcz + range; cz++) {
+                    ChunkPos c = new ChunkPos(cx, cz);
+                    if (chunks.contains(c)) renderChunk(c, sides, lines, mode, event, px, pz, y, maxDistanceSq);
+                }
+            }
+            return;
         }
+        for (ChunkPos c : chunks) {
+            if (c != null) renderChunk(c, sides, lines, mode, event, px, pz, y, maxDistanceSq);
+        }
+    }
+
+    private static void renderChunk(ChunkPos c, Color sides, Color lines, ShapeMode mode, Render3DEvent event, int px, int pz, double y, double maxDistanceSq) {
+        double dx = c.getMiddleBlockX() - px;
+        double dz = c.getMiddleBlockZ() - pz;
+        if (dx * dx + dz * dz >= maxDistanceSq) return;
+        double minX = c.getMinBlockX();
+        double minZ = c.getMinBlockZ();
+        event.renderer.box(minX, y, minZ, minX + 16, y, minZ + 16, sides, lines, mode, 0);
     }
 
     // PacketEvent.Receive is posted on the Netty connection thread. Anything that reads mc.level or
@@ -734,13 +762,9 @@ public class NewerNewChunks extends Module {
     }
 
     private ChunkKind classifyChunk(ClientLevel level, ClientboundLevelChunkWithLightPacket packet, ChunkPos oldpos) {
-        LevelChunk chunk = new LevelChunk(level, oldpos);
-        try {
-            chunk.replaceWithPacketData(packet.getChunkData().getReadBuffer(), packet.getChunkData().getHeightmaps(),
-                    packet.getChunkData().getBlockEntitiesTagsConsumer(packet.getX(), packet.getZ()));
-        } catch (RuntimeException e) {
-            return null; // a half-decoded chunk would only produce false positives
-        }
+        // Shared with ActivatedSpawnerDetector; null if the packet couldn't be decoded.
+        LevelChunk chunk = ChunkPacketDecoder.decode(level, packet);
+        if (chunk == null) return null;
 
         boolean isNewChunk = false;
         boolean isOldGeneration = false;

@@ -2,6 +2,7 @@ package com.stashhunter.stashhunter.utils;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonIOException;
 import com.google.gson.JsonParseException;
 import com.stashhunter.stashhunter.StashHunter;
 import com.google.gson.reflect.TypeToken;
@@ -10,9 +11,11 @@ import net.minecraft.world.phys.Vec3;
 
 import java.io.File;
 import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -25,9 +28,13 @@ public class TripManager {
         .create();
 
     public static void saveTrips(List<TripData> trips) {
-        try (FileWriter writer = new FileWriter(TRIPS_FILE)) {
-            GSON.toJson(trips, writer);
-        } catch (IOException e) {
+        try {
+            AtomicFiles.write(TRIPS_FILE.toPath(), out -> {
+                Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8);
+                GSON.toJson(trips, writer);
+                writer.flush();
+            });
+        } catch (IOException | JsonIOException e) {
             StashHunter.LOG.warn("Could not save {}", TRIPS_FILE.getName(), e);
         }
     }
@@ -55,10 +62,18 @@ public class TripManager {
         return new ArrayList<>();
     }
 
-    public static void addTrip(List<Vec3> waypoints, int currentWaypoint) {
+    // Each trip holds its whole waypoint list, and every pause (repair, low rockets, ...) saves one.
+    private static final int MAX_TRIPS = 20;
+
+    /**
+     * Saves a flight's progress and returns the new trip's timestamp. {@code replaces} is the entry
+     * this flight was saved under before (0 = new flight), so one flight keeps a single entry.
+     */
+    public static long saveTrip(long replaces, List<Vec3> waypoints, int currentWaypoint) {
         List<TripData> trips = loadTrips();
-        trips.add(new TripData(System.currentTimeMillis(), waypoints, currentWaypoint));
-        saveTrips(trips);
+        long timestamp = TripHistory.nextTimestamp(trips, System.currentTimeMillis());
+        saveTrips(TripHistory.withTrip(trips, new TripData(timestamp, List.copyOf(waypoints), currentWaypoint), replaces, MAX_TRIPS));
+        return timestamp;
     }
 
     public static List<TripData> getTrips() {

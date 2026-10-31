@@ -1,5 +1,6 @@
 package com.stashhunter.stashhunter;
 
+import com.stashhunter.stashhunter.utils.ChunkPacketDecoder;
 import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.DiscordWebhook;
 import com.stashhunter.stashhunter.commands.StashHunterCommand;
@@ -8,6 +9,7 @@ import com.stashhunter.stashhunter.commands.ClearPlayersCommand;
 import com.stashhunter.stashhunter.hud.StashHunterHud;
 import com.stashhunter.stashhunter.modules.AltitudeLossDetector;
 import com.stashhunter.stashhunter.modules.NewerNewChunks;
+import com.stashhunter.stashhunter.modules.StackedMinecartDetector;
 import com.stashhunter.stashhunter.modules.StashHunterModule;
 import com.stashhunter.stashhunter.modules.StuckDetector;
 import com.stashhunter.stashhunter.modules.AutoElytraRepair;
@@ -48,6 +50,8 @@ public class StashHunter extends MeteorAddon {
             DiscordWebhook.shutdown();
         }, "StashHunter-Shutdown"));
 
+        ChunkPacketDecoder.init();
+
         // Modules
         Modules.get().add(new StashHunterModule());
         Modules.get().add(new StuckDetector());
@@ -61,6 +65,7 @@ public class StashHunter extends MeteorAddon {
         Modules.get().add(new OnlinePlayerActivityDetector());
         Modules.get().add(new PlayerAlarms());
         Modules.get().add(new AutoLogout());
+        Modules.get().add(new StackedMinecartDetector());
 
         // Commands
         Commands.add(new StashHunterCommand());

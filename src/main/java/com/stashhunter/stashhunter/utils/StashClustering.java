@@ -33,7 +33,7 @@ public final class StashClustering {
 
         Map<BlockPos, Integer> neighbourCount = new HashMap<>();
         for (BlockPos pos : blocks) {
-            neighbourCount.put(pos, neighbours(pos, grid, linkDistance, linkSq).size());
+            neighbourCount.put(pos, countNeighbours(pos, grid, linkDistance, linkSq));
         }
         List<BlockPos> seeds = new ArrayList<>(blocks);
         seeds.sort(Comparator.comparingInt((BlockPos pos) -> neighbourCount.get(pos)).reversed());
@@ -80,6 +80,24 @@ public final class StashClustering {
             }
         }
         return result;
+    }
+
+    // Same test as neighbours(), without building the list: in a dense stash every block has hundreds of neighbours.
+    private static int countNeighbours(BlockPos pos, Map<Long, List<BlockPos>> grid, int cellSize, long linkSq) {
+        int count = 0;
+        int cx = Math.floorDiv(pos.getX(), cellSize), cy = Math.floorDiv(pos.getY(), cellSize), cz = Math.floorDiv(pos.getZ(), cellSize);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    List<BlockPos> cell = grid.get(BlockPos.asLong(cx + dx, cy + dy, cz + dz));
+                    if (cell == null) continue;
+                    for (BlockPos other : cell) {
+                        if (other != pos && other.distSqr(pos) < linkSq) count++;
+                    }
+                }
+            }
+        }
+        return count;
     }
 
     /** Volume of the block-aligned bounding box around {@code blocks}; at least 1, so it is safe to divide by. */
