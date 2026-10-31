@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **`auto-elytra-repair` lands to repair instead of repairing mid-air.** The flight is paused and the bot sinks straight down with ElytraFly (Vanilla mode, as if holding sneak). Over unsafe ground (liquids, fire, magma, cactus, powder snow, the End's void) it glides forward until the ground below is safe. AutoEXP then repairs on the ground, and the flight resumes: Baritone takes off by itself, without Baritone the module first climbs back to `flight-altitude`. Scaffold and blocks in the hotbar are no longer needed. A repair that stalls or times out on the ground now pauses the flight there (Discord message, `.sh resume` after restocking) instead of disconnecting. With critical durability during the descent the bot keeps sinking if it reaches the ground before the elytra gives out, and only disconnects otherwise.
+- **`altitude-loss-detector` no longer reacts to the repair's descent.** Its jump hold would have fought the landing.
+- **`.stashhunter spiral` no longer flies a ring the scan doesn't need.** The spiral used as many rings as `radius / gap` rounded up, so the last ring often ran less than half a gap outside the previous one, whose scan already covered that ground: at radius 3000 and gap 128 that was 24 km of extra flight (8 × radius). The spiral now ends at the first ring whose scan (half the gap outward) reaches the radius, and the flight still never leaves the radius.
+- **The spiral's default gap follows `scan-radius`.** Without `gap` the rings are twice `scan-radius` apart (50-500), so neighbouring rings' scans just meet. With the default `scan-radius` of 64 this stays 128. A `gap` wider than that is still allowed, but the start now warns how wide the unscanned bands between the rings are.
+- **Flight path and progress in km.** `.stashhunter spiral` shows the length of the flight path, and `.stashhunter status` shows the progress along it (percent and km) next to the waypoint count. In a spiral the legs grow ring by ring, so halfway through the waypoints is only about a quarter of the flight.
+
 ## [v26.2.2-pre1] - 2026-10-31
 
 Pre-release: builds and passes all unit tests, not yet tested in-game.

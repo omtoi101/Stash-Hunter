@@ -6,6 +6,7 @@ import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.GridWaypoints;
 import com.stashhunter.stashhunter.utils.SpiralWaypoints;
+import com.stashhunter.stashhunter.utils.WaypointPath;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.LongArgumentType;
@@ -14,6 +15,10 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import meteordevelopment.meteorclient.commands.Command;
 import meteordevelopment.meteorclient.MeteorClient;
 import net.minecraft.client.multiplayer.ClientSuggestionProvider;
+import net.minecraft.world.phys.Vec3;
+
+import java.util.List;
+import java.util.Locale;
 
 public class StashHunterCommand extends Command {
     public StashHunterCommand() {
@@ -81,7 +86,8 @@ public class StashHunterCommand extends Command {
                         int offset = explicitCenter ? 2 : 0;
                         int radius = Integer.parseInt(parts[offset]);
 
-                        int gap = 128; // Same default as the rectangle's strip width
+                        // Neighbouring rings' scans just meet; 128 with the default scan-radius of 64.
+                        int gap = Math.clamp(2L * Config.scanRadius, 50, 500);
                         if (parts.length > offset + 1) {
                             gap = Integer.parseInt(parts[offset + 1]);
                             if (gap < 50 || gap > 500) {
@@ -178,6 +184,12 @@ public class StashHunterCommand extends Command {
                 if (ElytraController.isActive()) {
                     info("Current waypoint: " + (ElytraController.getCurrentWaypoint() + 1) +
                         "/" + ElytraController.getTotalWaypoints());
+                    // By distance: a spiral's later legs are much longer, so the waypoint count runs ahead.
+                    double length = ElytraController.getPathLength();
+                    if (length > 0) {
+                        double flown = ElytraController.getDistanceFlown();
+                        info("Progress: %d%% (%s of %s km)", Math.round(100 * flown / length), km(flown), km(length));
+                    }
 
                     if (ElytraController.getCurrentTarget() != null) {
                         var target = ElytraController.getCurrentTarget();
@@ -373,16 +385,29 @@ public class StashHunterCommand extends Command {
             return SINGLE_SUCCESS;
         }
 
+        List<Vec3> path = SpiralWaypoints.generate(centerX, centerZ, radius, gap, Config.flightAltitude);
+
         info("Starting spiral search:");
         info("§7Center: §f(" + centerX + ", " + centerZ + ")");
         info("§7Radius: §f" + radius + " blocks");
         info("§7Gap: §f" + gap + " blocks");
-        info("§7Estimated waypoints: §f" + SpiralWaypoints.count(radius, gap));
+        info("§7Waypoints: §f" + path.size());
+        info("§7Flight path: §f" + km(WaypointPath.length(path)) + " km");
+        // Each pass only scans scan-radius to either side, so a wider gap leaves bands between the rings.
+        int covered = 2 * Config.scanRadius;
+        if (gap > covered) {
+            warning("Gap %d is wider than twice the scan-radius (%d): bands of %d blocks between the rings stay unscanned.",
+                gap, Config.scanRadius, gap - covered);
+        }
         info("§7Make sure you have an Elytra equipped and are at flight altitude!");
 
         ensureModuleActive();
-        ElytraController.startSpiral(centerX, centerZ, radius, gap);
+        ElytraController.start(path);
         return SINGLE_SUCCESS;
+    }
+
+    private static String km(double blocks) {
+        return String.format(Locale.ROOT, "%.1f", blocks / 1000);
     }
 
     // ElytraController is only ticked by StashHunterModule; without it a started flight never moves.

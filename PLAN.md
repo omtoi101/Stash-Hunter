@@ -2,11 +2,9 @@
 
 ## Stand (2026-10-31)
 
-- Branch `code-revision`, zuletzt `c5dcaed` (53 ChestIndex). Noch nicht committet: **97–100
-  Zuverlässigeres Stash-Hunting** (Abschnitt 0) und die beiden VS-Code-Warnungen
-  (`AtomicFilesTest`: ungenutzte Variable → `_`; `StashHunterModule`: unnötiges
-  `@SuppressWarnings("unused")` an `land-on-low-fireworks`).
-- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **125 Unit-Tests in 25 Suites**.
+- Branch `code-revision`, zuletzt `7b42e85` (97–100 Zuverlässigeres Stash-Hunting). Noch nicht
+  committet: **101 Spiral-Suche überarbeitet**, **102 Elytra-Reparatur am Boden** (Abschnitt 0).
+- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **131 Unit-Tests in 26 Suites**.
 - Version **26.2.2-pre1** (Pre-Release, CHANGELOG-Abschnitt `[v26.2.2-pre1]`). Die fehlenden
   CHANGELOG-Einträge aus `5a843cc`/`ec9efdb` (Stash ESP, Takeoff, Reparatur, Trips, Scan-Cache,
   `.sh altitude`, Raketen-Landung, Ersatz-Elytra) sind nachgetragen.
@@ -74,11 +72,33 @@ Zuverlässigeres Stash-Hunting (2026-10-31, Details in [CLAUDE-HANDOFF.md](CLAUD
       nach 30 s den Waypoint (fast ein ganzer Streifen ungescannt). Der Bot bleibt jetzt auf dem
       Streifen, 98 holt die Chunks nach. Trail-Following (neue Chunks) bleibt.
 
+Spiral-Suche (2026-10-31):
+
+- [x] **101 `.stashhunter spiral` überarbeitet**: `SpiralWaypoints` nimmt nur so viele Ringe, bis
+      der Scan des letzten (halber `gap` nach außen) den Radius erreicht. Vorher `ceil(radius/gap)`,
+      der letzte Ring lag oft weniger als einen halben `gap` vor dem vorigen (Radius 3000, `gap` 128:
+      24 km Umweg). Default-`gap` = 2 × `scan-radius` (50–500, bei 64 weiter 128), Warnung bei
+      größerem `gap`. Neu `utils/WaypointPath` (+ Test): Pfadlänge im Start-Text, Fortschritt in
+      % und km in `.sh status` (Waypoint-Zähler läuft bei der Spirale weit voraus).
+      `ElytraController.start(List<Vec3>)` ersetzt `startSpiral`, `SpiralWaypoints.count` entfällt.
+
+Elytra-Reparatur (2026-10-31, Details in [CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md)):
+
+- [x] **102 `auto-elytra-repair` repariert nur noch am Boden**: Flug pausieren, senkrecht mit
+      ElytraFly (Vanilla + Shift) sinken, über Flüssigkeit/Gefahrenblöcken/Void geradeaus weiter,
+      am Boden AutoEXP, dann Start (Baritone selbst, sonst Steigen mit Sprungtaste bis
+      `flight-altitude`). Scaffold entfällt. Stockt die Reparatur am Boden, bleibt der Flug dort
+      pausiert statt Disconnect. Kein Fallschaden beim Sinken (Bytecode geprüft).
+      `AltitudeLossDetector` ignoriert den Sinkflug.
+
 ## 1. In-game-Test (als Nächstes)
 
 Grundfunktionen:
 - [ ] Modul an/aus, Tod/Respawn, Dimensionswechsel, `.stashhunter start` + `stop`
-- [ ] Stuck-Auto-Fix, Elytra-Reparatur
+- [ ] Stuck-Auto-Fix
+- [ ] Elytra-Reparatur am Boden (102), mit und ohne Baritone: Sinkflug ohne Fallschaden, Reparatur
+      am Boden, Start und Weiterflug; über Wasser/Lava/Void wird weitergeglitten; XP leer → Flug
+      bleibt am Boden pausiert
 
 Scan und Stashes:
 - [ ] `scan-by-distance` (CPU-Last beim Flug), `scan-only-while-flying`
@@ -125,7 +145,8 @@ Flug:
 - [ ] `land-after-completion` mit Baritone; festsitzende Landung bricht nach 2 min ab
 - [ ] `auto-firework` (feuert nicht während Baritone-Flug und nicht während einer Elytra-Reparatur,
       ignoriert Sternraketen)
-- [ ] `.stashhunter spiral` inkl. pause/resume
+- [ ] `.stashhunter spiral` inkl. pause/resume; Start-Text mit Flugstrecke, `status` mit Fortschritt
+      in % / km (101), Warnung bei `gap` > 2 × `scan-radius`
 - [ ] AltitudeLossDetector-Discord
 - [ ] ElytraFly `Bounce` manuell mit eingeschaltetem `stash-hunter`, ohne `.sh start`: kein
       Ausbremsen am Boden (92). Nach einer Baritone-Landung trotzdem keine Elytra-Pose am Boden.
@@ -231,8 +252,9 @@ Wegen der `26.2`-Pins (`minecraft_version`, `meteor-client: ~26.2-`, Meteor/Bari
 - **78 Dimension-Vergleich mit `==`:** Fehlalarm, Meteors `Dimension` ist ein Enum.
 - **79 Mineshaft-Heuristik:** sinnlos, Mineshaft-Loot liegt in Chest-Minecarts (Entities). Der tote
   Mansion-Zweig ist entfernt, Struktur-Erkennung läuft über 67/44.
-- **30 Rest:** `keyUp`/`keyShift.setDown` in AutoElytraRepair bleiben (Zusammenspiel mit
-  ElytraFly-Autopilot, nur in-game sicher änderbar).
+- **30 Rest:** `keyUp.setDown(false)` nach dem Abschalten des ElytraFly-Autopiloten bleibt in
+  AutoElytraRepair (Zusammenspiel mit dem Autopiloten, nur in-game sicher änderbar). Eigene
+  Tasten (Shift, Vorwärts, Sprung) hält die Reparatur seit 102 über `KeyHold`.
 - **28 Rest:** Detektoren in NewerNewChunks und die Zustandsautomaten in AutoElytraRepair/
   ElytraController sind weiter groß. Umbau erst nach In-game-Tests.
 - **48 anders gelöst:** Die Chunk-Klassifizierung bleibt auf dem Netty-Thread (arbeitet auf einer

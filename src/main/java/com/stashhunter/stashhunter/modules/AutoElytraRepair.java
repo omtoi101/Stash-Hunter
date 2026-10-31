@@ -12,39 +12,58 @@ import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.combat.AutoEXP;
-import meteordevelopment.meteorclient.systems.modules.movement.Scaffold;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFlightModes;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.orbit.EventHandler;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 import java.util.HashSet;
 import java.util.Set;
 
+/**
+ * Repairs the worn elytra on the ground, never in the air: the flight is paused, the player sinks
+ * straight down with ElytraFly, AutoEXP repairs on the ground, then the flight takes off again.
+ * A fast descent causes no fall damage: while gliding, the server resets the fall distance every
+ * tick (its own deltaMovement of a player stays near 0; checked in the 26.2 bytecode).
+ */
 public class AutoElytraRepair extends Module {
-    // Elytra loses 1 durability per second of flight. The stop/scaffold/positioning phases can
-    // take ~15 s, so the threshold must keep the sequence clear of CRITICAL_DURABILITY.
+    // Elytra loses 1 durability per second of flight. The descent takes (height above ground) /
+    // (10 × ElytraFly vertical-speed) seconds, about 10 s from the default flight altitude, so the
+    // threshold must keep it clear of CRITICAL_DURABILITY.
     private static final int MIN_REPAIR_THRESHOLD = 30;
-    // Remaining durability at which further gliding is too risky - abort to the safest option.
+    // Remaining durability at which further gliding is too risky.
     private static final int CRITICAL_DURABILITY = 10;
-    // Abort the repair if the damage value has not dropped for this long (out of XP, AutoEXP stuck).
+    // Stop repairing if the damage value has not dropped for this long (out of XP, AutoEXP done).
     private static final long REPAIR_STALL_TIMEOUT_MS = 5_000L;
-    // Scaffold placement tries before giving up (each try waits 2 s for a block below the player).
-    private static final int MAX_SCAFFOLD_ATTEMPTS = 3;
+    // Still in the air this long after the repair started: no safe ground found below.
+    private static final long LANDING_TIMEOUT_MS = 90_000L;
+    // Without Baritone the repair climbs back to cruise altitude itself; the flight resumes anyway after this.
+    private static final long CLIMB_TIMEOUT_MS = 60_000L;
+    // Ground the descent must not end on: it hurts, traps, or (pointed dripstone) adds fall damage.
+    private static final Set<Block> HARMFUL_GROUND = Set.of(
+        Blocks.MAGMA_BLOCK, Blocks.CACTUS, Blocks.CAMPFIRE, Blocks.SOUL_CAMPFIRE, Blocks.FIRE, Blocks.SOUL_FIRE,
+        Blocks.SWEET_BERRY_BUSH, Blocks.WITHER_ROSE, Blocks.POWDER_SNOW, Blocks.COBWEB, Blocks.POINTED_DRIPSTONE
+    );
 
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
 
     private final Setting<Integer> repairThreshold = sgGeneral.add(new IntSetting.Builder()
         .name("repair-threshold")
-        .description("Durability threshold to trigger repair (remaining durability).")
+        .description("Durability threshold to trigger repair (remaining durability). The landing before the repair needs headroom.")
         .defaultValue(50)
         .min(MIN_REPAIR_THRESHOLD)
         .sliderMax(100)
@@ -53,7 +72,7 @@ public class AutoElytraRepair extends Module {
 
     private final Setting<Boolean> swapToSpare = sgGeneral.add(new BoolSetting.Builder()
         .name("swap-to-spare")
-        .description("Before repairing, put on a spare elytra from the inventory that is above the repair threshold. Only repairs mid-air when there is none.")
+        .description("Before repairing, put on a spare elytra from the inventory that is above the repair threshold. Only lands to repair when there is none.")
         .defaultValue(true)
         .build()
     );
@@ -67,7 +86,7 @@ public class AutoElytraRepair extends Module {
 
     private final Setting<Integer> repairTimeout = sgGeneral.add(new IntSetting.Builder()
         .name("repair-timeout")
-        .description("Maximum time to spend repairing in seconds.")
+        .description("Maximum time to spend repairing on the ground in seconds.")
         .defaultValue(300)
         .min(60)
         .sliderMax(600)
@@ -81,55 +100,26 @@ public class AutoElytraRepair extends Module {
         .build()
     );
 
-    // "module/setting" pairs already reported as missing, so the warning is logged once.
-    private final Set<String> missingSettingWarned = new HashSet<>();
-
     // Repair state
     private RepairState currentState = RepairState.MONITORING;
-    private long repairStartTime = 0;
-    private int timer = 0;
+    // Start of the current landing, repair or climb, for its timeout.
+    private long phaseStartMs = 0;
     private boolean justFinishedRepairing = false;
 
-    // Scaffold-repair specific state
-    private boolean scaffoldSetupDone = false;
-    private int scaffoldAttempts = 0;
+    // ElytraFly in Vanilla mode moves the player only while a movement key is held: no keys hover,
+    // sneak sinks straight down, jump climbs, forward moves on. Its settings are restored afterwards.
     private boolean originalAutoPilotState = false;
+    private boolean originalAutoTakeoffState = false;
     private ElytraFlightModes originalFlightMode = ElytraFlightModes.Vanilla;
     private boolean elytraFlySettingsSaved = false; // only restore what was actually captured
-    // ElytraFly (Vanilla mode, no keys held) zeroes horizontal speed: that is the hover during repair.
     private boolean elytraFlyEnabledByRepair = false;
     private boolean autoExpEnabledByRepair = false;
+    // Keys the repair holds down, so all of them can be let go when it ends.
+    private final Set<KeyMapping> heldKeys = new HashSet<>();
     // Set by .stashhunter stop/pause during a repair: finish the repair, but leave the flight paused.
     private boolean keepFlightPaused = false;
     // Dimension the repair started in, to notice a portal/respawn into another one.
     private ResourceKey<Level> repairDimension = null;
-    private boolean originalScaffoldAirPlace = false;
-    private boolean originalScaffoldAutoSwitch = false;
-    // Only undo on Scaffold what the repair itself changed (the player may run it on purpose).
-    private boolean scaffoldSettingsSaved = false;
-    private boolean scaffoldEnabledByRepair = false;
-
-    // NEW: deceleration wait state (added to allow ElytraFly to slow down before scaffold placement)
-    private boolean decelWaiting = false;
-    private boolean decelInitiated = false; // to ensure we only initiate deceleration wait once
-    private int decelTimer = 0; // ticks to wait for deceleration
-
-    // Movement detection for repair sequence
-    private int stopWaitTimer = 0;
-    private Vec3 lastPlayerPosition = null;
-    private int stationaryTicks = 0;
-    private static final int REQUIRED_STATIONARY_TICKS = 20; // 1 second of being stationary
-
-    // Climb-to-altitude timeout tracking
-    private boolean climbingToCruise = false;
-    private long climbStartTimeMs = 0;
-
-    // Track ElytraFly autoTakeoff original state
-    private boolean originalAutoTakeoffState = false;
-
-    // Positioning for repair (hover above placed block)
-    private double targetRepairAltitude = 0;
-    private long positioningStartMs = 0;
 
     // Repair progress tracking
     private int lastRepairDamage = 0;
@@ -141,18 +131,14 @@ public class AutoElytraRepair extends Module {
 
     private enum RepairState {
         MONITORING,
-        STOPPING_AUTOPILOT,
-        WAITING_FOR_STOP,
-        POSITIONING_FOR_REPAIR,
-        SCAFFOLDING,
+        LANDING,
         REPAIRING,
-        REPAIRING_IN_PROGRESS,
-        RESUMING_FLIGHT,
+        TAKING_OFF,
         EMERGENCY_DISCONNECT
     }
 
     public AutoElytraRepair() {
-        super(StashHunter.CATEGORY, "auto-elytra-repair", "Automatically repairs elytras when they get low on durability.");
+        super(StashHunter.CATEGORY, "auto-elytra-repair", "Lands and repairs the elytra with XP bottles when it gets low on durability.");
     }
 
     @Override
@@ -165,7 +151,6 @@ public class AutoElytraRepair extends Module {
 
     @Override
     public void onDeactivate() {
-        KeyHold.cancel(this);
         if (currentState != RepairState.MONITORING) {
             resumeNormalOperation();
             // Every repair state paused the flight; hand it back unless a disconnect is pending.
@@ -185,11 +170,9 @@ public class AutoElytraRepair extends Module {
 
     // Ends a repair without resuming the flight (it stays paused, its trip saved).
     private void abortRepair() {
-        KeyHold.cancel(this);
         if (currentState != RepairState.MONITORING) resumeNormalOperation();
         resetRepairState();
         currentState = RepairState.MONITORING;
-        repairDimension = null;
     }
 
     @EventHandler
@@ -218,26 +201,14 @@ public class AutoElytraRepair extends Module {
             case MONITORING:
                 handleMonitoring();
                 break;
-            case STOPPING_AUTOPILOT:
-                handleStoppingAutopilot();
-                break;
-            case WAITING_FOR_STOP:
-                handleWaitingForStop();
-                break;
-            case POSITIONING_FOR_REPAIR:
-                handlePositioningForRepair();
-                break;
-            case SCAFFOLDING:
-                handleScaffolding();
+            case LANDING:
+                handleLanding();
                 break;
             case REPAIRING:
                 handleRepairing();
                 break;
-            case REPAIRING_IN_PROGRESS:
-                handleRepairingInProgress();
-                break;
-            case RESUMING_FLIGHT:
-                handleResumingFlight();
+            case TAKING_OFF:
+                handleTakingOff();
                 break;
             case EMERGENCY_DISCONNECT:
                 handleEmergencyDisconnect();
@@ -265,7 +236,7 @@ public class AutoElytraRepair extends Module {
         }
     }
 
-    // One inventory move swaps the worn elytra out: no stop, no scaffold, no XP needed.
+    // One inventory move swaps the worn elytra out: no landing, no XP needed.
     private boolean swapToSpareElytra() {
         // With a chest or other container open, the inventory slot ids would hit that screen instead.
         if (mc.player.containerMenu != mc.player.inventoryMenu) return false;
@@ -289,337 +260,6 @@ public class AutoElytraRepair extends Module {
         return true;
     }
 
-    private void handleStoppingAutopilot() {
-        ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
-        if (elytraFly == null) {
-            error("ElytraFly not found! Aborting repair.");
-            currentState = RepairState.EMERGENCY_DISCONNECT;
-            return;
-        }
-
-        // The flight controller is paused (initiateRepairSequence). ElytraFly in Vanilla mode with
-        // no movement keys held keeps the glide but zeroes horizontal speed, so the player hovers.
-        originalAutoPilotState = elytraFly.autoPilot.get();
-        originalAutoTakeoffState = elytraFly.autoTakeOff.get();
-        originalFlightMode = elytraFly.flightMode.get();
-        elytraFlySettingsSaved = true;
-        if (originalFlightMode != ElytraFlightModes.Vanilla) elytraFly.flightMode.set(ElytraFlightModes.Vanilla);
-        elytraFly.autoPilot.set(false);
-        mc.options.keyUp.setDown(false);
-        elytraFly.autoTakeOff.set(true);
-        if (!elytraFly.isActive()) {
-            elytraFly.toggle();
-            elytraFlyEnabledByRepair = true;
-        }
-
-        info("Flight paused, ElytraFly hovering. Waiting for player to stop moving...");
-        currentState = RepairState.WAITING_FOR_STOP;
-        lastPlayerPosition = mc.player.position();
-        stationaryTicks = 0;
-    }
-
-    private void handleWaitingForStop() {
-        if (abortIfElytraCritical()) return;
-
-        Vec3 currentPos = mc.player.position();
-
-        // Check if player has moved significantly
-        if (lastPlayerPosition != null) {
-            double distance = currentPos.distanceTo(lastPlayerPosition);
-            if (distance > 0.1) { // Player is still moving
-                stationaryTicks = 0;
-                lastPlayerPosition = currentPos;
-                debugLog("Player still moving, distance: " + String.format("%.2f", distance));
-            } else {
-                stationaryTicks++;
-                debugLog("Player stationary for " + stationaryTicks + " ticks");
-            }
-        } else {
-            lastPlayerPosition = currentPos;
-        }
-
-        // Check if player has been stationary long enough
-        if (stationaryTicks >= REQUIRED_STATIONARY_TICKS) {
-            info("Player has stopped moving. Proceeding with repair sequence.");
-            currentState = RepairState.SCAFFOLDING;
-            lastPlayerPosition = null;
-            stationaryTicks = 0;
-        }
-
-        // Timeout after 10 seconds
-        stopWaitTimer++;
-        if (stopWaitTimer > 200) { // 10 seconds at 20 TPS
-            warning("Timeout waiting for player to stop. Proceeding anyway.");
-            currentState = RepairState.SCAFFOLDING;
-            lastPlayerPosition = null;
-            stationaryTicks = 0;
-            stopWaitTimer = 0;
-        }
-    }
-
-    private void handleScaffolding() {
-        if (abortIfElytraCritical()) return;
-
-        // If we recently flipped autoHover/autoPilot, wait for deceleration to complete before placing blocks
-        // Use decelInitiated to ensure we only initiate the deceleration wait once.
-        if (!scaffoldSetupDone) {
-            ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
-            Scaffold scaffold = Modules.get().get(Scaffold.class);
-            if (elytraFly == null || scaffold == null) {
-                error("Required modules not found. Aborting.");
-                currentState = RepairState.EMERGENCY_DISCONNECT;
-                return;
-            }
-
-            // If we haven't started the deceleration sequence yet, do so once.
-            if (!decelInitiated) {
-                mc.options.keyUp.setDown(false);
-
-                // Give ElytraFly some time to slow the player down before enabling scaffold placement
-                decelInitiated = true;
-                decelWaiting = true;
-                decelTimer = 20; // wait 20 ticks (~1 second). Adjust as needed.
-                info("Waiting " + decelTimer + " ticks for deceleration...");
-                return;
-            }
-
-            // If we're waiting for deceleration, count down or check velocity
-            if (decelWaiting) {
-                // If player is essentially stopped, end wait early
-                try {
-                    double vsq = mc.player.getDeltaMovement().lengthSqr();
-                    if (vsq < 0.0001) {
-                        // Player is stopped
-                        decelWaiting = false;
-                        info("Player velocity low — deceleration detected. Proceeding with scaffold setup.");
-                    }
-                } catch (Exception e) {
-                    // Fallback to tick-based waiting if velocity check fails for any reason
-                }
-
-                // Tick-based countdown
-                decelTimer--;
-                if (decelTimer <= 0) {
-                    decelWaiting = false;
-                    info("Deceleration wait complete. Proceeding with scaffold setup.");
-                } else {
-                    debugLog("Deceleration wait: " + decelTimer + " ticks remaining...");
-                    return;
-                }
-            }
-
-            // Now actually enable scaffold and auto exp together
-            originalScaffoldAirPlace = readBool(scaffold, "air-place", false);
-            originalScaffoldAutoSwitch = readBool(scaffold, "auto-switch", true);
-            scaffoldSettingsSaved = true;
-            writeBool(scaffold, "air-place", true);
-            writeBool(scaffold, "auto-switch", true);
-
-            if (!scaffold.isActive()) {
-                scaffold.toggle();
-                scaffoldEnabledByRepair = true;
-            }
-
-            // Enable AutoEXP to allow XP bottles to smash on placed blocks
-            AutoEXP autoExp = Modules.get().get(AutoEXP.class);
-            if (autoExp != null && !autoExp.isActive()) {
-                autoExp.toggle();
-                autoExpEnabledByRepair = true;
-                info("Enabled AutoEXP for repair operations");
-            }
-
-            info("Scaffold and AutoEXP enabled. Waiting for block placement...");
-            timer = 40;
-            scaffoldSetupDone = true;
-            // reset decel flags so the next repair sequence will re-initiate properly
-            decelInitiated = false;
-            decelWaiting = false;
-            return;
-        }
-
-        // After scaffold is set up, monitor block placement and timeout
-        timer--;
-        if (timer <= 0) {
-            // Resuming flight below the threshold would only restart the repair right away.
-            scaffoldAttempts++;
-            if (scaffoldAttempts < MAX_SCAFFOLD_ATTEMPTS) {
-                warning("Scaffold failed to place a block in time. Retrying (" + scaffoldAttempts + "/" + MAX_SCAFFOLD_ATTEMPTS + ")...");
-                timer = 40;
-            } else {
-                error("Scaffold failed to place a block " + MAX_SCAFFOLD_ATTEMPTS + " times (no blocks in the hotbar?).");
-                currentState = RepairState.EMERGENCY_DISCONNECT;
-            }
-            return;
-        }
-
-        if (!mc.level.getBlockState(mc.player.blockPosition().below()).isAir()) {
-            info("Block placed successfully.");
-            // Calculate safe hover altitude above the placed block (block top + 0.6)
-            double blockTopY = mc.player.blockPosition().below().getY() + 1;
-            targetRepairAltitude = blockTopY + 0.6;
-            positioningStartMs = System.currentTimeMillis();
-
-            // Ensure elytra engaged before positioning
-            ElytraController.deployElytra();
-
-            currentState = RepairState.POSITIONING_FOR_REPAIR;
-        }
-    }
-
-    private void handlePositioningForRepair() {
-        // Aim upward slightly to gain altitude until targetRepairAltitude or timeout (~2s)
-        if (mc.player == null) return;
-
-        // The block is already placed below us, so skip the climb and repair right here.
-        if (isElytraCritical()) {
-            warning("Elytra durability critical. Skipping positioning and repairing at current altitude.");
-            currentState = RepairState.REPAIRING;
-            repairStartTime = System.currentTimeMillis();
-            return;
-        }
-
-        double y = mc.player.getY();
-        if (y >= targetRepairAltitude) {
-            info("Reached repair hover altitude (" + String.format("%.2f", y) + ")");
-            currentState = RepairState.REPAIRING;
-            repairStartTime = System.currentTimeMillis();
-            return;
-        }
-
-        // Timeout safety
-        if (System.currentTimeMillis() - positioningStartMs > 2000L) {
-            warning("Positioning timeout; proceeding with repair at current altitude.");
-            currentState = RepairState.REPAIRING;
-            repairStartTime = System.currentTimeMillis();
-            return;
-        }
-
-        // Keep gliding and pitch up to climb gently
-        ElytraController.deployElytra();
-        mc.player.setXRot(-20);
-    }
-
-    private void handleRepairing() {
-        if (scaffoldSettingsSaved) {
-            restoreScaffold();
-            info("Scaffold settings restored.");
-        }
-
-        if (System.currentTimeMillis() - repairStartTime > repairTimeout.get() * 1000L) {
-            warning("Repair timeout reached. Resuming flight.");
-            currentState = RepairState.RESUMING_FLIGHT;
-            return;
-        }
-
-        ItemStack chestElytra = mc.player.getItemBySlot(EquipmentSlot.CHEST);
-        if (chestElytra.getItem() != Items.ELYTRA) {
-            warning("No elytra equipped during repair.");
-            currentState = RepairState.RESUMING_FLIGHT;
-            return;
-        }
-
-        if (chestElytra.getDamageValue() == 0) {
-            info("Equipped elytra repaired. Resuming flight.");
-            currentState = RepairState.RESUMING_FLIGHT;
-            return;
-        }
-
-        AutoEXP autoExp = Modules.get().get(AutoEXP.class);
-        if (autoExp != null && !autoExp.isActive()) {
-            autoExp.toggle();
-            autoExpEnabledByRepair = true;
-        }
-        lastRepairDamage = chestElytra.getDamageValue();
-        lastRepairProgressMs = System.currentTimeMillis();
-        currentState = RepairState.REPAIRING_IN_PROGRESS;
-    }
-
-    private void handleRepairingInProgress() {
-        ItemStack currentElytra = mc.player.getItemBySlot(EquipmentSlot.CHEST);
-        if (currentElytra.getItem() != Items.ELYTRA) {
-            warning("Elytra was unequipped during repair!");
-            currentState = RepairState.REPAIRING;
-            return;
-        }
-
-        if (currentElytra.getDamageValue() == 0) {
-            info("Equipped elytra repaired.");
-            currentState = RepairState.REPAIRING;
-            return;
-        }
-
-        if (System.currentTimeMillis() - repairStartTime > repairTimeout.get() * 1000L) {
-            warning("Repair timeout reached during repair-in-progress.");
-            currentState = RepairState.RESUMING_FLIGHT;
-            return;
-        }
-
-        int damage = currentElytra.getDamageValue();
-        if (damage < lastRepairDamage) {
-            lastRepairDamage = damage;
-            lastRepairProgressMs = System.currentTimeMillis();
-        } else if (System.currentTimeMillis() - lastRepairProgressMs > REPAIR_STALL_TIMEOUT_MS) {
-            // Resuming below the threshold would immediately restart the same stalled repair.
-            if (needsRepair(currentElytra)) {
-                error("Repair made no progress for " + REPAIR_STALL_TIMEOUT_MS / 1000 + "s (out of XP bottles?).");
-                currentState = RepairState.EMERGENCY_DISCONNECT;
-            } else {
-                warning("Repair stalled, but durability is above the threshold. Resuming flight.");
-                currentState = RepairState.RESUMING_FLIGHT;
-            }
-        }
-    }
-
-    private void handleResumingFlight() {
-        if (!climbingToCruise) {
-            resumeNormalOperation();
-            if (keepFlightPaused) {
-                info("Repair sequence ended. Flight stays stopped as requested.");
-                resetRepairState();
-                currentState = RepairState.MONITORING;
-                return;
-            }
-            KeyHold.hold(this, mc.options.keyJump, 10, null);
-            ElytraController.resume();
-            if (ElytraController.isBaritoneFlight()) info("Resuming flight. Baritone climbs back to cruise altitude (Y=" + Config.flightAltitude + ").");
-            else info("Resuming flight. Climbing back to cruise altitude (Y=" + Config.flightAltitude + "), timeout 10s.");
-            climbingToCruise = true;
-            climbStartTimeMs = System.currentTimeMillis();
-        }
-
-        // Baritone climbs on its way to the next waypoint; pitching the view would fight its steering.
-        boolean baritoneClimbs = ElytraController.isBaritoneFlight();
-        boolean reachedAltitude = mc.player.getY() >= Config.flightAltitude;
-        boolean timedOut = System.currentTimeMillis() - climbStartTimeMs > 10_000L;
-        if (!reachedAltitude && !timedOut && !baritoneClimbs) {
-            mc.player.setXRot(-30);
-            return;
-        }
-
-        notifyDiscord("Elytra Repair Finished", "Repair sequence complete. Resuming flight.", 0x00FF00);
-        if (reachedAltitude || baritoneClimbs) info("Repair sequence complete.");
-        else warning("Climb to Y=" + Config.flightAltitude + " timeout reached (10s). Continuing.");
-
-        if (!baritoneClimbs) mc.player.setXRot(0);
-        // Forward movement is the resumed flight controller's job (it releases the key it holds).
-        resetRepairState();
-        justFinishedRepairing = true; // after the reset, which clears it
-        currentState = RepairState.MONITORING;
-    }
-
-    private void handleEmergencyDisconnect() {
-        resumeNormalOperation();
-        error("Emergency disconnect initiated...");
-        notifyDiscord("Elytra Repair Failed", "Emergency disconnect: elytra repair failed.", 0xFF0000);
-        if (ElytraController.isActive()) ElytraController.pause();
-        if (mc.getConnection() != null) {
-            mc.getConnection().getConnection().disconnect(net.minecraft.network.chat.Component.literal("Emergency disconnect: Elytra repair failed"));
-        }
-        resetRepairState();
-        currentState = RepairState.MONITORING;
-        pendingDeactivate = true;
-    }
-
     private void initiateRepairSequence() {
         // AutoEXP pulls bottles from the whole inventory, so that is what has to be checked.
         if (!InvUtils.find(Items.EXPERIENCE_BOTTLE).found()) {
@@ -633,12 +273,209 @@ public class AutoElytraRepair extends Module {
         }
 
         // Pause the flight (also Baritone's elytra process) so it can't steer away from the repair
-        // spot; the trip is saved and handleResumingFlight picks it up again.
+        // spot; the trip is saved and resumeFlight picks it up again.
         ElytraController.pause();
         repairDimension = mc.level.dimension();
-        currentState = RepairState.STOPPING_AUTOPILOT;
-        info("Elytra durability low. Stopping autopilot for repair sequence.");
-        notifyDiscord("Elytra Repair Started", "Elytra durability low at " + mc.player.blockPosition().toShortString() + ". Starting repair sequence.", 0xFFAA00);
+        notifyDiscord("Elytra Repair Started", "Elytra durability low at " + mc.player.blockPosition().toShortString() + ". Landing to repair it.", 0xFFAA00);
+        if (mc.player.onGround()) {
+            info("Elytra durability low. Repairing on the ground.");
+            startRepairing();
+            return;
+        }
+        if (!borrowElytraFly()) return;
+        info("Elytra durability low. Landing to repair it.");
+        phaseStartMs = System.currentTimeMillis();
+        currentState = RepairState.LANDING;
+    }
+
+    // The flight controller is paused, so ElytraFly is the only thing moving the player.
+    private boolean borrowElytraFly() {
+        if (elytraFlySettingsSaved) return true;
+        ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
+        if (elytraFly == null) {
+            error("ElytraFly not found! Aborting repair.");
+            currentState = RepairState.EMERGENCY_DISCONNECT;
+            return false;
+        }
+        originalAutoPilotState = elytraFly.autoPilot.get();
+        originalAutoTakeoffState = elytraFly.autoTakeOff.get();
+        originalFlightMode = elytraFly.flightMode.get();
+        elytraFlySettingsSaved = true;
+        if (originalFlightMode != ElytraFlightModes.Vanilla) elytraFly.flightMode.set(ElytraFlightModes.Vanilla);
+        elytraFly.autoPilot.set(false);
+        mc.options.keyUp.setDown(false); // the forward key ElytraFly's autopilot may have pressed
+        elytraFly.autoTakeOff.set(true);
+        if (!elytraFly.isActive()) {
+            elytraFly.toggle();
+            elytraFlyEnabledByRepair = true;
+        }
+        return true;
+    }
+
+    private void handleLanding() {
+        if (mc.player.onGround()) {
+            releaseKeys();
+            info("Landed. Repairing the elytra on the ground.");
+            startRepairing();
+            return;
+        }
+        if (System.currentTimeMillis() - phaseStartMs > LANDING_TIMEOUT_MS) {
+            error("Could not land within " + LANDING_TIMEOUT_MS / 1000 + "s (no safe ground found below).");
+            currentState = RepairState.EMERGENCY_DISCONNECT;
+            return;
+        }
+
+        double groundY = safeGroundY();
+        boolean safe = !Double.isNaN(groundY);
+        // Sinking on beats disconnecting mid-air, but only if the elytra lasts until the ground.
+        if (isElytraCritical() && !(safe && landsBeforeElytraFails(groundY))) {
+            error("Elytra durability critical and no safe ground within reach. Aborting repair.");
+            currentState = RepairState.EMERGENCY_DISCONNECT;
+            return;
+        }
+
+        // Falling with a closed elytra (not opened yet, or the glide ended) would be no controlled descent.
+        ElytraController.deployElytra();
+        if (!safe && !heldKeys.contains(mc.options.keyUp)) info("No safe ground below (liquid, hazard or void). Moving on.");
+        setHeld(mc.options.keyShift, safe);
+        setHeld(mc.options.keyUp, !safe);
+    }
+
+    // Top of the ground straight below, or NaN if the descent must not end there: liquid, ground
+    // that hurts, or no ground at all (the End's void).
+    private double safeGroundY() {
+        BlockPos.MutableBlockPos pos = mc.player.blockPosition().mutable();
+        for (; pos.getY() >= mc.level.getMinY(); pos.move(Direction.DOWN)) {
+            BlockState state = mc.level.getBlockState(pos);
+            if (!state.getFluidState().isEmpty() || HARMFUL_GROUND.contains(state.getBlock())) return Double.NaN;
+            VoxelShape shape = state.getCollisionShape(mc.level, pos);
+            if (!shape.isEmpty()) return pos.getY() + shape.max(Direction.Axis.Y);
+        }
+        return Double.NaN;
+    }
+
+    // The elytra stops working at 1 durability and loses about 1 per second of gliding (Unbreaking
+    // only stretches that). ElytraFly sinks 0.5 × vertical-speed blocks per tick while sneaking.
+    private boolean landsBeforeElytraFails(double groundY) {
+        ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
+        ItemStack elytra = mc.player.getItemBySlot(EquipmentSlot.CHEST);
+        double blocksPerSecond = 10 * elytraFly.verticalSpeed.get();
+        int secondsLeft = elytra.getMaxDamage() - elytra.getDamageValue() - 1;
+        return blocksPerSecond > 0 && (mc.player.getY() - groundY) / blocksPerSecond < secondsLeft;
+    }
+
+    // On the ground the bottles break at the player's feet and the orbs reach them.
+    private void startRepairing() {
+        AutoEXP autoExp = Modules.get().get(AutoEXP.class);
+        if (autoExp != null && !autoExp.isActive()) {
+            autoExp.toggle();
+            autoExpEnabledByRepair = true;
+        }
+        phaseStartMs = System.currentTimeMillis();
+        lastRepairDamage = mc.player.getItemBySlot(EquipmentSlot.CHEST).getDamageValue();
+        lastRepairProgressMs = phaseStartMs;
+        currentState = RepairState.REPAIRING;
+    }
+
+    private void handleRepairing() {
+        ItemStack elytra = mc.player.getItemBySlot(EquipmentSlot.CHEST);
+        if (elytra.getItem() != Items.ELYTRA) {
+            stayOnGround("Elytra was taken off during the repair.");
+            return;
+        }
+        int damage = elytra.getDamageValue();
+        if (damage == 0) {
+            info("Elytra repaired.");
+            startTakeoff();
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        if (damage < lastRepairDamage) {
+            lastRepairDamage = damage;
+            lastRepairProgressMs = now;
+        }
+        boolean stalled = now - lastRepairProgressMs > REPAIR_STALL_TIMEOUT_MS;
+        boolean timedOut = now - phaseStartMs > repairTimeout.get() * 1000L;
+        if (!stalled && !timedOut) return;
+
+        // AutoEXP stops at its max-threshold (80 % by default), which is plenty to fly on.
+        if (!needsRepair(elytra)) {
+            info("Repair stopped at " + (elytra.getMaxDamage() - damage) + " durability, above the threshold.");
+            startTakeoff();
+        } else if (timedOut) {
+            stayOnGround("Repair timeout reached.");
+        } else {
+            stayOnGround("Repair made no progress for " + REPAIR_STALL_TIMEOUT_MS / 1000 + "s (out of XP bottles?).");
+        }
+    }
+
+    private void startTakeoff() {
+        restoreAutoExp(); // bottles thrown in the air would only be lost
+        if (keepFlightPaused) {
+            resumeNormalOperation();
+            info("Repair sequence ended. Flight stays stopped as requested.");
+            resetRepairState();
+            currentState = RepairState.MONITORING;
+            return;
+        }
+        // Baritone's elytra process takes off from the ground by itself (rockets needed) and
+        // climbs on its way to the next waypoint.
+        if (ElytraController.isBaritoneFlight()) {
+            resumeFlight();
+            return;
+        }
+        if (!borrowElytraFly()) return;
+        info("Taking off. Climbing back to cruise altitude (Y=" + Config.flightAltitude + ") first.");
+        phaseStartMs = System.currentTimeMillis();
+        currentState = RepairState.TAKING_OFF;
+    }
+
+    // Without Baritone the repair climbs back itself: in Vanilla mode ElytraFly only gains height
+    // while jump is held, so the resumed flight would otherwise carry on just above the ground.
+    private void handleTakingOff() {
+        boolean reachedAltitude = mc.player.getY() >= Config.flightAltitude;
+        boolean timedOut = System.currentTimeMillis() - phaseStartMs > CLIMB_TIMEOUT_MS;
+        if (reachedAltitude || timedOut) {
+            if (!reachedAltitude) warning("Climb to Y=" + Config.flightAltitude + " timed out (" + CLIMB_TIMEOUT_MS / 1000 + "s). Continuing at Y=" + (int) mc.player.getY() + ".");
+            resumeFlight();
+            return;
+        }
+        // On the ground jump gets the player airborne; deployElytra opens the elytra once they are.
+        setHeld(mc.options.keyJump, true);
+        ElytraController.deployElytra();
+    }
+
+    private void resumeFlight() {
+        resumeNormalOperation();
+        ElytraController.resume();
+        if (ElytraController.isBaritoneFlight()) info("Resuming flight. Baritone takes off and climbs back to cruise altitude (Y=" + Config.flightAltitude + ").");
+        else info("Resuming flight.");
+        notifyDiscord("Elytra Repair Finished", "Repair sequence complete. Resuming flight.", 0x00FF00);
+        resetRepairState();
+        justFinishedRepairing = true; // after the reset, which clears it
+        currentState = RepairState.MONITORING;
+    }
+
+    // On the ground the elytra can't fail mid-air: keep the flight paused (trip saved) instead of disconnecting.
+    private void stayOnGround(String reason) {
+        error(reason);
+        warning("Flight paused on the ground. Restock and use .stashhunter resume.");
+        notifyDiscord("Elytra Repair Failed - Paused", reason + " Flight paused on the ground at " + mc.player.blockPosition().toShortString() + ".", 0xFFAA00);
+        abortRepair();
+    }
+
+    private void handleEmergencyDisconnect() {
+        resumeNormalOperation();
+        error("Emergency disconnect initiated...");
+        notifyDiscord("Elytra Repair Failed", "Emergency disconnect: elytra repair failed.", 0xFF0000);
+        if (ElytraController.isActive()) ElytraController.pause();
+        if (mc.getConnection() != null) {
+            mc.getConnection().getConnection().disconnect(net.minecraft.network.chat.Component.literal("Emergency disconnect: Elytra repair failed"));
+        }
+        resetRepairState();
+        currentState = RepairState.MONITORING;
+        pendingDeactivate = true;
     }
 
     // The elytra still has repair-threshold durability left: enough for Baritone to land nearby.
@@ -661,36 +498,28 @@ public class AutoElytraRepair extends Module {
     }
 
     private void resetRepairState() {
-        repairStartTime = 0;
-        timer = 0;
+        phaseStartMs = 0;
         justFinishedRepairing = false;
-        scaffoldSetupDone = false;
-        scaffoldAttempts = 0;
-        originalAutoPilotState = true;
+        originalAutoPilotState = false;
+        originalAutoTakeoffState = false;
         originalFlightMode = ElytraFlightModes.Vanilla;
         elytraFlySettingsSaved = false;
         elytraFlyEnabledByRepair = false;
         autoExpEnabledByRepair = false;
         keepFlightPaused = false;
-        originalScaffoldAirPlace = true;
-        originalScaffoldAutoSwitch = true;
-        scaffoldSettingsSaved = false;
-        scaffoldEnabledByRepair = false;
-        decelWaiting = false;
-        decelTimer = 0;
-        stopWaitTimer = 0;
-        lastPlayerPosition = null;
-        stationaryTicks = 0;
-        climbingToCruise = false;
-        climbStartTimeMs = 0;
+        repairDimension = null;
         lastRepairDamage = 0;
         lastRepairProgressMs = 0;
     }
 
     private void resumeNormalOperation() {
-        mc.options.keyShift.setDown(false);
-        mc.options.keyUp.setDown(false);
+        releaseKeys();
+        restoreElytraFly();
+        restoreAutoExp();
+        debugLog("AutoElytraRepair cleanup finished.");
+    }
 
+    private void restoreElytraFly() {
         ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
         if (elytraFly != null && elytraFlyEnabledByRepair && elytraFly.isActive()) {
             // Off before the flight controller resumes: ElytraFly would fight Baritone's elytra process.
@@ -703,29 +532,33 @@ public class AutoElytraRepair extends Module {
             elytraFly.autoPilot.set(originalAutoPilotState);
             elytraFly.autoTakeOff.set(originalAutoTakeoffState);
         }
+        elytraFlySettingsSaved = false;
+    }
 
-        restoreScaffold();
-
-        // Only switch AutoEXP off if the repair switched it on; the player may run it on purpose.
+    // Only switch AutoEXP off if the repair switched it on; the player may run it on purpose.
+    private void restoreAutoExp() {
         AutoEXP autoExp = Modules.get().get(AutoEXP.class);
         if (autoExp != null && autoExpEnabledByRepair && autoExp.isActive()) {
             autoExp.toggle();
         }
         autoExpEnabledByRepair = false;
-        debugLog("AutoElytraRepair cleanup finished.");
     }
 
-    private void restoreScaffold() {
-        Scaffold scaffold = Modules.get().get(Scaffold.class);
-        if (scaffold != null) {
-            if (scaffoldEnabledByRepair && scaffold.isActive()) scaffold.toggle();
-            if (scaffoldSettingsSaved) {
-                writeBool(scaffold, "air-place", originalScaffoldAirPlace);
-                writeBool(scaffold, "auto-switch", originalScaffoldAutoSwitch);
-            }
+    // Refcounted via KeyHold, so another module's hold of the same key survives the release.
+    private void setHeld(KeyMapping key, boolean hold) {
+        if (hold == heldKeys.contains(key)) return;
+        if (hold) {
+            heldKeys.add(key);
+            KeyHold.press(key);
+        } else {
+            heldKeys.remove(key);
+            KeyHold.release(key);
         }
-        scaffoldEnabledByRepair = false;
-        scaffoldSettingsSaved = false;
+    }
+
+    private void releaseKeys() {
+        heldKeys.forEach(KeyHold::release);
+        heldKeys.clear();
     }
 
     // Public Helpers for other modules
@@ -763,14 +596,6 @@ public class AutoElytraRepair extends Module {
             && elytra.getMaxDamage() - elytra.getDamageValue() <= CRITICAL_DURABILITY;
     }
 
-    // Used while still gliding without a block below: disconnecting beats the elytra breaking mid-air.
-    private boolean abortIfElytraCritical() {
-        if (!isElytraCritical()) return false;
-        error("Elytra durability critical before a block could be placed. Aborting repair.");
-        currentState = RepairState.EMERGENCY_DISCONNECT;
-        return true;
-    }
-
     private void notifyDiscord(String title, String description, int color) {
         if (notifyRepairs.get()) DiscordWebhook.sendMessage("", new DiscordEmbed(title, description, color));
     }
@@ -779,26 +604,5 @@ public class AutoElytraRepair extends Module {
         if (debugMode.get()) {
             info("[DEBUG] " + message);
         }
-    }
-
-    // Scaffold keeps these settings private; Meteor's settings lookup by name is the public way in.
-    private boolean readBool(Module module, String name, boolean fallback) {
-        Setting<Boolean> setting = boolSetting(module, name);
-        return setting != null ? setting.get() : fallback;
-    }
-
-    private void writeBool(Module module, String name, boolean value) {
-        Setting<Boolean> setting = boolSetting(module, name);
-        if (setting != null) setting.set(value); // set() matches GUI behavior
-    }
-
-    @SuppressWarnings("unchecked")
-    private Setting<Boolean> boolSetting(Module module, String name) {
-        Setting<?> setting = module.settings.get(name);
-        if (setting != null && setting.get() instanceof Boolean) return (Setting<Boolean>) setting;
-        if (missingSettingWarned.add(module.name + "/" + name)) {
-            StashHunter.LOG.warn("{} has no boolean setting '{}' - Meteor changed it, auto repair can't adjust it", module.name, name);
-        }
-        return null;
     }
 }

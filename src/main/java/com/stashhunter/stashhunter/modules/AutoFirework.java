@@ -91,7 +91,7 @@ public class AutoFirework extends Module {
         if (ElytraController.isLandingAfterCompletion()) return;
         // Baritone's elytra process times its own rockets and slot swaps; ours would stack on top.
         if (BaritoneBridge.isElytraActive()) return;
-        // The repair brakes and hovers on purpose; a boost would fight the slowdown.
+        // The repair lands on purpose; a boost would fight the descent.
         AutoElytraRepair repair = Modules.get().get(AutoElytraRepair.class);
         if (repair != null && repair.isActive() && repair.isRepairing()) return;
 

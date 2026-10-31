@@ -3,7 +3,8 @@
 **Projekt:** Stash-Hunter (Meteor-Client-Addon, Fabric, Minecraft 26.2, Java 25, Mojang-Mappings)
 
 **Stand 2026-10-31:** Alles unten ist eingebaut und bis `c5dcaed` committet (zuletzt ChestIndex),
-außer „Zuverlässigeres Stash-Hunting“ (PLAN 97–100, umgesetzt, noch nicht committet).
+außer „Zuverlässigeres Stash-Hunting“ (PLAN 97–100, umgesetzt, noch nicht committet) und der
+Reparatur am Boden (PLAN 102, noch nicht committet).
 `gradlew build` läuft mit JDK 25 grün (inkl. Spotless + 125 Unit-Tests). **Offen ist nur noch der In-game-Test.**
 
 Den End-Detektor in NewerNewChunks beschreibt [DSH-HANDOFF.md](DSH-HANDOFF.md).
@@ -23,10 +24,17 @@ Den End-Detektor in NewerNewChunks beschreibt [DSH-HANDOFF.md](DSH-HANDOFF.md).
 - [ ] **Stash auf Streifengrenze** wird gemeldet.
 - [ ] **Zuerst halb gesehener Stash** bekommt eine „Stash Updated“-Meldung und einen verschobenen
       Waypoint.
-- [ ] **AutoElytraRepair mit Baritone-Flug:** Elytra unter `repair-threshold` (Mending, XP-Flaschen,
-      Blöcke in der Hotbar). Erwartet: „Stash hunter flight stopped“, Spieler schwebt (ElytraFly
-      Vanilla), „Player has stopped moving“ statt Timeout, Block, Reparatur, danach geht der Flug
-      weiter und ElytraFly ist wieder aus. Ohne Mending: sofort „no Mending“ + Disconnect.
+- [ ] **AutoElytraRepair landet zum Reparieren** (Mending, XP-Flaschen, keine Blöcke nötig), mit und
+      ohne Baritone. Erwartet: „Stash hunter flight stopped“, „Landing to repair it“, senkrechter
+      Sinkflug (ElytraFly Vanilla + Shift) **ohne Fallschaden**, „Landed“, AutoEXP wirft am Boden,
+      „Elytra repaired“ bzw. „Repair stopped at … durability“ (AutoEXP `max-threshold`). Mit Baritone
+      startet Baritone selbst (Raketen nötig); ohne Baritone „Taking off“, Steigen mit Sprungtaste
+      bis `flight-altitude`, dann „Resuming flight“. ElytraFly danach wieder im alten Modus/aus,
+      AltitudeLossDetector/AutoFirework/StuckDetector still während des Sinkflugs.
+- [ ] **Reparatur über Wasser/Lava** (z. B. Ozean, Nether-Lavasee): „No safe ground below … Moving
+      on“, gleitet geradeaus bis festem Boden. Im End über dem Void ebenso.
+- [ ] **XP gehen am Boden aus:** „Repair made no progress“ → Flug bleibt am Boden pausiert, Discord
+      „Elytra Repair Failed - Paused“, kein Disconnect; nach Auffüllen `.sh resume`.
 - [ ] **`.sh altitude <y>`** während eines Flugs: Baritone plant zum nächsten Waypoint auf neuer
       Höhe neu; GUI-Wert `flight-altitude` zieht mit; `.sh resume` nutzt die aktuelle Höhe.
 - [ ] **Raketen knapp** (Baritone-Flug, ≤ `low-firework-threshold`): Chat + Discord „Fireworks low“,
@@ -42,7 +50,8 @@ Den End-Detektor in NewerNewChunks beschreibt [DSH-HANDOFF.md](DSH-HANDOFF.md).
       keine Elytra-Pose am Boden; mit Raketen startet Baritone nach ≤ 5 s neu (Waypoint im Umkreis
       von 64 Blöcken zählt als erreicht), ohne Raketen bzw. nach 3 Fehlstarts „Flight Paused After
       Landing“ und `.sh resume` geht.
-- [ ] **Während einer Reparatur:** `.sh stop` → Reparatur endet, Flug bleibt aus. Kick mitten in der
+- [ ] **Während einer Reparatur:** `.sh stop` → Landung und Reparatur laufen zu Ende, Flug bleibt am
+      Boden aus. Kick mitten in der
       Reparatur → nach Rejoin kein Weiterreparieren, ElytraFly/AutoEXP wieder im alten Zustand. Tod
       während der Reparatur → „Repair aborted“, kein Weiterflug vom Spawn. Eigenes AutoEXP bleibt
       nach der Reparatur an.
@@ -156,6 +165,42 @@ kann die vorige Version zurückkommen, aber keine kaputte Datei. Unter Linux hat
 ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL eher erwünscht.
 
 ## Erledigte Änderungen
+
+### AutoElytraRepair: Reparatur am Boden statt in der Luft, PLAN-Punkt 102 (nicht committet)
+
+`modules/AutoElytraRepair.java` neu aufgebaut. Zustände nur noch `MONITORING`, `LANDING`,
+`REPAIRING`, `TAKING_OFF`, `EMERGENCY_DISCONNECT`. Scaffold, Schweben, Stopp-Warten,
+Abbremsen und Positionieren sind weg (samt `readBool`/`writeBool` für Scaffold-Settings).
+
+- `initiateRepairSequence`: XP-/Mending-Prüfung wie vorher, `ElytraController.pause()`. Am Boden
+  direkt `startRepairing()`, sonst `borrowElytraFly()` (Vanilla, Autopilot aus, Auto-Takeoff an;
+  idempotent, `restoreElytraFly()` setzt `elytraFlySettingsSaved` zurück) und `LANDING`.
+- `LANDING`: jeden Tick `safeGroundY()` (Spalte unter dem Spieler bis `getMinY()`; erste Kollision
+  = Boden; Flüssigkeit, `HARMFUL_GROUND` oder kein Boden → `NaN`). Sicher → Shift (ElytraFly sinkt
+  0,5 × `vertical-speed` Blöcke/Tick), sonst Vorwärts-Taste (gleitet weiter, keine Höhe verloren).
+  `deployElytra()` jeden Tick, falls die Elytra zu ist. `onGround()` → `REPAIRING`.
+  Timeout 90 s → Emergency-Disconnect. Kritische Haltbarkeit: weiter sinken, wenn
+  `Höhe / (10 × vertical-speed) < Haltbarkeit − 1` Sekunden, sonst Disconnect.
+- **Fallschaden** (Bytecode 26.2 geprüft): `LivingEntity.updateFallFlying()` →
+  `checkFallDistanceAccumulation()` setzt `fallDistance` auf 1, solange `getDeltaMovement().y > -0.5`.
+  `ServerPlayer` überschreibt `getDeltaMovement` nicht, die Client-Bewegung landet nur in
+  `setKnownMovement`; serverseitig bleibt der Wert ≈ 0, also Reset jeden Tick beim Gleiten. Die
+  Sinkgeschwindigkeit ist deshalb egal, `vertical-speed` wird nicht verändert.
+- `REPAIRING`: AutoEXP an (nur zurück aus, wenn die Reparatur es eingeschaltet hat). Fertig bei
+  Schaden 0; bei 5 s ohne Fortschritt oder `repair-timeout`: über der Schwelle → Start, sonst
+  `stayOnGround()` (Flug bleibt pausiert, Discord „Elytra Repair Failed - Paused“, kein Disconnect).
+  Elytra abgelegt → ebenso.
+- `startTakeoff`: AutoEXP sofort zurück (Flaschen in der Luft wären verloren). `keepFlightPaused` →
+  bleibt am Boden. Baritone → `resumeFlight()` (Baritone startet per `elytraAutoJump`). Ohne
+  Baritone `TAKING_OFF`: Sprungtaste halten (ElytraFly Vanilla steigt nur mit Sprung, der
+  Controller-Pitch hebt nicht) bis `Config.flightAltitude`, Timeout 60 s, dann `resumeFlight()`.
+- Tasten über `setHeld()` / `releaseKeys()` (KeyHold-Refcount, Set `heldKeys`); keine Timed-Holds
+  mehr, daher kein `KeyHold.cancel(this)`. `mc.options.keyUp.setDown(false)` nach dem Abschalten des
+  ElytraFly-Autopiloten bleibt (PLAN 4, Punkt 30).
+- `AltitudeLossDetector` zählt den Sinkflug nicht (`isRepairing()`); bei 10 Blöcken/s lag er genau
+  an der Standard-Schwelle 10, der Sprung-Fix hätte gegen die Landung gearbeitet.
+- `cannotRepair` (keine XP/kein Mending) unverändert: Baritone-Landung bzw. Disconnect. Könnte jetzt
+  auch die eigene Landung nutzen (offen, nicht angefasst).
 
 ### Zuverlässigeres Stash-Hunting, PLAN-Punkte 97–100 (nicht committet)
 

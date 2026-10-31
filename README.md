@@ -2,7 +2,7 @@
 
 A [Meteor Client](https://meteorclient.com/) addon that finds stashes on anarchy servers for you. It flies an elytra over an area you choose, scans the loaded chunks for clusters of containers and other base blocks, and reports what it finds to Discord and as Meteor waypoints.
 
-It can also follow trails of newly generated chunks toward player activity, repair its elytra with XP bottles mid-flight, and recover from rubber-banding and sudden altitude loss, so it can run for hours without you.
+It can also follow trails of newly generated chunks toward player activity, land to repair its elytra with XP bottles, and recover from rubber-banding and sudden altitude loss, so it can run for hours without you.
 
 Built for **Minecraft 26.2**. Licensed under the Apache License 2.0.
 
@@ -40,7 +40,7 @@ Fabric API is **not** required.
 ## Quick start
 
 1. **Equip an elytra.** The flight refuses to start without one.
-2. **Optional:** Enable `auto-elytra-repair` for long runs. It needs a **Mending** elytra, **XP bottles** in your inventory and blocks for Meteor's Scaffold module (see [Auto Elytra Repair](#auto-elytra-repair)).
+2. **Optional:** Enable `auto-elytra-repair` for long runs. It needs a **Mending** elytra and **XP bottles** in your inventory (see [Auto Elytra Repair](#auto-elytra-repair)).
 3. **Enable `NewerNewChunks`** if you want the bot to follow chunk trails.
 4. Paste your **Discord webhook URL** into the `stash-hunter` module's `discord-webhook-url` setting. You can skip this step; without a URL, finds still show up in chat and as waypoints.
 5. Get airborne and start scanning, for example a 20,000 × 20,000 area centred on you:
@@ -89,12 +89,12 @@ After each detour it returns to its strips. Chunks the server hasn't sent yet ar
 | Command | What it does |
 | --- | --- |
 | `.sh start <x1> <z1> <x2> <z2> [stripWidth]` | Scans the rectangle between the two corners. |
-| `.sh spiral [<x> <z>] <radius> [gap]` | Scans a square spiral outward from your position (or from `x z`; `~` works) up to `radius` blocks (50-25000), rings `gap` blocks apart (default 128, 50-500). Pause/resume like `start`. Example: `.sh spiral 3000`. |
+| `.sh spiral [<x> <z>] <radius> [gap]` | Scans a square spiral outward from your position (or from `x z`; `~` works) up to `radius` blocks (50-25000), rings `gap` blocks apart (50-500; default twice `scan-radius`, i.e. 128). The flight stays inside the radius and stops at the last ring the scan needs to reach it. Shows the flight path in km and warns if `gap` leaves unscanned bands. Pause/resume like `start`. Example: `.sh spiral 3000`. |
 | `.sh stop` | Stops the current flight. |
 | `.sh pause` | Stops the flight and saves it as a trip. |
 | `.sh resume [timestamp]` | Continues the latest saved trip, or the one with the given timestamp. |
 | `.sh list` | Lists the timestamps of all saved trips. Only the 20 newest are kept; a flight that is paused again replaces its own entry. |
-| `.sh status` | Shows the status, the current waypoint and the current target. |
+| `.sh status` | Shows the status, the current waypoint, the current target and the progress along the flight path in km. |
 | `.sh altitude [y]` | Shows or sets the flight altitude (100-400). A running flight moves its remaining waypoints to the new height; resumed trips also use the current value. |
 | `.sh repair` | Shows the Auto Elytra Repair state and your elytra's durability. |
 | `.sh repair toggle` | Turns Auto Elytra Repair on or off. |
@@ -162,30 +162,31 @@ Scans for stashes, drives the flight and sends the notifications. It must be ena
 
 ### Auto Elytra Repair (`auto-elytra-repair`)
 
-When the elytra's remaining durability drops to `repair-threshold`, the module first looks for a spare elytra in your inventory with more durability than that (`swap-to-spare`) and puts it on - no stop needed. Without a spare it runs a repair sequence:
+When the elytra's remaining durability drops to `repair-threshold`, the module first looks for a spare elytra in your inventory with more durability than that (`swap-to-spare`) and puts it on - no stop needed. Without a spare it lands and repairs on the ground, never in the air:
 
-1. It pauses the flight (Baritone included) and hovers with Meteor's **ElytraFly** until you have stopped.
-2. It places a block below you with Meteor's **Scaffold** (up to 3 tries).
-3. It hovers on that block and lets Meteor's **AutoEXP** throw XP bottles until the elytra is repaired.
-4. It resumes the flight. With Baritone, Baritone climbs back to cruise altitude on its way to the next waypoint.
+1. It pauses the flight (Baritone included) and sinks straight down with Meteor's **ElytraFly** (Vanilla mode, as if you held sneak, at its `vertical-speed`). If the ground below is unsafe (water, lava, fire, magma, cactus, powder snow, or no ground at all as in the End), it glides forward until it is over safe ground.
+2. On the ground, Meteor's **AutoEXP** throws XP bottles until the elytra is repaired. AutoEXP stops at its own `max-threshold` (80 % by default), which is enough to continue.
+3. It resumes the flight. With Baritone, Baritone takes off by itself (rockets needed) and climbs back to cruise altitude on its way to the next waypoint. Without Baritone, the module first climbs back to `flight-altitude` with ElytraFly (holding jump).
+
+If the bot is already standing on the ground (for example after a Baritone landing), it repairs right away.
 
 **What you need:**
 - A **Mending** elytra
 - **XP bottles** anywhere in your inventory
-- **Blocks** for Scaffold
 
 **When it gives up:**
 - **No XP bottles or no Mending:** the repair does not start. With Baritone flight the scan is saved and Baritone lands on a safe spot nearby (`.sh resume` later); otherwise the bot disconnects.
-- **Scaffold places no block in 3 tries:** the bot disconnects.
-- **No progress for 5 seconds:** the repair stops. If the elytra is still below the threshold, the bot disconnects.
-- **Elytra about to break (≤ 10 durability) while still gliding** (also during a Baritone landing): the bot disconnects rather than risk a fall.
+- **No safe ground within 90 seconds:** the bot disconnects.
+- **Elytra about to break (≤ 10 durability) during the descent:** it keeps sinking if it reaches the ground before the elytra gives out, otherwise the bot disconnects rather than risk a fall. During a Baritone landing it disconnects.
+- **On the ground, no progress for 5 seconds or `repair-timeout` reached:** if the elytra is above the threshold, the flight resumes. Otherwise the flight stays paused on the ground (Discord message); restock and `.sh resume`.
+- **The climb without Baritone doesn't reach `flight-altitude` within 60 seconds:** the flight resumes from where it is.
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `repair-threshold` | Remaining durability that starts a repair (minimum 30, so the sequence has headroom). | 50 |
-| `swap-to-spare` | Put on a spare elytra from the inventory (above `repair-threshold`) instead of repairing mid-air. | true |
+| `repair-threshold` | Remaining durability that starts a repair (minimum 30). The descent uses about 1 durability per second (roughly 10 seconds from the default `flight-altitude` of 160 with ElytraFly's default `vertical-speed`), so raise it if you fly high or with a low `vertical-speed`. | 50 |
+| `swap-to-spare` | Put on a spare elytra from the inventory (above `repair-threshold`) instead of landing to repair. | true |
 | `notify-repairs` | Send Discord messages about repairs. | true |
-| `repair-timeout` | Maximum repair time in seconds. | 300 |
+| `repair-timeout` | Maximum time for the repair on the ground, in seconds. | 300 |
 | `debug-mode` | Print detailed progress in chat. | false |
 
 ### Stuck Detector (`stuck-detector`)
@@ -205,7 +206,7 @@ Stopping the glide only happens within 4 blocks of the ground (or water), so a f
 
 ### Altitude Loss Detector (`altitude-loss-detector`)
 
-Notices when you drop faster than `altitude-drop-threshold` blocks per second while gliding or while the bot is flying, for example when the elytra closed. It holds jump for 5 seconds to redeploy the elytra.
+Notices when you drop faster than `altitude-drop-threshold` blocks per second while gliding or while the bot is flying, for example when the elytra closed. It holds jump for 5 seconds to redeploy the elytra. Deliberate descents don't count: a Baritone landing and the descent of an elytra repair.
 
 | Setting | Description | Default |
 | --- | --- | --- |

@@ -120,7 +120,7 @@ public class StuckDetector extends Module {
             return;
         }
 
-        // Auto repair hovers in place on purpose; the stuck fix would drop the player out of the glide.
+        // Auto repair sinks straight down on purpose; the stuck fix would drop the player out of the glide.
         AutoElytraRepair repair = Modules.get().get(AutoElytraRepair.class);
         if (repair != null && repair.isActive() && repair.isRepairing()) {
             lastPosition = null;

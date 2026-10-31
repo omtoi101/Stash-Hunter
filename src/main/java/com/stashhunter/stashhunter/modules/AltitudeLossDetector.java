@@ -9,6 +9,7 @@ import com.stashhunter.stashhunter.utils.KeyHold;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.orbit.EventHandler;
 
 
@@ -87,7 +88,10 @@ public class AltitudeLossDetector extends Module {
         // Only elytra flight counts: walking off a ledge or a normal fall is no altitude loss.
         // While the bot flies, a closed elytra falling is exactly the case to recover from.
         // A deliberate post-scan landing descends fast too; holding jump would fight Baritone.
-        boolean flying = (mc.player.isFallFlying() || ElytraController.isActive()) && !ElytraController.isLandingAfterCompletion();
+        // The elytra repair's descent to the ground is just as deliberate.
+        AutoElytraRepair repair = Modules.get().get(AutoElytraRepair.class);
+        boolean repairing = repair != null && repair.isActive() && repair.isRepairing();
+        boolean flying = (mc.player.isFallFlying() || ElytraController.isActive()) && !ElytraController.isLandingAfterCompletion() && !repairing;
 
         // Keep the reference fresh while not checking, so the first check afterwards doesn't
         // compare against a Y from before the cooldown/fix and fire on that stale drop.

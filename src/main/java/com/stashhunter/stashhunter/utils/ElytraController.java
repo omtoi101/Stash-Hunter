@@ -97,16 +97,16 @@ public class ElytraController {
         if (stripWidth <= 0) throw new IllegalArgumentException("stripWidth must be positive, got " + stripWidth);
         // Always generate grid-based waypoints for systematic exploration
         // The bot will dynamically avoid new chunks during flight
-        startWith(GridWaypoints.generate(x1, z1, x2, z2, stripWidth, Config.flightAltitude));
+        start(GridWaypoints.generate(x1, z1, x2, z2, stripWidth, Config.flightAltitude));
     }
 
-    public static void startSpiral(int centerX, int centerZ, int radius, int gap) {
-        // Generated before any state changes, so bad arguments throw without leaving an active empty flight.
-        startWith(SpiralWaypoints.generate(centerX, centerZ, radius, gap, Config.flightAltitude));
-    }
-
-    // Trips store the plain waypoint list, so pause/resume works the same for every search pattern.
-    private static void startWith(List<Vec3> generated) {
+    /**
+     * Flies a ready waypoint list, e.g. from {@link SpiralWaypoints}. Trips store the plain list, so
+     * pause/resume works the same for every search pattern.
+     */
+    public static void start(List<Vec3> generated) {
+        // Checked before any state changes, so an empty list can't leave an active flight that never moves.
+        if (generated.isEmpty()) throw new IllegalArgumentException("no waypoints to fly");
         waypoints.clear();
         currentWaypoint = 0;
         active = true;
@@ -770,6 +770,17 @@ public class ElytraController {
 
     public static int getTotalWaypoints() {
         return waypoints.size();
+    }
+
+    /** Horizontal length of the whole flight path in blocks. */
+    public static double getPathLength() {
+        return WaypointPath.length(waypoints);
+    }
+
+    /** Horizontal blocks of the flight path already covered, for progress that long legs don't skew. */
+    public static double getDistanceFlown() {
+        if (MeteorClient.mc.player == null) return 0;
+        return WaypointPath.flown(waypoints, currentWaypoint, MeteorClient.mc.player.getX(), MeteorClient.mc.player.getZ());
     }
 
     public static String getStatus() {
