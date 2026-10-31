@@ -6,6 +6,8 @@ import com.stashhunter.stashhunter.utils.DiscordWebhook;
 import com.stashhunter.stashhunter.commands.StashHunterCommand;
 import com.stashhunter.stashhunter.commands.ClearStashesCommand;
 import com.stashhunter.stashhunter.commands.ClearPlayersCommand;
+import com.stashhunter.stashhunter.commands.ChestIndexCommand;
+import com.stashhunter.stashhunter.modules.ChestIndexer;
 import com.stashhunter.stashhunter.hud.StashHunterHud;
 import com.stashhunter.stashhunter.modules.AltitudeLossDetector;
 import com.stashhunter.stashhunter.modules.NewerNewChunks;
@@ -66,11 +68,13 @@ public class StashHunter extends MeteorAddon {
         Modules.get().add(new PlayerAlarms());
         Modules.get().add(new AutoLogout());
         Modules.get().add(new StackedMinecartDetector());
+        Modules.get().add(new ChestIndexer());
 
         // Commands
         Commands.add(new StashHunterCommand());
         Commands.add(new ClearStashesCommand());
         Commands.add(new ClearPlayersCommand());
+        Commands.add(new ChestIndexCommand());
 
         // HUD
         Hud.get().register(StashHunterHud.INFO);

@@ -2,10 +2,9 @@
 
 ## Stand (2026-10-31)
 
-- Branch `code-revision`, zuletzt `ec9efdb`. Alles bis einschließlich `AtomicFiles` und
-  `stacked-minecarts` ist committet. Noch nicht committet: die Review-Punkte 89–95 (Abschnitt 0)
-  und **54 Xaero-Waypoints** (`save-to-xaero`).
-- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **108 Unit-Tests in 23 Suites**.
+- Branch `code-revision`, zuletzt `d2f5f57` (Review-Punkte 89–95 und 54 Xaero-Waypoints). Noch
+  nicht committet: **53 ChestIndex** (`chest-index`).
+- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **116 Unit-Tests in 24 Suites**.
 - Von Abschnitt 0 ist nur 96 offen (nur beobachten).
 - **Nichts davon ist in-game getestet.** Das ist der nächste Schritt (Checkliste in Abschnitt 1).
 - Offen sind danach nur noch Feature-Ideen (Abschnitt 3).
@@ -66,6 +65,12 @@ Scan und Stashes:
 - [ ] `reported-stashes`-Datei hält nach Reconnect (keine doppelten Meldungen)
 - [ ] `include-spawners`, `structure-filter-radius`, `structure-waypoints`
 - [ ] Stash-ESP (Outlines, Boxen, Tracer)
+- [ ] `chest-index` (zuerst Singleplayer, dann Server): `auto-open` öffnet Kisten/Fässer/Shulker
+      in Reichweite nacheinander und schließt sie; Doppelkiste ergibt einen Eintrag; Kiste unter
+      einem Block wird übersprungen; nicht beim Schleichen, mit offenem Chat oder im Flug; selbst
+      geöffnete Kiste bleibt offen, Herausnehmen landet im Index; JSON in
+      `meteor-client/StashHunter/chest-index/` nach Verlassen der Welt aktuell;
+      `.chest-index search diamond` zählt Shulker-Inhalte mit; kein Anti-Cheat-Kick bei `delay` 10
 - [ ] `save-to-xaero` mit Xaero's Minimap 26.2: Stash bekommt einen goldenen `S`-Waypoint im
       aktuellen Set, er übersteht einen Neustart, die World Map zeigt ihn nach dem Öffnen;
       „Stash Updated“ verschiebt ihn; ohne Xaero kein Fehler im Log
@@ -153,8 +158,8 @@ Wegen der `26.2`-Pins (`minecraft_version`, `meteor-client: ~26.2-`, Meteor/Bari
 
 ### Stash-Auswertung
 
-- **53 ChestIndex** (höchster Wert): Container in Reichweite öffnen, Inhalt indexieren, als JSON
-  exportieren. jeff mod ⛔ → clean-room.
+- **53-Rest ChestIndex-Ausbau** (nur bei Bedarf): Waypoint/ESP für Treffer von `search`, Suche
+  nach Shulker-Namen, Hinlaufen zu Containern außer Reichweite (Baritone, Überschneidung mit 63).
 - **63 StorageLooter:** Container automatisch looten und sortieren. PathSeeker ✅.
 - **73 ChestTracker mit GUI:** live gepflegtes Container-Verzeichnis (erweitert 53). BepHax ⚠️.
 - **74 ShulkerOverview:** Shulker-Inhalt im Tooltip, ohne Platzieren. BepHax ⚠️.
@@ -252,6 +257,9 @@ Wegen der `26.2`-Pins (`minecraft_version`, `meteor-client: ~26.2-`, Meteor/Bari
 - **89–95** (Code-Review, 2026-10-31): Speichern bei offener Datei unter Windows, Config-Save-Retry,
   Zeilenende vor dem Anhängen, `clearGroundGlide` nur im Flug, `.tmp`-Aufräumen,
   `stacked-minecarts` ohne Doppelmeldung, leere Trips verworfen.
+- **53** ChestIndex (2026-10-31, clean-room): Modul `chest-index` + Befehl `.chest-index`
+  (`search`, `clear`), Logik in `utils/ChestIndex` (+ Test), JSON pro Server unter
+  `StashHunter/chest-index/`. Server-Schlüssel nach `utils/ServerKey` ausgelagert.
 - **54** Xaero-Waypoints (2026-10-31): Setting `save-to-xaero` (opt-in). `xaero/XaeroBridge` +
   `XaeroImpl` analog zu Baritone; `compileOnly` gegen `maven.modrinth:xaeros-minimap:fabric-26.2-26.6.2`
   (Modrinth-Maven, `xaero_minimap_version` in `gradle.properties`), `suggests` in `fabric.mod.json`.

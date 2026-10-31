@@ -2,9 +2,9 @@
 
 **Projekt:** Stash-Hunter (Meteor-Client-Addon, Fabric, Minecraft 26.2, Java 25, Mojang-Mappings)
 
-**Stand 2026-10-31:** Alles unten ist eingebaut und bis `ec9efdb` committet, außer den
-Review-Fixes 1–7 und den Xaero-Waypoints (umgesetzt, noch nicht committet). `gradlew build` läuft mit JDK 25 grün (inkl.
-Spotless + 108 Unit-Tests). **Offen ist nur noch der In-game-Test.**
+**Stand 2026-10-31:** Alles unten ist eingebaut und bis `d2f5f57` committet (zuletzt Review-Fixes
+1–7 und Xaero-Waypoints), außer ChestIndex (umgesetzt, noch nicht committet).
+`gradlew build` läuft mit JDK 25 grün (inkl. Spotless + 116 Unit-Tests). **Offen ist nur noch der In-game-Test.**
 
 Den End-Detektor in NewerNewChunks beschreibt [DSH-HANDOFF.md](DSH-HANDOFF.md).
 
@@ -60,7 +60,7 @@ Geprüft: die damals nicht committeten Änderungen unter `src/` sowie Speichern/
 `TripManager`, `AtomicFiles`, `ReportedStashes`, Datendateien von NewerNewChunks). Nach Priorität
 sortiert. In [PLAN.md](PLAN.md) stehen sie als Abschnitt 0, Punkte 89–96 (1 = 89 … 8 = 96).
 
-**Umgesetzt (1–7, nicht committet):**
+**Umgesetzt (1–7, in `d2f5f57`):**
 
 - 1: `AtomicFiles.replace()` wiederholt das Umbenennen bei jeder `FileSystemException` (offene
   Zieldatei → `AccessDeniedException`, offene Temp-Datei → Sharing Violation als
@@ -156,7 +156,35 @@ ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL e
 
 ## Erledigte Änderungen
 
-### Xaero-Waypoints, PLAN-Punkt 54 (nicht committet)
+### ChestIndex, PLAN-Punkt 53 (nicht committet)
+
+Clean-room: nur gegen die MC-/Meteor-APIs geschrieben, jeff-mod-Code nicht angesehen.
+
+- `utils/ChestIndex` (+ Test, rein): Records `Stack` (Eingabe), `Entry` (Dimension, `pos`, `pair`
+  der Doppelkiste, Block-ID, Slots, ISO-Zeit, `items` pro ID summiert, `shulkers` mit Name und
+  Inhalt). Beide Hälften einer Doppelkiste zeigen auf denselben Eintrag; `put` ersetzt, was an
+  einer der Positionen lag. `search` (ID enthält Suchtext, Shulker-Inhalt zählt mit). JSON über
+  `AtomicFiles`; kaputte Datei → `.corrupt`; nicht lesbare Datei → `readFailed`, dann kein Speichern
+  (sonst würde ein Teil-Index die Datei ersetzen).
+- `modules/ChestIndexer` (`chest-index`): `InteractBlockEvent` auf einen Container merkt die
+  Position (`pendingPos`). Ausgelesen wird, sobald `player.containerMenu` ein `ChestMenu`/
+  `ShulkerBoxMenu` mit `getStateId() != 0` ist. Im Bytecode geprüft: ein neues Menü hat stateId 0,
+  der Server schickt den Inhalt mit `incrementStateId()` (`ServerPlayer$1.sendInitialData`), also 1.
+  Container-Slots = alle Slots, deren `container` nicht das Spielerinventar ist.
+- Auto-open: nächster Container in `isWithinBlockInteractionRange(pos, 0)`, nicht in `handled`
+  (Sitzung) bzw. mit `skip-indexed` nicht im Index; Kisten mit `ChestBlock.isChestBlockedAt`
+  übersprungen. Klick über `BlockUtils.interact` (lässt Shift los, schwingt), optional nach
+  `Rotations.rotate`. Nach dem Auslesen `closeContainer()`, dann `delay` Ticks Pause. Timeout
+  40 Ticks. Pausiert bei offenem Screen, Schleichen, Gleitflug, `ElytraController.isActive()`.
+- Selbst geöffnete Container: alle 10 Ticks neu gelesen, beim Schließen ein letztes Mal aus dem
+  alten Menü (der Client behält dessen Inhalt). Geschrieben wird nur bei geändertem Inhalt.
+- Speichern: alle 60 s, bei `GameLeftEvent` und beim Ausschalten. `GameLeftEvent` kommt auch beim
+  Schließen des Fensters aus einer Welt (`Minecraft.exitWorldAndClose` → `disconnect`).
+- `utils/ServerKey` aus `StashHunterModule.serverKey()` herausgezogen (gleiche Dateinamen).
+- In-game offen: siehe PLAN Abschnitt 1 (`chest-index`). Unsicher sind vor allem Anti-Cheat
+  (Klickrate, Rotation) und Server, die das Kisten-GUI anders öffnen (Plugins).
+
+### Xaero-Waypoints, PLAN-Punkt 54
 
 - Neues Paket `xaero/`: `XaeroBridge` (öffentlich, ohne `xaero.*`-Typen, prüft
   `isModLoaded("xaerominimap")`) und `XaeroImpl` (einzige Klasse mit Xaero-Imports). Handles sind

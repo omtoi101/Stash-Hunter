@@ -11,6 +11,7 @@ import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.KeyHold;
 import com.stashhunter.stashhunter.utils.ReportedStashes;
 import com.stashhunter.stashhunter.utils.ScanTrigger;
+import com.stashhunter.stashhunter.utils.ServerKey;
 import com.stashhunter.stashhunter.utils.StashBlockIndex;
 import com.stashhunter.stashhunter.utils.StashClustering;
 import com.stashhunter.stashhunter.utils.StashGrowth;
@@ -45,7 +46,6 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.level.storage.LevelResource;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -578,19 +578,8 @@ public class StashHunterModule extends Module {
     }
 
     private ReportedStashes reportedStashes() {
-        if (reportedStashes == null) reportedStashes = ReportedStashes.load(REPORTED_STASHES_DIR.resolve(serverKey() + ".txt"));
+        if (reportedStashes == null) reportedStashes = ReportedStashes.load(REPORTED_STASHES_DIR.resolve(ServerKey.current() + ".txt"));
         return reportedStashes;
-    }
-
-    private String serverKey() {
-        String key;
-        if (mc.hasSingleplayerServer()) {
-            Path world = mc.getSingleplayerServer().getWorldPath(LevelResource.ROOT).toAbsolutePath().normalize().getFileName();
-            key = "singleplayer_" + (world != null ? world : "world");
-        } else {
-            key = mc.getCurrentServer() != null ? mc.getCurrentServer().ip : "unknown";
-        }
-        return key.replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
     public void clearReportedPlayers() {

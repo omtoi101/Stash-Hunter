@@ -101,6 +101,9 @@ After each detour it returns to its strips.
 | `.sh help` | Prints a short command reference in chat. |
 | `.clear-stashes` | Forgets the already reported stashes of the current server (also on disk), so they can be reported again. Existing stash waypoints still prevent a repeat report until you delete them. |
 | `.clear-players` | Forgets the recently reported players, so they are reported again. |
+| `.chest-index` | Shows how many containers the `chest-index` module has recorded on this server. |
+| `.chest-index search <item>` | Lists the 10 indexed containers with the most items whose id contains `<item>` (e.g. `diamond`, `totem`, `elytra`), shulker box contents included, with position and dimension. |
+| `.chest-index clear` | Forgets every indexed container of this server (also on disk). |
 
 ### `start` in detail
 
@@ -357,6 +360,23 @@ Marks minecarts stacked in one spot. Stacked chest or hopper minecarts are a com
 | `render`, `shape-mode` and colours | Box on each stack, growing with its size (up to 2 blocks). | on, Both, red |
 | `tracers` | Tracers to all stacks. | on |
 
+### Chest Index (`chest-index`)
+
+Records what chests, trapped chests, barrels and shulker boxes hold, including the contents of shulker boxes inside them, and keeps it per server in a JSON file (see [Files it creates](#files-it-creates)). Search it with `.chest-index search <item>`.
+
+- **Auto-open:** standing still or walking, the module opens the nearest container in reach, reads it once the server has sent its contents and closes it again, then moves on to the next one. It pauses while a screen is open, while you sneak and during elytra flight (including a stash-hunter flight). Chests under a solid block can't be opened and are skipped. Containers it has opened, or given up on because nothing opened within 2 seconds, are not opened again until the module is toggled or you change dimension.
+- **Containers you open yourself** are indexed too (also with `auto-open` off). They stay open, and the entry is updated while you take things out and once more when you close them.
+- A double chest is one entry for both halves.
+- The index is saved every minute and when you leave the server or turn the module off.
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `auto-open` | Open containers in reach automatically. Off: only index containers you open yourself. | true |
+| `delay` | Ticks between two auto-opened containers. | 10 |
+| `rotate` | Look at a container before opening it (some anti-cheats reject clicks on blocks you don't look at). | true |
+| `skip-indexed` | Don't auto-open containers that are already in the index, also from earlier sessions. Turn off to refresh it. | true |
+| `chat-feedback` | Report each indexed container in chat (item count, shulker boxes). | true |
+
 ## Discord notifications
 
 Create a webhook in your Discord server (*Server Settings → Integrations → Webhooks*) and paste its URL into `discord-webhook-url`. Depending on your settings, you receive:
@@ -391,6 +411,7 @@ Add the **stash-hunter-status** element in Meteor's HUD editor. It shows the bot
 | `meteor-client/stash-hunter.properties` | Addon configuration (also stored in Meteor's own settings). |
 | `meteor-client/stashhunter_trips.json` | Saved trips for `.sh resume`. If it is ever unreadable, it is moved to `stashhunter_trips.json.corrupt` instead of being overwritten. |
 | `meteor-client/StashHunter/NewChunks/<server>/<dimension>/*.txt` | Chunk data saved by NewerNewChunks, one `[x, z]` chunk position per line. Older versions saved it under `StashHunter/NewChunks/` relative to the launcher's working directory; that folder is moved here automatically the first time it's needed. |
+| `meteor-client/StashHunter/chest-index/<server>.json` | Containers recorded by `chest-index`: dimension, position (and the other half of a double chest), block, slot count, time, the items summed per id, and each shulker box inside with its name and contents. A file that can't be parsed is moved to `<server>.json.corrupt`. `.chest-index clear` deletes it. |
 | `meteor-client/StashHunter/reported-stashes/<server>.txt` | Stashes already reported on that server (`dimension x y z` per line), so they aren't reported again after a reconnect. `.clear-stashes` deletes it. |
 
 All paths are relative to your Minecraft game directory. Log output goes to the normal game log (`logs/latest.log`).
