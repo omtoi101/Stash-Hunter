@@ -39,13 +39,22 @@ public class TripManager {
         }
     }
 
+    // Trips are loaded and saved on the client thread only, so no save can be mid-way here.
+    private static boolean leftoversDeleted;
+
     public static List<TripData> loadTrips() {
+        if (!leftoversDeleted) {
+            leftoversDeleted = true;
+            AtomicFiles.deleteLeftovers(TRIPS_FILE.toPath());
+        }
         if (TRIPS_FILE.exists()) {
             try (FileReader reader = new FileReader(TRIPS_FILE)) {
                 Type type = new TypeToken<List<TripData>>() {}.getType();
                 List<TripData> trips = GSON.fromJson(reader, type);
                 if (trips != null) {
-                    trips.removeIf(trip -> trip == null || trip.waypoints == null);
+                    // An empty list (hand-edited file) would leave resume() with an active flight
+                    // that never moves and blocks .stashhunter start.
+                    trips.removeIf(trip -> trip == null || trip.waypoints == null || trip.waypoints.isEmpty());
                     return trips;
                 }
             } catch (IOException e) {

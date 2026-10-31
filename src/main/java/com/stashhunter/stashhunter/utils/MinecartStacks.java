@@ -12,7 +12,17 @@ import java.util.Map;
  */
 public final class MinecartStacks {
     /** A stack anchored at its first cart's position. */
-    public record Stack(double x, double y, double z, int count) {}
+    public record Stack(double x, double y, double z, int count) {
+        /**
+         * Whether both anchors are at most radius apart. Every cart of a stack lies within radius
+         * of its anchor, so a later scan that anchors the same carts on another cart (the entity
+         * order isn't fixed) still matches, even across a block border.
+         */
+        public boolean isNear(Stack other, double radius) {
+            double dx = x - other.x, dy = y - other.y, dz = z - other.z;
+            return dx * dx + dy * dy + dz * dz <= radius * radius;
+        }
+    }
 
     private static final class Group {
         final double x, y, z;

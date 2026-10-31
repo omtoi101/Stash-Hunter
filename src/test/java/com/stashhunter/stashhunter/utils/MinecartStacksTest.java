@@ -50,6 +50,34 @@ class MinecartStacksTest {
     }
 
     @Test
+    void stackOnABlockBorderMatchesItselfWhicheverCartAnchorsIt() {
+        MinecartStacks oneOrder = new MinecartStacks(0.5);
+        oneOrder.add(10.9, 64, 0.5);
+        oneOrder.add(11.1, 64, 0.5);
+        MinecartStacks otherOrder = new MinecartStacks(0.5);
+        otherOrder.add(11.1, 64, 0.5);
+        otherOrder.add(10.9, 64, 0.5);
+
+        MinecartStacks.Stack first = oneOrder.stacks(2).get(0);
+        MinecartStacks.Stack second = otherOrder.stacks(2).get(0);
+        assertNotEquals((int) Math.floor(first.x()), (int) Math.floor(second.x()), "anchors in different blocks");
+        assertTrue(first.isNear(second, 0.5));
+    }
+
+    @Test
+    void neighbouringStacksStaySeparate() {
+        MinecartStacks stacks = new MinecartStacks(0.5);
+        stacks.add(10.5, 64, 0.5);
+        stacks.add(10.5, 64, 0.5);
+        stacks.add(11.5, 64, 0.5);
+        stacks.add(11.5, 64, 0.5);
+
+        List<MinecartStacks.Stack> result = stacks.stacks(2);
+        assertEquals(2, result.size());
+        assertFalse(result.get(0).isNear(result.get(1), 0.5));
+    }
+
+    @Test
     void minSizeFilters() {
         MinecartStacks stacks = new MinecartStacks(0.5);
         stacks.add(0, 0, 0);

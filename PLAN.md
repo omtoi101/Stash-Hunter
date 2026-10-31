@@ -2,13 +2,13 @@
 
 ## Stand (2026-10-31)
 
-- Branch `code-revision`, zuletzt `0a3c0da`. Die Kleinigkeiten aus Abschnitt 2, das Entfernen von
-  `unfocused-fps-limiter`, Punkt 58 (`stacked-minecarts`) und das Speichern über eine Temp-Datei
-  (`AtomicFiles`) sind fertig, aber noch nicht committet.
-- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **99 Unit-Tests in 22 Suites**.
-- **Zuerst die Punkte aus dem Code-Review (Abschnitt 0)**, vor allem 89.
-- **Nichts davon ist in-game getestet.** Das ist der Schritt danach (Checkliste in Abschnitt 1).
-- Offen sind danach nur noch Feature-Ideen.
+- Branch `code-revision`, zuletzt `ec9efdb`. Alles bis einschließlich `AtomicFiles` und
+  `stacked-minecarts` ist committet. Noch nicht committet: die Review-Punkte 89–95 (Abschnitt 0)
+  und **54 Xaero-Waypoints** (`save-to-xaero`).
+- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **108 Unit-Tests in 23 Suites**.
+- Von Abschnitt 0 ist nur 96 offen (nur beobachten).
+- **Nichts davon ist in-game getestet.** Das ist der nächste Schritt (Checkliste in Abschnitt 1).
+- Offen sind danach nur noch Feature-Ideen (Abschnitt 3).
 
 Die letzten Änderungen beschreiben [CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md) (OldChunkNotifier,
 Baritone-Cancel, Landungs-Timeout, Stashfinden, ActivatedSpawnerDetector) und
@@ -28,33 +28,32 @@ Baritone-Cancel, Landungs-Timeout, Stashfinden, ActivatedSpawnerDetector) und
 
 ---
 
-## 0. Offen aus dem Code-Review (zuerst)
+## 0. Aus dem Code-Review
 
-Review vom 2026-10-31 über alle nicht committeten Änderungen und das Speichern/Laden. Nach
-Priorität sortiert; Details, Fundstellen und Fix-Vorschläge stehen in
-[CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md) („Offene Punkte aus dem Code-Review“, Punkte 1–8).
+Review vom 2026-10-31 über die damals nicht committeten Änderungen und das Speichern/Laden.
+Befunde und Umsetzung stehen in [CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md) („Punkte aus dem
+Code-Review“, 1–8 = 89–96).
 
-- [ ] **89 Speichern scheitert unter Windows, solange die Datei offen ist** (mittel, getestet):
-      `AtomicFiles` ersetzt per `Files.move(ATOMIC_MOVE)`. Hält ein anderes Programm (Virenscanner,
-      OneDrive, Editor) Config oder Trips gerade offen, kommt `AccessDeniedException`, und das
-      Speichern fällt aus. Das alte direkte Schreiben hätte geklappt. Fix: Move kurz wiederholen
-      (oder Minecrafts `Util.safeReplaceFile`).
-- [ ] **90 Fehlgeschlagener Config-Save wird nicht wiederholt** (niedrig): `Config.save()` setzt
-      `dirty = false` schon vor dem Schreiben. Zusammen mit 89 angehen.
-- [ ] **91 Abgebrochene Zeile in angehängten Dateien frisst den nächsten Eintrag** (niedrig):
-      `ReportedStashes` und die NewChunks-Dateien. Vor dem Anhängen fehlendes Zeilenende ergänzen.
-- [ ] **92 `clearGroundGlide()` greift auch ohne laufenden Flug** (niedrig–mittel, ungeprüft):
-      beendet bei eingeschaltetem `stash-hunter` jeden Gleitflug am Boden und stört vermutlich
-      ElytraFly `Bounce`. Nur bei aktivem Flug/Landung ausführen; in-game prüfen.
-- [ ] **93 Verwaiste `.tmp`-Dateien** (niedrig): bleiben nach hartem Beenden mitten im Speichern in
-      `meteor-client/` liegen. Beim Laden aufräumen.
-- [ ] **94 `stacked-minecarts` meldet Stapel auf einer Blockgrenze doppelt** (niedrig).
-- [ ] **95 Trip mit leerer Waypoint-Liste blockiert den Flug** (niedrig): `loadTrips()` soll leere
-      Listen verwerfen.
+- [x] **89 Speichern unter Windows bei offener Datei** (2026-10-31): `AtomicFiles` wiederholt das
+      Umbenennen bei jeder `FileSystemException` (5 × 30 ms) und überschreibt danach direkt.
+      Nachgestellt: offene Zieldatei → `AccessDeniedException`, offene Temp-Datei →
+      `FileSystemException` (Sharing Violation); in beiden Fällen klappt das direkte Schreiben.
+      `Util.safeReplaceFile` nicht genommen (eigener Retry ist kleiner und ohne MC-Bootstrap testbar).
+- [x] **90 Config-Save wird wiederholt**: nach einem Fehler bleibt `dirty` gesetzt, neuer Versuch
+      nach 30 s, spätestens beim Beenden.
+- [x] **91 Angehängte Dateien**: `AppendFiles.append()` ergänzt ein fehlendes Zeilenende
+      (`ReportedStashes`, NewChunks-Dateien).
+- [x] **92 `clearGroundGlide()`** läuft nur noch bei aktivem Flug oder laufender Landung. In-game
+      noch prüfen (Abschnitt 1, Flug).
+- [x] **93 Verwaiste `.tmp`-Dateien**: `AtomicFiles.deleteLeftovers()` beim Laden von Config und
+      Trips.
+- [x] **94 `stacked-minecarts`**: gemeldete Stapel werden über den Abstand zum Anker erkannt
+      (`Stack.isNear`), nicht über die Blockposition.
+- [x] **95 Leere Trips**: `loadTrips()` verwirft Trips ohne Waypoints.
 - [ ] **96 Trip-Save mit `fsync` auf dem Client-Thread** (niedrig, beobachten): nur angehen, wenn
       es beim Pausieren/Landen spürbar ruckelt.
 
-## 1. In-game-Test (nach Abschnitt 0)
+## 1. In-game-Test (als Nächstes)
 
 Grundfunktionen:
 - [ ] Modul an/aus, Tod/Respawn, Dimensionswechsel, `.stashhunter start` + `stop`
@@ -67,6 +66,9 @@ Scan und Stashes:
 - [ ] `reported-stashes`-Datei hält nach Reconnect (keine doppelten Meldungen)
 - [ ] `include-spawners`, `structure-filter-radius`, `structure-waypoints`
 - [ ] Stash-ESP (Outlines, Boxen, Tracer)
+- [ ] `save-to-xaero` mit Xaero's Minimap 26.2: Stash bekommt einen goldenen `S`-Waypoint im
+      aktuellen Set, er übersteht einen Neustart, die World Map zeigt ihn nach dem Öffnen;
+      „Stash Updated“ verschiebt ihn; ohne Xaero kein Fehler im Log
 
 Chunks:
 - [ ] NewerNewChunks markiert Overworld/Nether weiter korrekt (nach Umbau 48)
@@ -89,6 +91,8 @@ Flug:
       ignoriert Sternraketen)
 - [ ] `.stashhunter spiral` inkl. pause/resume
 - [ ] AltitudeLossDetector-Discord
+- [ ] ElytraFly `Bounce` manuell mit eingeschaltetem `stash-hunter`, ohne `.sh start`: kein
+      Ausbremsen am Boden (92). Nach einer Baritone-Landung trotzdem keine Elytra-Pose am Boden.
 
 Sonstige Module:
 - [ ] `online-player-activity` (Discord aus/an sendet keine alten Änderungen nach),
@@ -97,6 +101,8 @@ Sonstige Module:
 - [ ] `stacked-minecarts`: gestapelte Chest-Minecarts werden einmal gemeldet und gerendert,
       `storage-only` ignoriert normale Minecarts, nach Dimensionswechsel wird neu gemeldet
 - [ ] Config-Änderung kurz vor dem Beenden bleibt erhalten
+- [ ] Config bei geöffneter `stash-hunter.properties` (z. B. im Editor) ändern: Änderung landet
+      in der Datei, keine `.tmp`-Reste in `meteor-client/`
 
 ## 2. Bekannte Kleinigkeiten
 
@@ -143,19 +149,12 @@ Im Multiplayer ist der Seed client-seitig nicht verfügbar. Im Singleplayer übe
 Wegen der `26.2`-Pins (`minecraft_version`, `meteor-client: ~26.2-`, Meteor/Baritone
 `26.2-SNAPSHOT`) lädt das Mod nicht auf neueren Versionen. Meteor gibt es schon als
 `26.3-SNAPSHOT`. Bei Bedarf die Pins anheben, `fabric-resource-loader-v1` (hart gepinnt) prüfen,
-bauen und testen.
+`xaero_minimap_version` (gibt es als `fabric-26.3-…`) mitziehen, bauen und testen.
 
 ### Stash-Auswertung
 
 - **53 ChestIndex** (höchster Wert): Container in Reichweite öffnen, Inhalt indexieren, als JSON
   exportieren. jeff mod ⛔ → clean-room.
-- **54 Xaero-Waypoints:** Stash-Funde als Xaero-Marker. Xaero ist ARR → nur `compileOnly` +
-  `FabricLoader.isModLoaded("xaerominimap")`, als `XaeroBridge` analog zu `BaritoneBridge`, Aufruf
-  in `reportStash`, Setting `save-to-xaero` (opt-in). XaeroPlus wird nicht gebraucht.
-  API-Weg (clean-room aus jeff mod abgelesen): `BuiltInHudModules.MINIMAP.getCurrentSession()` →
-  `getWorldManager().getCurrentWorld()` → `getCurrentWaypointSet().add(new Waypoint(x, y, z, name,
-  symbol, color))` → `SupportMods.xaeroMinimap.requestWaypointsRefresh()`. Konstruktor-Signatur
-  gegen das 26.2-Jar prüfen. Minimap und World Map teilen sich das `WaypointSet`.
 - **63 StorageLooter:** Container automatisch looten und sortieren. PathSeeker ✅.
 - **73 ChestTracker mit GUI:** live gepflegtes Container-Verzeichnis (erweitert 53). BepHax ⚠️.
 - **74 ShulkerOverview:** Shulker-Inhalt im Tooltip, ohne Platzieren. BepHax ⚠️.
@@ -250,3 +249,14 @@ bauen und testen.
   (`StashBlockIndex`) und wachsende Stashes (`StashGrowth`), Stash-ESP, verbesserter Takeoff/Flug
   mit Wiederherstellen der Flug-Settings beim Stop. Config und Trips werden über eine Temp-Datei
   gespeichert (`AtomicFiles`), ein Absturz beim Schreiben lässt die alte Datei stehen.
+- **89–95** (Code-Review, 2026-10-31): Speichern bei offener Datei unter Windows, Config-Save-Retry,
+  Zeilenende vor dem Anhängen, `clearGroundGlide` nur im Flug, `.tmp`-Aufräumen,
+  `stacked-minecarts` ohne Doppelmeldung, leere Trips verworfen.
+- **54** Xaero-Waypoints (2026-10-31): Setting `save-to-xaero` (opt-in). `xaero/XaeroBridge` +
+  `XaeroImpl` analog zu Baritone; `compileOnly` gegen `maven.modrinth:xaeros-minimap:fabric-26.2-26.6.2`
+  (Modrinth-Maven, `xaero_minimap_version` in `gradle.properties`), `suggests` in `fabric.mod.json`.
+  Weg wie Xaeros eigene Todespunkte: `BuiltInHudModules.MINIMAP.getCurrentSession()` →
+  `getWorldManager().getCurrentWorld()` → `getCurrentWaypointSet().add(...)` →
+  `getWorldManagerIO().saveWorld(world)`. Das im Plan genannte
+  `SupportMods.xaeroMinimap.requestWaypointsRefresh()` ist World-Map-Code und unnötig: `GuiMap.init()`
+  ruft es beim Öffnen der Karte selbst auf.

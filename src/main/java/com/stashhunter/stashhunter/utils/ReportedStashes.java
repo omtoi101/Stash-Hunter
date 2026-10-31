@@ -8,7 +8,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -57,9 +56,7 @@ public final class ReportedStashes {
     public void add(String dimension, BlockPos pos) {
         byDimension.computeIfAbsent(dimension, d -> new ArrayList<>()).add(pos);
         try {
-            Files.createDirectories(file.getParent());
-            Files.writeString(file, format(dimension, pos) + System.lineSeparator(), StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            AppendFiles.append(file, format(dimension, pos) + System.lineSeparator());
         } catch (IOException e) {
             StashHunter.LOG.warn("Could not save reported stash to {}", file, e);
         }

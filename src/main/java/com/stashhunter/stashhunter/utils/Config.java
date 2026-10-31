@@ -28,10 +28,12 @@ public class Config {
         return thread;
     });
     private static final long SAVE_DELAY_MS = 1000;
+    // After a failed write; long enough that a disk that stays broken doesn't flood the log.
+    private static final long RETRY_DELAY_MS = 30_000;
     private static ScheduledFuture<?> pendingSave;
     private static boolean shutDown;
-    // Set by saveLater(), cleared by every write. A debounced save that already started and waits
-    // for the lock then finds nothing left to do instead of writing a second time.
+    // Set by saveLater() and a failed write, cleared by every write. A debounced save that already
+    // started and waits for the lock then finds nothing left to do instead of writing a second time.
     private static boolean dirty;
 
     // Default configuration values
@@ -59,6 +61,7 @@ public class Config {
     public static int maxClusterDistance = 30; // New setting for clustering blocks
     public static int maxClusterSize = 64; // max cluster diameter, keeps neighbouring stashes apart
     public static int reportDedupeRadius = 48; // don't re-report a stash this close to a known one
+    public static boolean saveToXaero = false; // opt-in: stash waypoints also go to Xaero's Minimap
 
     // Stuck Detector settings
     public static String stuckDetectorWebhookUrl = "";
@@ -137,6 +140,7 @@ public class Config {
     }
 
     public static void load() {
+        AtomicFiles.deleteLeftovers(CONFIG_FILE.toPath());
         if (CONFIG_FILE.exists()) {
             try (FileInputStream fis = new FileInputStream(CONFIG_FILE)) {
                 properties.load(fis);
@@ -165,6 +169,7 @@ public class Config {
                 maxClusterDistance = getIntProperty("maxClusterDistance", 30);
                 maxClusterSize = getIntProperty("maxClusterSize", 64);
                 reportDedupeRadius = getIntProperty("reportDedupeRadius", 48);
+                saveToXaero = getBoolProperty("saveToXaero", false);
 
                 // Load Stuck Detector settings
                 stuckDetectorWebhookUrl = properties.getProperty("stuckDetectorWebhookUrl", "");
@@ -192,8 +197,12 @@ public class Config {
             return;
         }
         dirty = true;
+        schedule(SAVE_DELAY_MS);
+    }
+
+    private static synchronized void schedule(long delayMs) {
         if (pendingSave != null) pendingSave.cancel(false);
-        pendingSave = SAVER.schedule(Config::saveIfDirty, SAVE_DELAY_MS, TimeUnit.MILLISECONDS);
+        pendingSave = SAVER.schedule(Config::saveIfDirty, delayMs, TimeUnit.MILLISECONDS);
     }
 
     private static synchronized void saveIfDirty() {
@@ -240,6 +249,7 @@ public class Config {
                 properties.setProperty("maxClusterDistance", String.valueOf(maxClusterDistance));
                 properties.setProperty("maxClusterSize", String.valueOf(maxClusterSize));
                 properties.setProperty("reportDedupeRadius", String.valueOf(reportDedupeRadius));
+                properties.setProperty("saveToXaero", String.valueOf(saveToXaero));
 
                 // Save Stuck Detector settings
                 properties.setProperty("stuckDetectorWebhookUrl", stuckDetectorWebhookUrl);
@@ -255,6 +265,9 @@ public class Config {
             });
         } catch (IOException e) {
             StashHunter.LOG.warn("Failed to save Stash-Hunter config", e);
+            // Keep the change pending: retry later, and shutdown() writes it at the latest.
+            dirty = true;
+            if (!shutDown) schedule(RETRY_DELAY_MS);
         }
     }
 

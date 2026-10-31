@@ -38,6 +38,18 @@ repositories {
             includeGroup("org.meteordev")
         }
     }
+    // Xaero's Minimap (optional, compile-time only). Modrinth's maven only serves "maven.modrinth".
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = uri("https://api.modrinth.com/maven")
+            }
+        }
+        filter {
+            includeGroup("maven.modrinth")
+        }
+    }
     maven {
         name = "Fabric"
         url = uri("https://maven.fabricmc.net/")
@@ -75,6 +87,12 @@ dependencies {
     // if this ever stops resolving; fallback is building baritone-api from the
     // MeteorDevelopment/baritone 26.2 branch locally and publishing to mavenLocal()).
     compileOnly("meteordevelopment:baritone:${providers.gradleProperty("baritone_version").get()}")
+
+    // Xaero's Minimap (optional / soft dependency, All Rights Reserved): compileOnly, never bundled.
+    // Every call is gated behind FabricLoader.isModLoaded("xaerominimap") via
+    // com.stashhunter.stashhunter.xaero.XaeroBridge, like Baritone above. The version must match
+    // the Minecraft version; take it from https://modrinth.com/mod/xaeros-minimap/versions.
+    compileOnly("maven.modrinth:xaeros-minimap:${providers.gradleProperty("xaero_minimap_version").get()}")
 
     // No separate Gson dependency: Minecraft ships Gson and puts it on the classpath already.
 

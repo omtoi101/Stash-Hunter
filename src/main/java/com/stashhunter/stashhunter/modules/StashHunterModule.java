@@ -14,6 +14,7 @@ import com.stashhunter.stashhunter.utils.ScanTrigger;
 import com.stashhunter.stashhunter.utils.StashBlockIndex;
 import com.stashhunter.stashhunter.utils.StashClustering;
 import com.stashhunter.stashhunter.utils.StashGrowth;
+import com.stashhunter.stashhunter.xaero.XaeroBridge;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
@@ -221,6 +222,17 @@ public class StashHunterModule extends Module {
         .sliderMax(200)
         .onChanged(v -> {
             Config.reportDedupeRadius = v;
+            Config.saveLater();
+        })
+        .build()
+    );
+
+    private final Setting<Boolean> saveToXaero = sgGeneral.add(new BoolSetting.Builder()
+        .name("save-to-xaero")
+        .description("Also add every stash waypoint to Xaero's Minimap (current waypoint set). Needs Xaero's Minimap installed.")
+        .defaultValue(Config.saveToXaero)
+        .onChanged(v -> {
+            Config.saveToXaero = v;
             Config.saveLater();
         })
         .build()
@@ -906,10 +918,13 @@ public class StashHunterModule extends Module {
         for (FoundStash old : earlier) {
             foundStashes.remove(old);
             if (old.waypoint() != null) Waypoints.get().remove(old.waypoint());
+            XaeroBridge.removeWaypoint(old.xaeroWaypoint());
         }
         reportedStashes().add(dimension, stashPos);
         Waypoint waypoint = reportStash(stashPos, cluster, types, volume, density, earlier);
-        foundStashes.add(new FoundStash(dim, stashPos, Set.copyOf(cluster), cluster.size(), waypoint, highlightOf(dim, cluster, types)));
+        Object xaeroWaypoint = waypoint != null && saveToXaero.get() ? XaeroBridge.addWaypoint(stashPos, waypoint.name.get()) : null;
+        foundStashes.add(new FoundStash(dim, stashPos, Set.copyOf(cluster), cluster.size(), waypoint, xaeroWaypoint,
+            highlightOf(dim, cluster, types)));
     }
 
     private List<FoundStash> earlierReportsOf(Dimension dimension, List<BlockPos> cluster) {
@@ -932,10 +947,11 @@ public class StashHunterModule extends Module {
     /**
      * A stash reported this session: the reported position, all blocks of its cluster (to recognise
      * it when more of it is found), the block count it was reported with, its waypoint (null if none
-     * was created) and its Stash ESP highlight (null without containers). Not persisted.
+     * was created), its XaeroBridge waypoint handle (null if none) and its Stash ESP highlight (null
+     * without containers). Not persisted.
      */
     private record FoundStash(Dimension dimension, BlockPos position, Set<BlockPos> blocks, int reportedBlocks,
-                              Waypoint waypoint, StashHighlight highlight) {
+                              Waypoint waypoint, Object xaeroWaypoint, StashHighlight highlight) {
     }
 
     // A set, not Config.storageBlocks (a list): onRender asks for every highlighted container each frame.

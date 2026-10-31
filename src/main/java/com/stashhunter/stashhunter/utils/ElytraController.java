@@ -312,7 +312,9 @@ public class ElytraController {
     }
 
     public static void onTick() {
-        clearGroundGlide();
+        // Only our own flight leaves such a glide. A manual one (ElytraFly Bounce glides on along
+        // the ground on purpose) is none of our business while the module only scans.
+        if (active || landingAfterCompletion) clearGroundGlide();
 
         if (landingAfterCompletion) {
             if (!BaritoneBridge.isElytraActive()) {

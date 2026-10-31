@@ -26,6 +26,7 @@ Built for **Minecraft 26.2**. Licensed under the Apache License 2.0.
 - [Meteor Client](https://meteorclient.com/) for 26.2
 - Java **25**
 - *(Optional)* [Baritone](https://github.com/MeteorDevelopment/baritone) for 26.2 (the Meteor fork), for obstacle-aware pathfinding
+- *(Optional)* [Xaero's Minimap](https://modrinth.com/mod/xaeros-minimap) for 26.2, to get stash waypoints on the minimap and Xaero's World Map too (`save-to-xaero`)
 
 Fabric API is **not** required.
 
@@ -77,6 +78,7 @@ After each detour it returns to its strips.
 
 - Each stash is reported once. Another cluster within `report-dedupe-radius` of a reported stash, or of an existing stash waypoint, is not reported again.
 - If the stash's density reaches `notification-density-threshold`, you get a Discord message and a Meteor waypoint named `<count> Blocks at <x, y, z>` in the current dimension. Lower-density finds are only mentioned in chat.
+- With `save-to-xaero` on and Xaero's Minimap installed, the same waypoint (gold, symbol `S`) is also added to Xaero's current waypoint set. Xaero's World Map reads the minimap's waypoints each time it is opened, so it shows there as well. When a stash report is corrected ("Stash Updated"), both waypoints are moved.
 
 **Staying alive.** The flight is paused automatically (and saved, so `.sh resume` continues it) when you die, change dimension or leave the server. If the elytra breaks or goes missing and isn't replaced or repaired in time, the bot sends an "Out of Elytras" notification and disconnects, instead of falling.
 
@@ -138,6 +140,7 @@ Scans for stashes, drives the flight and sends the notifications. It must be ena
 | `max-cluster-distance` | Maximum distance between neighbouring blocks of one cluster. | 30 |
 | `max-cluster-size` | Maximum diameter of one cluster, so neighbouring stashes aren't merged. | 64 |
 | `report-dedupe-radius` | A stash this close to a reported one or to a stash waypoint isn't reported again. | 48 |
+| `save-to-xaero` | Also add each stash waypoint to Xaero's Minimap (current waypoint set of the current server and dimension). No effect without Xaero's Minimap. | false |
 | `flight-altitude` | Y level to fly at (100-400, also `.sh altitude <y>`). Changing it during a flight applies to the remaining waypoints. | 160 |
 | `scan-interval` | Longest wait between scans in ticks (20 ticks = 1 second, max 1200). | 40 |
 | `scan-by-distance` | Also scan after flying half the scan radius since the last scan, so fast flight leaves no gaps. | true |

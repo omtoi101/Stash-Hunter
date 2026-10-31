@@ -3,6 +3,7 @@ package com.stashhunter.stashhunter.utils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -41,6 +42,40 @@ class AtomicFilesTest {
         }));
         assertEquals("intact", Files.readString(file));
         assertNoTempFiles();
+    }
+
+    @Test
+    void replacesFileThatIsHeldOpen() throws IOException {
+        // On Windows the rename fails while another handle without delete sharing is open
+        // (virus scanner, cloud sync); the save must still land.
+        Path file = dir.resolve("config.properties");
+        Files.writeString(file, "old");
+        try (FileInputStream reader = new FileInputStream(file.toFile())) {
+            AtomicFiles.write(file, out -> out.write("new".getBytes(StandardCharsets.UTF_8)));
+            assertEquals("new", Files.readString(file));
+        }
+        assertNoTempFiles();
+    }
+
+    @Test
+    void deletesLeftoverTempFilesOfTheTargetOnly() throws IOException {
+        Path file = dir.resolve("stash-hunter.properties");
+        Files.writeString(file, "keep");
+        Files.writeString(dir.resolve("stash-hunter.properties8123456789.tmp"), "leftover");
+        Files.writeString(dir.resolve("stash-hunter.properties.tmp"), "not ours");
+        Files.writeString(dir.resolve("stashhunter_trips.json42.tmp"), "other target");
+
+        AtomicFiles.deleteLeftovers(file);
+
+        assertEquals("keep", Files.readString(file));
+        assertFalse(Files.exists(dir.resolve("stash-hunter.properties8123456789.tmp")));
+        assertTrue(Files.exists(dir.resolve("stash-hunter.properties.tmp")));
+        assertTrue(Files.exists(dir.resolve("stashhunter_trips.json42.tmp")));
+    }
+
+    @Test
+    void deleteLeftoversWithoutFolderDoesNothing() {
+        assertDoesNotThrow(() -> AtomicFiles.deleteLeftovers(dir.resolve("missing/trips.json")));
     }
 
     private void assertNoTempFiles() throws IOException {

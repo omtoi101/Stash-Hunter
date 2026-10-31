@@ -29,5 +29,8 @@
   },
   "recommends": {
     "baritone-meteor": "~26.2-"
+  },
+  "suggests": {
+    "xaerominimap": "*"
   }
 }

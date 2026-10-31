@@ -20,9 +20,8 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.vehicle.minecart.AbstractMinecart;
 import net.minecraft.world.entity.vehicle.minecart.AbstractMinecartContainer;
 
-import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 /*
     Ported from PathSeeker (Apache-2.0), adapted:
@@ -123,7 +122,8 @@ public class StackedMinecartDetector extends Module {
 
     // Client thread only.
     private List<MinecartStacks.Stack> stacks = List.of();
-    private final Set<BlockPos> announced = new HashSet<>();
+    // Not keyed by block: a stack on a block border can be anchored on either side.
+    private final List<MinecartStacks.Stack> announced = new ArrayList<>();
     private ClientLevel lastLevel;
     private int ticksUntilScan;
 
@@ -165,7 +165,8 @@ public class StackedMinecartDetector extends Module {
         if (ticksUntilScan-- > 0) return;
         ticksUntilScan = SCAN_INTERVAL_TICKS;
 
-        MinecartStacks grouping = new MinecartStacks(detectionRadius.get());
+        double radius = detectionRadius.get();
+        MinecartStacks grouping = new MinecartStacks(radius);
         for (Entity entity : mc.level.entitiesForRendering()) {
             if (!(entity instanceof AbstractMinecart)) continue;
             if (storageOnly.get() && !(entity instanceof AbstractMinecartContainer)) continue;
@@ -174,12 +175,18 @@ public class StackedMinecartDetector extends Module {
         stacks = grouping.stacks(minStackSize.get());
 
         for (MinecartStacks.Stack stack : stacks) {
-            BlockPos pos = BlockPos.containing(stack.x(), stack.y(), stack.z());
-            if (announced.contains(pos)) continue;
+            if (isAnnounced(stack, radius)) continue;
             if (announced.size() >= MAX_ANNOUNCED) announced.clear();
-            announced.add(pos);
-            announce(pos, stack.count());
+            announced.add(stack);
+            announce(BlockPos.containing(stack.x(), stack.y(), stack.z()), stack.count());
         }
+    }
+
+    private boolean isAnnounced(MinecartStacks.Stack stack, double radius) {
+        for (MinecartStacks.Stack known : announced) {
+            if (known.isNear(stack, radius)) return true;
+        }
+        return false;
     }
 
     private void announce(BlockPos pos, int count) {

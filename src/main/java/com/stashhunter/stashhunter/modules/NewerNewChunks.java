@@ -35,6 +35,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.utils.AppendFiles;
 import com.stashhunter.stashhunter.utils.ChunkDataFormat;
 import com.stashhunter.stashhunter.utils.ChunkPacketDecoder;
 import com.stashhunter.stashhunter.utils.PaletteOrder;
@@ -44,12 +45,10 @@ import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.util.*;
 
 /*
@@ -1038,10 +1037,7 @@ public class NewerNewChunks extends Module {
                 data.append(ChunkDataFormat.format(chunkpos)).append(System.lineSeparator());
             }
             try {
-                Files.createDirectories(entry.getKey().getParent());
-                Files.write(entry.getKey(), data.toString().getBytes(StandardCharsets.UTF_8),
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.APPEND);
+                AppendFiles.append(entry.getKey(), data.toString());
             } catch (IOException e) {
                 StashHunter.LOG.warn("Could not write chunk data file {}", entry.getKey(), e);
             }

@@ -2,8 +2,9 @@
 
 **Projekt:** Stash-Hunter (Meteor-Client-Addon, Fabric, Minecraft 26.2, Java 25, Mojang-Mappings)
 
-**Stand 2026-10-31:** Alles unten ist eingebaut und committet. `gradlew clean build --rerun-tasks`
-läuft mit JDK 25 grün (inkl. Spotless + Unit-Tests). **Offen ist nur noch der In-game-Test.**
+**Stand 2026-10-31:** Alles unten ist eingebaut und bis `ec9efdb` committet, außer den
+Review-Fixes 1–7 und den Xaero-Waypoints (umgesetzt, noch nicht committet). `gradlew build` läuft mit JDK 25 grün (inkl.
+Spotless + 108 Unit-Tests). **Offen ist nur noch der In-game-Test.**
 
 Den End-Detektor in NewerNewChunks beschreibt [DSH-HANDOFF.md](DSH-HANDOFF.md).
 
@@ -53,12 +54,41 @@ Den End-Detektor in NewerNewChunks beschreibt [DSH-HANDOFF.md](DSH-HANDOFF.md).
 - [ ] **NewerNewChunks mit großen Datendateien:** Aktivieren lädt einmal (kein doppelter Hänger),
       Rendern bleibt flüssig.
 
-## Offene Punkte aus dem Code-Review (2026-10-31)
+## Punkte aus dem Code-Review (2026-10-31)
 
-Geprüft: alle nicht committeten Änderungen unter `src/` sowie Speichern/Laden (`Config`,
+Geprüft: die damals nicht committeten Änderungen unter `src/` sowie Speichern/Laden (`Config`,
 `TripManager`, `AtomicFiles`, `ReportedStashes`, Datendateien von NewerNewChunks). Nach Priorität
-sortiert. Nichts davon ist umgesetzt; Build und Tests sind grün. In [PLAN.md](PLAN.md) stehen sie
-als Abschnitt 0, Punkte 89–96 (1 = 89 … 8 = 96).
+sortiert. In [PLAN.md](PLAN.md) stehen sie als Abschnitt 0, Punkte 89–96 (1 = 89 … 8 = 96).
+
+**Umgesetzt (1–7, nicht committet):**
+
+- 1: `AtomicFiles.replace()` wiederholt das Umbenennen bei jeder `FileSystemException` (offene
+  Zieldatei → `AccessDeniedException`, offene Temp-Datei → Sharing Violation als
+  `FileSystemException`, beides mit JDK 25 nachgestellt), 5 × 30 ms, danach `overwrite()` direkt
+  in die Zieldatei (mit `fsync`). Scheitert das Löschen der Temp-Datei im `finally`, wird das
+  geschluckt (vorher hätte es einen erfolgreichen Save als Fehler gemeldet). Eigener Retry statt
+  `Util.safeReplaceFile`: kleiner und ohne Minecraft-Bootstrap testbar. Test:
+  `AtomicFilesTest.replacesFileThatIsHeldOpen`.
+- 2: `Config.save()` setzt bei `IOException` `dirty` wieder und plant über `schedule()` einen
+  neuen Versuch nach 30 s (`RETRY_DELAY_MS`, damit eine dauerhaft kaputte Platte das Log nicht
+  flutet); nach `shutdown()` nicht mehr.
+- 3: neues `utils/AppendFiles.append()` (+ Test): prüft das letzte Byte, setzt bei fehlendem `\n`/`\r`
+  einen Zeilenumbruch voran. Benutzt von `ReportedStashes.add()` und
+  `NewerNewChunks.flushPendingWrites()`. Das Bruchstück selbst bleibt als unlesbare Zeile stehen.
+- 4: `ElytraController.onTick()` ruft `clearGroundGlide()` nur bei `active || landingAfterCompletion`.
+  In-game noch prüfen. Während einer Reparatur ist der Flug pausiert (`active = false`); die
+  Reparatur nutzt `deployElytra()` mit echtem `START_FALL_FLYING`-Paket, das erzeugt keinen
+  rein clientseitigen Gleitflug.
+- 5: `AtomicFiles.deleteLeftovers(target)` löscht `<Dateiname><Zahl>.tmp`; aufgerufen am Anfang von
+  `Config.load()` und beim ersten `TripManager.loadTrips()`.
+- 6: `StackedMinecartDetector` merkt sich gemeldete `MinecartStacks.Stack`s und vergleicht über
+  `Stack.isNear(other, detection-radius)`. Jeder Wagen liegt im Radius seines Ankers, also passt das
+  bei jedem Anker derselben Wagen. Zwei Stapel in Nachbarblöcken bleiben getrennt (Test).
+- 7: `loadTrips()` verwirft auch `waypoints.isEmpty()`.
+
+**Offen:** 8 (nur beobachten).
+
+Die ursprünglichen Befunde:
 
 1. **`AtomicFiles`: Ersetzen scheitert unter Windows, solange die Datei offen ist** (mittel, getestet).
    `Files.move(..., ATOMIC_MOVE, REPLACE_EXISTING)` wirft `AccessDeniedException`, wenn ein anderer
@@ -126,16 +156,35 @@ ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL e
 
 ## Erledigte Änderungen
 
-### Speichern über Temp-Datei (nicht committet)
+### Xaero-Waypoints, PLAN-Punkt 54 (nicht committet)
+
+- Neues Paket `xaero/`: `XaeroBridge` (öffentlich, ohne `xaero.*`-Typen, prüft
+  `isModLoaded("xaerominimap")`) und `XaeroImpl` (einzige Klasse mit Xaero-Imports). Handles sind
+  `Object` (`XaeroImpl.Added`: Session, Welt, Set, Waypoint). Im Bytecode geprüft:
+  `StashHunterModule` verweist nur auf `XaeroBridge`, `FoundStash` auf keinen Xaero-Typ.
+- `LinkageError` (andere Xaero-Version) → einmal Warnung, danach `incompatible` und Ruhe;
+  `RuntimeException` → nur Warnung. `IOException` beim Speichern → Warnung, Waypoint bleibt im
+  Speicher.
+- `StashHunterModule.processCluster`: Xaero-Waypoint nur, wenn ein Meteor-Waypoint entstand und
+  `save-to-xaero` an ist; bei „Stash Updated“ wird der alte Xaero-Waypoint mit entfernt. Entfernen
+  nur, solange dieselbe Minimap-Session läuft.
+- Übersprungen, wenn Xaeros aktuelle Welt eine andere Dimension hat als der Spieler (sonst wären
+  Nether-Koordinaten zu skalieren).
+- Gegen das Jar `fabric-26.2-26.6.2` gebaut, kompiliert ohne das eingebettete `xaerolib`. Weg wie
+  `DeathpointHandler.createDeathpoint` (per `javap -c` gelesen). World Map: `GuiMap.init()` ruft
+  `requestWaypointsRefresh()` selbst auf, eigener Aufruf unnötig.
+- In-game offen: siehe PLAN Abschnitt 1 (`save-to-xaero`).
+
+### Speichern über Temp-Datei
 
 - `utils/AtomicFiles` (+ Test): schreibt in eine Temp-Datei im selben Ordner, `fsync`, dann
   `Files.move(ATOMIC_MOVE, REPLACE_EXISTING)` (ohne Atomic-Unterstützung normales Ersetzen). Legt
   fehlende Ordner an, löscht die Temp-Datei in jedem Fall. Ein Absturz mitten im Schreiben lässt die
   alte Datei stehen.
 - `Config.save()` und `TripManager.saveTrips()` nutzen es. Trips werden ausdrücklich als UTF-8
-  geschrieben; `JsonIOException` wird mit abgefangen. Offene Punkte dazu: 1, 2, 5 und 8 oben.
+  geschrieben; `JsonIOException` wird mit abgefangen. Review-Punkte dazu: 1, 2, 5 (erledigt) und 8 (offen).
 
-### Performance-Durchgang (nicht committet)
+### Performance-Durchgang
 
 - `ElytraController`: Edge-/Trail-Ziel (`lookAheadTarget`) bleibt stehen, bis der Spieler halb dort
   ist. Vorher jeden Tick neues Ziel → jeden Tick `ElytraProcess.pathTo()` (neues `ElytraBehavior` +
@@ -153,7 +202,7 @@ ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL e
   true, also landeten `onBlockEntityAdded`/`addBlockEntityTicker` der Kopie in der echten Welt (vom
   Netty-Thread, nie entfernt; im Bytecode geprüft).
 
-### StuckDetector nur bodennah, Baritone-Abhebezeit, Scaffold (nicht committet)
+### StuckDetector nur bodennah, Baritone-Abhebezeit, Scaffold
 
 - `StuckDetector.isNearGround()` (≤ 4 Blöcke bis Block/Flüssigkeit): nur dann `stopFallFlying()`
   (clientseitig, lässt den Spieler fallen). Höher: keine Aktion, der Controller übernimmt.
@@ -164,7 +213,7 @@ ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL e
   `air-place`/`auto-switch` nur zurück, wenn gesichert (vorher konnte ein früher Abbruch ein eigenes
   Scaffold mit Standardwerten überschreiben).
 
-### Fehlersuche AutoElytraRepair (nicht committet)
+### Fehlersuche AutoElytraRepair
 
 - Reparatur unmöglich **am Boden** → nur pausieren statt Emergency-Disconnect (`onGround`, nicht
   `!isFallFlying`, sonst würde beim Fallen mit zugeklappter Elytra pausiert).
@@ -177,7 +226,7 @@ ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL e
 - `.sh stop`/`pause` während einer Reparatur: `keepFlightPaused()`, danach kein `resume()` (vorher
   meldete der Befehl „not active“ und der Flug lief nach der Reparatur weiter).
 
-### Fix: in Elytra-Pose am Boden gefangen nach Baritone-Landung (nicht committet)
+### Fix: in Elytra-Pose am Boden gefangen nach Baritone-Landung
 
 - Ursache: Landete Baritone selbst, blieb `ElytraController` aktiv und fiel auf `controlFlight`
   zurück. Das rief jeden Tick `startFallFlying()` nur clientseitig auf (Server korrigiert das nie),
@@ -189,7 +238,7 @@ ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL e
   Waypoint < 64 Blöcke gilt als erreicht; ohne Raketen pausieren). Nur in der Luft noch Fallback.
 - `StuckDetector` wertet „Baritone inaktiv“ am Boden nicht mehr als Hängen.
 
-### Optimierungen: Scan-Cache, Trips, Ersatz-Elytra, Baritone-Steigen (nicht committet)
+### Optimierungen: Scan-Cache, Trips, Ersatz-Elytra, Baritone-Steigen
 
 - **Scan-Cache:** `utils/ChunkScanSchedule` (+ Test). `scanForBlocks` liest nur Chunks, die neu sind,
   per `ChunkDataEvent`/`BlockUpdateEvent` (nur Stash-Blocktypen) invalidiert wurden oder deren Scan
@@ -208,7 +257,7 @@ ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL e
   Raketen-Landung herausgezogen); nur wenn Baritone nicht übernimmt, Emergency-Disconnect. Während
   jeder Baritone-Landung prüft `handleMonitoring` auf kritische Haltbarkeit.
 
-### Flughöhe per Befehl, Landung bei knappen Raketen (nicht committet)
+### Flughöhe per Befehl, Landung bei knappen Raketen
 
 - `.sh altitude [y]` (`StashHunterCommand`) setzt über `StashHunterModule.setFlightAltitude` die
   Meteor-Einstellung, deren `onChanged` ruft `ElytraController.applyFlightAltitude()`: restliche
@@ -220,7 +269,7 @@ ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL e
   2 min). Klappt die Übergabe nicht: `stop()` + Warnung „land manually“. Fallback-Flug braucht keine
   Raketen (ElytraFly setzt die Geschwindigkeit) und wird nicht geprüft.
 
-### AutoElytraRepair: Flug pausieren statt nur ElytraFly umstellen (nicht committet)
+### AutoElytraRepair: Flug pausieren statt nur ElytraFly umstellen
 
 `modules/AutoElytraRepair.java`. Log vom 2026-10-31: Mit `useBaritonePathing=true` flog Baritone
 während der Reparatur weiter. Die alten ElytraFly-Schalter wirkten nicht, weil ElytraFly aus war;
