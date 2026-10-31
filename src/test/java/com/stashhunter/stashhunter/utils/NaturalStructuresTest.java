@@ -38,6 +38,30 @@ class NaturalStructuresTest {
     }
 
     @Test
+    void evictsLeastRecentlyUsed() {
+        NaturalStructures structures = new NaturalStructures(2);
+        structures.add("Overworld", new BlockPos(0, 0, 0));
+        structures.add("Overworld", new BlockPos(1000, 0, 0));
+        assertTrue(structures.isNear("Overworld", new BlockPos(2, 0, 0), 8), "use the oldest entry");
+        structures.add("Overworld", new BlockPos(2000, 0, 0));
+
+        assertTrue(structures.isNear("Overworld", new BlockPos(0, 0, 0), 8), "recently used entry stays");
+        assertFalse(structures.isNear("Overworld", new BlockPos(1000, 0, 0), 8), "unused entry is evicted");
+    }
+
+    @Test
+    void addingAKnownPositionCountsAsUse() {
+        NaturalStructures structures = new NaturalStructures(2);
+        structures.add("Overworld", new BlockPos(0, 0, 0));
+        structures.add("Overworld", new BlockPos(1000, 0, 0));
+        assertFalse(structures.add("Overworld", new BlockPos(0, 0, 0)));
+        structures.add("Overworld", new BlockPos(2000, 0, 0));
+
+        assertTrue(structures.isNear("Overworld", new BlockPos(0, 0, 0), 8));
+        assertFalse(structures.isNear("Overworld", new BlockPos(1000, 0, 0), 8));
+    }
+
+    @Test
     void clearForgetsEverything() {
         NaturalStructures structures = new NaturalStructures(10);
         structures.add("End", new BlockPos(5, 60, 5));

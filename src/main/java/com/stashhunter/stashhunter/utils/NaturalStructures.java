@@ -10,7 +10,8 @@ import java.util.Map;
 /**
  * Positions of natural structures (spawners of dungeons, mineshafts, trial chambers, ...) seen this
  * session, per dimension. Capped per dimension so a long flight can't grow it without bound; the
- * oldest entries go first, they are the farthest behind the player.
+ * least recently used entries go first. Seeing a spawner again or matching it in {@link #isNear}
+ * counts as use, so a structure the player keeps coming back to is not dropped.
  */
 public final class NaturalStructures {
     private final int capacityPerDimension;
@@ -24,7 +25,12 @@ public final class NaturalStructures {
     /** @return true if the position was not known yet */
     public boolean add(String dimension, BlockPos pos) {
         LinkedHashSet<BlockPos> positions = byDimension.computeIfAbsent(dimension, d -> new LinkedHashSet<>());
-        if (!positions.add(pos.immutable())) return false;
+        BlockPos key = pos.immutable();
+        if (positions.remove(key)) {
+            positions.add(key);
+            return false;
+        }
+        positions.add(key);
         if (positions.size() > capacityPerDimension) {
             Iterator<BlockPos> oldest = positions.iterator();
             oldest.next();
@@ -37,8 +43,13 @@ public final class NaturalStructures {
     public boolean isNear(String dimension, BlockPos pos, int radius) {
         LinkedHashSet<BlockPos> positions = byDimension.get(dimension);
         if (positions == null || radius <= 0) return false;
-        for (BlockPos structure : positions) {
-            if (structure.closerThan(pos, radius)) return true;
+        for (Iterator<BlockPos> it = positions.iterator(); it.hasNext(); ) {
+            BlockPos structure = it.next();
+            if (structure.closerThan(pos, radius)) {
+                it.remove();
+                positions.add(structure);
+                return true;
+            }
         }
         return false;
     }

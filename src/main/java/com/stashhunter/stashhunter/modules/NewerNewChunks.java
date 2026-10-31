@@ -35,8 +35,10 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
 import com.stashhunter.stashhunter.StashHunter;
 import com.stashhunter.stashhunter.utils.ChunkDataFormat;
+import com.stashhunter.stashhunter.utils.PaletteOrder;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 
 import java.io.IOException;
@@ -67,7 +69,7 @@ public class NewerNewChunks extends Module {
 
     private final Setting<Boolean> PaletteExploit = specialGroup.add(new BoolSetting.Builder()
             .name("PaletteExploit")
-            .description("Detects new chunks by scanning the order of chunk section palettes. Highlights chunks being updated from an old version. Only works for server versions >= 1.18!")
+            .description("Detects new chunks from the order of the chunk section palettes: freshly generated sections still list air first. Highlights chunks being updated from an old version. Only works for server versions >= 1.18!")
             .defaultValue(true)
             .build()
     );
@@ -829,75 +831,61 @@ public class NewerNewChunks extends Module {
         }
 
         if (PaletteExploit.get()) {
-            // Heuristic, best-effort palette-based detection - avoids relying on direct
-            // palette-index access, which isn't a stable public API surface.
-            boolean firstchunkappearsnew = false;
+            boolean netherOrEnd = level.dimension() == Level.NETHER || level.dimension() == Level.END;
+            int freshSections = 0;
+            int savedSections = 0;
+            // The being-updated detection below is still a heuristic over sampled blocks.
             int loops = 0;
-            int newChunkQuantifier = 0;
             int oldChunkQuantifier = 0;
             try {
                 for (LevelChunkSection section : sections) {
                     // See the double-negation fix note in the overworld detector above.
-                    if (section != null && !section.hasOnlyAir()) {
-                        var blockStatesContainer = section.getStates();
+                    if (section == null || section.hasOnlyAir()) continue;
+                    PalettedContainer<BlockState> states = section.getStates();
 
-                        // Heuristic, best-effort detection based on block state container
-                        // patterns rather than direct palette access.
-                        int uniqueBlockTypes = 0;
+                    // New vs. old from the palette order, see PaletteOrder. Only a linear palette is
+                    // read, the global one would iterate the whole block state registry.
+                    int bits = states.bitsPerEntry();
+                    boolean originIsAir = states.get(0, 0, 0) == AIR;
+                    boolean firstIsAir = bits == PaletteOrder.LINEAR_BITS && firstPaletteEntry(states) == AIR;
+                    switch (PaletteOrder.vote(bits, firstIsAir, originIsAir)) {
+                        case FRESH -> freshSections++;
+                        case SAVED -> savedSections++;
+                        case NONE -> { }
+                    }
+
+                    if (beingUpdatedDetector.get()) {
                         Set<Block> blocksFound = new HashSet<>();
-
                         // Sample some blocks to estimate diversity
                         for (int x = 0; x < 16; x += 4) {
                             for (int y = 0; y < 16; y += 4) {
                                 for (int z = 0; z < 16; z += 4) {
-                                    Block block = blockStatesContainer.get(x, y, z).getBlock();
-                                    blocksFound.add(block);
+                                    blocksFound.add(states.get(x, y, z).getBlock());
                                 }
                             }
                         }
-                        uniqueBlockTypes = blocksFound.size();
-
-                        // New chunks typically have fewer unique block types in early sections
-                        if (loops == 0 && blocksFound.contains(Blocks.AIR) && uniqueBlockTypes <= 3) {
-                            firstchunkappearsnew = true;
-                            newChunkQuantifier++;
-                        } else if (uniqueBlockTypes > 5) {
-                            oldChunkQuantifier++;
-                        }
-
+                        if (blocksFound.size() > 5) oldChunkQuantifier++;
                         // Detect being updated chunks by looking for bedrock in upper sections
-                        if (loops == 4 && blocksFound.contains(Blocks.BEDROCK) &&
-                            level.dimension() != Level.NETHER &&
-                            level.dimension() != Level.END) {
-                            if (!chunkIsBeingUpdated && beingUpdatedDetector.get()) {
-                                chunkIsBeingUpdated = true;
-                            }
-                        }
-
-                        loops++;
+                        if (loops == 4 && blocksFound.contains(Blocks.BEDROCK) && !netherOrEnd) chunkIsBeingUpdated = true;
                     }
+                    loops++;
                 }
 
-                if (loops > 0) {
-                    if (beingUpdatedDetector.get() && (level.dimension() == Level.NETHER || level.dimension() == Level.END)){
-                        double oldpercentage = ((double) oldChunkQuantifier / loops) * 100;
-                        if (oldpercentage >= 25) chunkIsBeingUpdated = true;
-                    }
-                    else if (level.dimension() != Level.NETHER && level.dimension() != Level.END){
-                        double percentage = ((double) newChunkQuantifier / loops) * 100;
-                        if (percentage >= 51 || firstchunkappearsnew) isNewChunk = true;
-                    }
+                if (beingUpdatedDetector.get() && netherOrEnd && loops > 0) {
+                    double oldpercentage = ((double) oldChunkQuantifier / loops) * 100;
+                    if (oldpercentage >= 25) chunkIsBeingUpdated = true;
                 }
-            } catch (Exception e) {
-                // Fallback logic if palette detection fails
-                if (firstchunkappearsnew) isNewChunk = true;
+            } catch (RuntimeException e) {
+                return null; // same as a failed decode: no result beats a wrong one
             }
 
-            boolean bewlian = (level.dimension() == Level.END) ? isNewChunk : !isOldGeneration;
-            if (isNewChunk && !chunkIsBeingUpdated && bewlian) return ChunkKind.NEW;
+            PaletteOrder.Verdict verdict = PaletteOrder.classify(freshSections, savedSections);
+            isNewChunk = verdict == PaletteOrder.Verdict.NEW;
+            if (isNewChunk && !chunkIsBeingUpdated && !isOldGeneration) return ChunkKind.NEW;
             if (!isNewChunk && !chunkIsBeingUpdated && isOldGeneration) return ChunkKind.OLD_GENERATION;
             if (chunkIsBeingUpdated) return ChunkKind.BEING_UPDATED;
-            if (!isNewChunk) return ChunkKind.OLD;
+            // UNKNOWN (no section with a usable palette) is left unmarked instead of called old.
+            if (verdict == PaletteOrder.Verdict.OLD) return ChunkKind.OLD;
         }
         if (liquidexploit.get()) {
             // Section-wise instead of chunk.getFluidState() over the full height: the fluid state
@@ -914,6 +902,16 @@ public class NewerNewChunks extends Module {
             }
         }
         return null;
+    }
+
+    private static final BlockState AIR = Blocks.AIR.defaultBlockState();
+
+    private static BlockState firstPaletteEntry(PalettedContainer<BlockState> states) {
+        BlockState[] first = new BlockState[1];
+        states.forEachInPalette(state -> {
+            if (first[0] == null) first[0] = state;
+        });
+        return first[0];
     }
 
     private static boolean isOre(BlockState state) {

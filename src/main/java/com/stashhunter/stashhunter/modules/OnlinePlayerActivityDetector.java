@@ -170,7 +170,12 @@ public class OnlinePlayerActivityDetector extends Module {
     }
 
     private void flushDiscord() {
-        if (!discord.get() || (pendingJoined.isEmpty() && pendingLeft.isEmpty())) return;
+        // Dropped while Discord is off, so switching it back on doesn't send stale changes.
+        if (!discord.get()) {
+            clearPending();
+            return;
+        }
+        if (pendingJoined.isEmpty() && pendingLeft.isEmpty()) return;
         long now = System.currentTimeMillis();
         if (lastDiscordTime != 0 && now - lastDiscordTime < discordCooldown.get() * 1000L) return;
         lastDiscordTime = now;

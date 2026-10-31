@@ -77,6 +77,9 @@ public class SlimeChunkOverlay extends Module {
     // Parsed world-seed, re-parsed only when the text changes (onRender runs every frame).
     private String parsedSeedText;
     private OptionalLong parsedSeed = OptionalLong.empty();
+    // Seed of the integrated server it was read from; a world's seed never changes while it runs.
+    private IntegratedServer seedServer;
+    private long serverSeed;
 
     public SlimeChunkOverlay() {
         super(StashHunter.CATEGORY, "slime-chunks", "Marks slime chunks around you (needs the world seed in multiplayer).");
@@ -86,6 +89,7 @@ public class SlimeChunkOverlay extends Module {
     public void onActivate() {
         cachedRadius = -1;
         warnedNoSeed = false;
+        seedServer = null;
     }
 
     @EventHandler
@@ -122,10 +126,16 @@ public class SlimeChunkOverlay extends Module {
     private OptionalLong currentSeed() {
         IntegratedServer server = mc.getSingleplayerServer();
         if (server != null) {
-            // overworld() is a plain map lookup and is null while the server starts or stops.
-            ServerLevel overworld = server.overworld();
-            return overworld != null ? OptionalLong.of(overworld.getSeed()) : OptionalLong.empty();
+            if (server != seedServer) {
+                // overworld() is a plain map lookup and is null while the server starts or stops.
+                ServerLevel overworld = server.overworld();
+                if (overworld == null) return OptionalLong.empty();
+                serverSeed = overworld.getSeed();
+                seedServer = server;
+            }
+            return OptionalLong.of(serverSeed);
         }
+        seedServer = null;
         String text = worldSeed.get();
         if (!text.equals(parsedSeedText)) {
             parsedSeed = SlimeChunks.parseSeed(text);

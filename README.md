@@ -207,7 +207,7 @@ Marks chunks as new (generated recently) or old (visited before), based on what 
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `PaletteExploit` | Detect new chunks from the chunk section palettes. Servers on 1.18+ only. | true |
+| `PaletteExploit` | Detect new chunks from the order of the chunk section palettes (freshly generated sections still list air first). Works in all dimensions; chunks without a usable section stay unmarked. Servers on 1.18+ only; servers that rewrite palettes (some anti-xray plugins) can confuse it. | true |
 | `Detection for chunks that haven't been explored since <=1.17` | Mark chunks that are being upgraded from an old version. Needs `PaletteExploit`. | true |
 | `Pre 1.17 Overworld OldChunk Detector` | Mark Overworld chunks generated before 1.17 (by their blocks). | true |
 | `Pre 1.16 Nether OldChunk Detector` | Mark Nether chunks generated before 1.16 (missing newer Nether blocks). | true |
@@ -273,7 +273,7 @@ Finds spawners that a player has already been near, from the chunk data the serv
 | `deactivated-spawner-detector`, `torch-scan-distance` | Mark spawners with light blocks next to them in their own colour. | on, 1 |
 | `dungeon`, `mineshaft`, `stronghold`, `fortress`, `bastion`, `woodland-mansion`, `trial-chamber`, `other-spawners` | One toggle per structure type. | on |
 | `amethyst-geode` | Mark amethyst geodes (budding amethyst). | off |
-| `structure-waypoints` | Create a Meteor waypoint for every structure with an activated spawner, named `<Type> structure @ x, y, z`. Deduplicated within 64 blocks. | off |
+| `structure-waypoints` | Create a Meteor waypoint for every structure with an activated spawner, named `<Type> structure @ x, y, z`. One per structure: spawners of a type closer than 16 (dungeon) to 96 blocks (mineshaft, stronghold, fortress) count as one. | off |
 | `render-distance` | How far (in chunks) detections are checked and drawn. | 32 |
 | `remove-outside-render-distance` | Forget detections farther away than that. | on |
 | `less-render-spam` | Only draw the range box if storage is nearby. | on |
@@ -317,7 +317,7 @@ Plays a repeating local alarm while another player is within `radius`, for unatt
 | `repeat-interval` | Seconds between two rings while a player stays in range. | 3 |
 | `ignore-friends` | Don't ring for Meteor friends. | true |
 | `chat` | List the players in range whenever that set changes. | true |
-| `title` | Flash an on-screen title with every ring. | false |
+| `action-bar` | Show the players in range in the action bar with every ring. | false |
 
 ### Auto Logout (`auto-logout`)
 
@@ -332,14 +332,6 @@ Plays a repeating local alarm while another player is within `radius`, for unatt
 | `min-health` | Threshold in half-hearts (20 = full health). | 10 |
 | `discord` | Notify the Stash-Hunter webhook before disconnecting. | true |
 | `disable-after-logout` | Turn the module off after it triggers, so reconnecting doesn't log out again at once. | true |
-
-### Unfocused FPS Limiter (`unfocused-fps-limiter`)
-
-Lowers the framerate while the game window is in the background, to save resources during long runs. Your saved framerate option is never changed; your own limit is kept if it is lower. It has no effect in menus outside a world (Minecraft caps those itself).
-
-| Setting | Description | Default |
-| --- | --- | --- |
-| `fps-limit` | Framerate cap while unfocused (5-120). | 10 |
 
 ## Discord notifications
 

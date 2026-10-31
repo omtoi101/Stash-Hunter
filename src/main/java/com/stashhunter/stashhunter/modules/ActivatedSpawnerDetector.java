@@ -54,21 +54,25 @@ import java.util.*;
     - Optional amethyst-geode markers (budding amethyst) next to the geode filter of the air check.
 */
 public class ActivatedSpawnerDetector extends Module {
+    // waypointRadius: spawners of one kind closer than this belong to the same structure (one waypoint).
+    // Rough structure extents; two dungeons can sit close together, a mineshaft spans 150+ blocks.
     public enum Kind {
-        DUNGEON("Dungeon"),
-        MINESHAFT("Mineshaft"),
-        STRONGHOLD("Stronghold"),
-        FORTRESS("Fortress"),
-        BASTION("Bastion"),
-        WOODLAND_MANSION("Woodland Mansion"),
-        TRIAL_CHAMBER("Trial Chamber"),
-        OTHER("Spawner"),
-        GEODE("Amethyst Geode");
+        DUNGEON("Dungeon", 16),
+        MINESHAFT("Mineshaft", 96),
+        STRONGHOLD("Stronghold", 96),
+        FORTRESS("Fortress", 96),
+        BASTION("Bastion", 48),
+        WOODLAND_MANSION("Woodland Mansion", 64),
+        TRIAL_CHAMBER("Trial Chamber", 64),
+        OTHER("Spawner", 0),
+        GEODE("Amethyst Geode", 0);
 
         private final String title;
+        private final int waypointRadius;
 
-        Kind(String title) {
+        Kind(String title, int waypointRadius) {
             this.title = title;
+            this.waypointRadius = waypointRadius;
         }
 
         // OTHER is any other mob, usually a placed spawner, i.e. a base signal rather than a structure.
@@ -108,8 +112,6 @@ public class ActivatedSpawnerDetector extends Module {
     // Bounds memory on long flights; StashHunter only asks about positions near the player.
     private static final int MAX_STRUCTURES_PER_DIMENSION = 4096;
     private static final String STRUCTURE_WAYPOINT_MARKER = " structure @ ";
-    // Mineshafts, trial chambers and mansions hold many spawners: one waypoint per structure.
-    private static final int STRUCTURE_WAYPOINT_DEDUPE_RADIUS = 64;
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgLocations = settings.createGroup("Location Toggles");
@@ -359,10 +361,15 @@ public class ActivatedSpawnerDetector extends Module {
 
     private record PendingCandidate(Candidate candidate, long receivedTick) {}
 
+    private record StructureSpawner(Kind kind, BlockPos pos) {}
+
     // Client thread only: the packet handler passes every access through mc.execute(...).
     private final Map<BlockPos, Detection> detections = new LinkedHashMap<>();
     private final Set<BlockPos> checkedPositions = new HashSet<>();
     private final List<PendingCandidate> pending = new ArrayList<>();
+    // Spawners already handled by addStructureWaypoint in this level. A big structure is chained
+    // spawner to spawner, so its far end doesn't get a second waypoint.
+    private final List<StructureSpawner> structureSpawners = new ArrayList<>();
     // Every unmodified natural spawner seen, activated or not and regardless of the location toggles; kept
     // across dimension changes for StashHunter's natural-structure filter.
     private final NaturalStructures structures = new NaturalStructures(MAX_STRUCTURES_PER_DIMENSION);
@@ -402,6 +409,7 @@ public class ActivatedSpawnerDetector extends Module {
         detections.clear();
         checkedPositions.clear();
         pending.clear();
+        structureSpawners.clear();
     }
 
     // PacketEvent.Receive is posted on the Netty connection thread. Only the packet and our own private
@@ -666,14 +674,26 @@ public class ActivatedSpawnerDetector extends Module {
         }
     }
 
-    // Deduped against Meteor's persisted waypoints, so toggles and reconnects don't add duplicates.
+    // Deduped against the structure's other spawners and Meteor's persisted waypoints, so toggles
+    // and reconnects don't add duplicates either.
     private void addStructureWaypoint(BlockPos pos, Kind kind) {
+        int radius = kind.waypointRadius;
+        boolean sameStructure = false;
+        for (StructureSpawner spawner : structureSpawners) {
+            if (spawner.kind() == kind && spawner.pos().closerThan(pos, radius)) {
+                sameStructure = true;
+                break;
+            }
+        }
+        structureSpawners.add(new StructureSpawner(kind, pos.immutable()));
+        if (sameStructure) return;
+
         Dimension dimension = PlayerUtils.getDimension();
         String prefix = kind.title + STRUCTURE_WAYPOINT_MARKER;
         for (Waypoint waypoint : Waypoints.get()) {
             if (waypoint.dimension.get() == dimension
                     && waypoint.name.get().startsWith(prefix)
-                    && waypoint.pos.get().closerThan(pos, STRUCTURE_WAYPOINT_DEDUPE_RADIUS)) {
+                    && waypoint.pos.get().closerThan(pos, radius)) {
                 return;
             }
         }

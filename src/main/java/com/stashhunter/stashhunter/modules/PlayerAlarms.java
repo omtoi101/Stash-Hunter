@@ -86,9 +86,10 @@ public class PlayerAlarms extends Module {
         .build()
     );
 
-    private final Setting<Boolean> title = sgGeneral.add(new BoolSetting.Builder()
-        .name("title")
-        .description("Flash an on-screen title with every ring.")
+    // Action bar instead of a title: setTimes/setTitle would overwrite a server's title and its timings.
+    private final Setting<Boolean> actionBar = sgGeneral.add(new BoolSetting.Builder()
+        .name("action-bar")
+        .description("Show the players in range in the action bar with every ring.")
         .defaultValue(false)
         .build()
     );
@@ -126,12 +127,14 @@ public class PlayerAlarms extends Module {
     private void onTick(TickEvent.Post event) {
         if (mc.player == null || mc.level == null) return;
 
-        double maxSq = (double) radius.get() * radius.get();
         Set<String> inRange = new TreeSet<>();
         for (Player player : mc.level.players()) {
             if (player == mc.player) continue;
             if (ignoreFriends.get() && Friends.get().isFriend(player)) continue;
-            if (mc.player.distanceToSqr(player) < maxSq) inRange.add(player.getName().getString());
+            String name = player.getName().getString();
+            if (AlarmSchedule.inRange(mc.player.distanceToSqr(player), radius.get(), announced.contains(name))) {
+                inRange.add(name);
+            }
         }
 
         if (chat.get() && !inRange.equals(announced)) {
@@ -140,13 +143,13 @@ public class PlayerAlarms extends Module {
         }
         announced = inRange;
 
-        if (!schedule.update(!inRange.isEmpty(), System.currentTimeMillis(), repeatInterval.get() * 1000L)) return;
+        // Monotonic, so a system clock change can't stall or re-trigger the alarm.
+        long nowMs = System.nanoTime() / 1_000_000L;
+        if (!schedule.update(!inRange.isEmpty(), nowMs, repeatInterval.get() * 1000L)) return;
 
         mc.getSoundManager().play(SimpleSoundInstance.forUI(sound.get().event(), 1.0f, volume.get().floatValue()));
-        if (title.get()) {
-            mc.gui.hud.setTimes(0, 30, 10);
-            mc.gui.hud.setTitle(Component.literal("Player nearby!"));
-            mc.gui.hud.setSubtitle(Component.literal(String.join(", ", inRange)));
+        if (actionBar.get()) {
+            mc.gui.hud.setOverlayMessage(Component.literal("Player nearby: " + String.join(", ", inRange)), false);
         }
     }
 }

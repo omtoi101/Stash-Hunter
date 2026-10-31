@@ -7,6 +7,7 @@ import com.stashhunter.stashhunter.utils.FireworkBoost;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.utils.player.FindItemResult;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.orbit.EventHandler;
@@ -90,6 +91,9 @@ public class AutoFirework extends Module {
         if (ElytraController.isLandingAfterCompletion()) return;
         // Baritone's elytra process times its own rockets and slot swaps; ours would stack on top.
         if (BaritoneBridge.isElytraActive()) return;
+        // The repair brakes and hovers on purpose; a boost would fight the slowdown.
+        AutoElytraRepair repair = Modules.get().get(AutoElytraRepair.class);
+        if (repair != null && repair.isActive() && repair.isRepairing()) return;
 
         Vec3 v = mc.player.getDeltaMovement();
         Vec3 look = mc.player.getLookAngle();

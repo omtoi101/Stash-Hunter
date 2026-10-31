@@ -31,6 +31,9 @@ public class Config {
     private static final long SAVE_DELAY_MS = 1000;
     private static ScheduledFuture<?> pendingSave;
     private static boolean shutDown;
+    // Set by saveLater(), cleared by every write. A debounced save that already started and waits
+    // for the lock then finds nothing left to do instead of writing a second time.
+    private static boolean dirty;
 
     // Default configuration values
     public static String discordWebhookUrl = "";
@@ -182,8 +185,13 @@ public class Config {
             save();
             return;
         }
+        dirty = true;
         if (pendingSave != null) pendingSave.cancel(false);
-        pendingSave = SAVER.schedule(Config::save, SAVE_DELAY_MS, TimeUnit.MILLISECONDS);
+        pendingSave = SAVER.schedule(Config::saveIfDirty, SAVE_DELAY_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private static synchronized void saveIfDirty() {
+        if (dirty) save();
     }
 
     // Called from the JVM shutdown hook: the saver is a daemon thread, so a save still waiting out
@@ -191,14 +199,14 @@ public class Config {
     public static synchronized void shutdown() {
         if (shutDown) return;
         shutDown = true;
-        boolean pending = pendingSave != null && !pendingSave.isDone();
-        if (pending) pendingSave.cancel(false);
+        if (pendingSave != null) pendingSave.cancel(false);
         pendingSave = null;
         SAVER.shutdownNow();
-        if (pending) save();
+        if (dirty) save();
     }
 
     public static synchronized void save() {
+        dirty = false;
         try {
             // Ensure the meteor client folder exists
             if (!MeteorClient.FOLDER.exists()) {

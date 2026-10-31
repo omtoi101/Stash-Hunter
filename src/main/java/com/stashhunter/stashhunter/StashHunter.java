@@ -18,7 +18,6 @@ import com.stashhunter.stashhunter.modules.AutoFirework;
 import com.stashhunter.stashhunter.modules.OnlinePlayerActivityDetector;
 import com.stashhunter.stashhunter.modules.PlayerAlarms;
 import com.stashhunter.stashhunter.modules.AutoLogout;
-import com.stashhunter.stashhunter.modules.UnfocusedFpsLimiter;
 import com.mojang.logging.LogUtils;
 import meteordevelopment.meteorclient.addons.GithubRepo;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
@@ -62,7 +61,6 @@ public class StashHunter extends MeteorAddon {
         Modules.get().add(new OnlinePlayerActivityDetector());
         Modules.get().add(new PlayerAlarms());
         Modules.get().add(new AutoLogout());
-        Modules.get().add(new UnfocusedFpsLimiter());
 
         // Commands
         Commands.add(new StashHunterCommand());
