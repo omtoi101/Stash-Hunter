@@ -50,7 +50,7 @@ class AtomicFilesTest {
         // (virus scanner, cloud sync); the save must still land.
         Path file = dir.resolve("config.properties");
         Files.writeString(file, "old");
-        try (FileInputStream reader = new FileInputStream(file.toFile())) {
+        try (FileInputStream _ = new FileInputStream(file.toFile())) {
             AtomicFiles.write(file, out -> out.write("new".getBytes(StandardCharsets.UTF_8)));
             assertEquals("new", Files.readString(file));
         }

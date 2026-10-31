@@ -2,9 +2,14 @@
 
 ## Stand (2026-10-31)
 
-- Branch `code-revision`, zuletzt `d2f5f57` (Review-Punkte 89–95 und 54 Xaero-Waypoints). Noch
-  nicht committet: **53 ChestIndex** (`chest-index`).
-- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **116 Unit-Tests in 24 Suites**.
+- Branch `code-revision`, zuletzt `c5dcaed` (53 ChestIndex). Noch nicht committet: **97–100
+  Zuverlässigeres Stash-Hunting** (Abschnitt 0) und die beiden VS-Code-Warnungen
+  (`AtomicFilesTest`: ungenutzte Variable → `_`; `StashHunterModule`: unnötiges
+  `@SuppressWarnings("unused")` an `land-on-low-fireworks`).
+- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **125 Unit-Tests in 25 Suites**.
+- Version **26.2.2-pre1** (Pre-Release, CHANGELOG-Abschnitt `[v26.2.2-pre1]`). Die fehlenden
+  CHANGELOG-Einträge aus `5a843cc`/`ec9efdb` (Stash ESP, Takeoff, Reparatur, Trips, Scan-Cache,
+  `.sh altitude`, Raketen-Landung, Ersatz-Elytra) sind nachgetragen.
 - Von Abschnitt 0 ist nur 96 offen (nur beobachten).
 - **Nichts davon ist in-game getestet.** Das ist der nächste Schritt (Checkliste in Abschnitt 1).
 - Offen sind danach nur noch Feature-Ideen (Abschnitt 3).
@@ -52,6 +57,23 @@ Code-Review“, 1–8 = 89–96).
 - [ ] **96 Trip-Save mit `fsync` auf dem Client-Thread** (niedrig, beobachten): nur angehen, wenn
       es beim Pausieren/Landen spürbar ruckelt.
 
+Zuverlässigeres Stash-Hunting (2026-10-31, Details in [CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md)):
+
+- [x] **97 NPE in `onBlockUpdate`**: `BlockUpdateEvent.oldState` ist `null`, wenn sich der Block
+      nicht ändert (`LevelChunk.setBlockState` gibt dann `null` zurück, im Bytecode geprüft). Die
+      Exception hätte das Paket-Handling beendet → Disconnect „Network Protocol Error“. Ignoriert.
+- [x] **98 Spät geladene Chunks**: Chunks im Scan-Radius, die noch nicht geladen sind, merkt sich
+      `utils/MissedChunks` (+ Test, 60 s, max. 4096) und scannt sie beim Eintreffen; Cluster um weit
+      zurückliegende Chunks werden separat geprüft. Nie geladene Chunks → Chat-Warnung (höchstens
+      alle 10 min, mit Server-View-Distance).
+- [x] **99 Zu große/dünne Cluster werden aufgeteilt statt verworfen**: `StashClustering.tighten`
+      (+ Test) halbiert Link-Abstand und Radius bis 4 Blöcke; jeder Teil mit genug Blöcken, der
+      Volumen und Dichte erfüllt, wird gemeldet (große Basis mit Ausreißern, Stash in/neben
+      Ancient City usw.).
+- [x] **100 Kein Edge-Following bei ungeladenen Chunks**: wich quer zum Streifen aus und übersprang
+      nach 30 s den Waypoint (fast ein ganzer Streifen ungescannt). Der Bot bleibt jetzt auf dem
+      Streifen, 98 holt die Chunks nach. Trail-Following (neue Chunks) bleibt.
+
 ## 1. In-game-Test (als Nächstes)
 
 Grundfunktionen:
@@ -63,6 +85,13 @@ Scan und Stashes:
 - [ ] Stash auf einer Streifengrenze wird gemeldet; ein zuerst halb gesehener Stash bekommt
       „Stash Updated“ und einen verschobenen Waypoint
 - [ ] `reported-stashes`-Datei hält nach Reconnect (keine doppelten Meldungen)
+- [ ] Spät geladene Chunks (98): schneller Flug auf einem Server mit wenig Chunk-Rate; Stash am
+      Streifenrand wird trotzdem gemeldet. Mit `scan-radius` über der Server-View-Distance kommt
+      die Warnung „chunks inside scan-radius never loaded“ (höchstens alle 10 min)
+- [ ] Aufteilen (99): große Basis (Lagerraum + einzelne Kisten weit weg) wird gemeldet; Ancient
+      City / Village / Stronghold bleiben weiter still; ein Stash neben einer Ancient City wird
+      gemeldet
+- [ ] Redstone-/Kolben-Basis überfliegen mit `stash-hunter` an: kein „Network Protocol Error“ (97)
 - [ ] `include-spawners`, `structure-filter-radius`, `structure-waypoints`
 - [ ] Stash-ESP (Outlines, Boxen, Tracer)
 - [ ] `chest-index` (zuerst Singleplayer, dann Server): `auto-open` öffnet Kisten/Fässer/Shulker
@@ -89,6 +118,8 @@ Chunks:
 - [ ] Slime-Chunk-Overlay
 
 Flug:
+- [ ] Mit NewerNewChunks an und langsamem Server: kein Ausweichen mehr bei ungeladenen Chunks
+      voraus, kein übersprungener Waypoint (100); Trail-Following bei neuen Chunks geht weiter
 - [ ] `.stashhunter stop` / Dimensionswechsel / AltitudeLoss-Recovery beendet den Baritone-
       Elytra-Flug wirklich (kein Re-Path)
 - [ ] `land-after-completion` mit Baritone; festsitzende Landung bricht nach 2 min ab
@@ -257,6 +288,9 @@ Wegen der `26.2`-Pins (`minecraft_version`, `meteor-client: ~26.2-`, Meteor/Bari
 - **89–95** (Code-Review, 2026-10-31): Speichern bei offener Datei unter Windows, Config-Save-Retry,
   Zeilenende vor dem Anhängen, `clearGroundGlide` nur im Flug, `.tmp`-Aufräumen,
   `stacked-minecarts` ohne Doppelmeldung, leere Trips verworfen.
+- **97–100** (2026-10-31): NPE bei Block-Updates ohne Änderung, spät geladene Chunks werden
+  nachgescannt, zu große/dünne Cluster aufgeteilt statt verworfen, kein Edge-Following mehr bei
+  ungeladenen Chunks.
 - **53** ChestIndex (2026-10-31, clean-room): Modul `chest-index` + Befehl `.chest-index`
   (`search`, `clear`), Logik in `utils/ChestIndex` (+ Test), JSON pro Server unter
   `StashHunter/chest-index/`. Server-Schlüssel nach `utils/ServerKey` ausgelagert.

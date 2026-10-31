@@ -42,6 +42,53 @@ class StashClusteringTest {
     }
 
     @Test
+    void tightenKeepsAnAcceptedClusterWhole() {
+        List<BlockPos> blocks = grid(0, 0, 5, 1);
+        List<List<BlockPos>> parts = StashClustering.tighten(blocks, 30, 32, 10, c -> true);
+        assertEquals(List.of(blocks), parts);
+    }
+
+    @Test
+    void tightenFindsTheDenseCoreOfAnOversizedCluster() {
+        // A 5x5 chest floor plus two chests far off: one cluster, but its bounding box is mostly empty.
+        List<BlockPos> blocks = grid(0, 0, 5, 1);
+        blocks.add(new BlockPos(24, 64, 0));
+        blocks.add(new BlockPos(24, 80, 4));
+        assertEquals(1, StashClustering.cluster(blocks, 30, 32).size(), "test setup: one cluster at full size");
+
+        List<List<BlockPos>> parts = StashClustering.tighten(blocks, 30, 32, 10,
+            c -> StashClustering.boundingBoxVolume(c) <= 1000);
+
+        assertEquals(1, parts.size());
+        assertEquals(25, parts.get(0).size());
+        assertTrue(parts.get(0).stream().allMatch(p -> p.getX() <= 4), "only the core is left");
+    }
+
+    @Test
+    void tightenDropsASparseClusterEntirely() {
+        // Single chests 12 blocks apart, like a natural structure: no part is both small and big enough.
+        List<BlockPos> blocks = grid(0, 0, 5, 12);
+        List<List<BlockPos>> parts = StashClustering.tighten(blocks, 30, 32, 10,
+            c -> StashClustering.boundingBoxVolume(c) <= 1000);
+        assertTrue(parts.isEmpty());
+    }
+
+    @Test
+    void tightenStopsAtTheMinimumLinkDistance() {
+        List<BlockPos> blocks = grid(0, 0, 5, 1);
+        assertTrue(StashClustering.tighten(blocks, StashClustering.MIN_LINK_DISTANCE * 2 - 1, 32, 10, c -> false).isEmpty());
+    }
+
+    // size x size blocks on y = 64, step blocks apart, starting at x/z.
+    private static List<BlockPos> grid(int x, int z, int size, int step) {
+        List<BlockPos> blocks = new ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            for (int j = 0; j < size; j++) blocks.add(new BlockPos(x + i * step, 64, z + j * step));
+        }
+        return blocks;
+    }
+
+    @Test
     void boundingBoxVolumeCountsWholeBlocks() {
         assertEquals(1.0, StashClustering.boundingBoxVolume(List.of(new BlockPos(3, 3, 3))));
         assertEquals(2.0 * 3.0 * 4.0,

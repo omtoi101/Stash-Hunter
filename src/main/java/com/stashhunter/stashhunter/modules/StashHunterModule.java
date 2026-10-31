@@ -9,6 +9,7 @@ import com.stashhunter.stashhunter.utils.DiscordWebhook;
 import com.stashhunter.stashhunter.utils.DungeonFilter;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.KeyHold;
+import com.stashhunter.stashhunter.utils.MissedChunks;
 import com.stashhunter.stashhunter.utils.ReportedStashes;
 import com.stashhunter.stashhunter.utils.ScanTrigger;
 import com.stashhunter.stashhunter.utils.ServerKey;
@@ -43,6 +44,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
@@ -399,7 +401,7 @@ public class StashHunterModule extends Module {
         .build()
     );
 
-    @SuppressWarnings("unused") // value is read via Config.landOnLowFireworks
+    // Value is read via Config.landOnLowFireworks; the field only drives lowFireworkThreshold's visibility.
     private final Setting<Boolean> landOnLowFireworks = sgGeneral.add(new BoolSetting.Builder()
         .name("land-on-low-fireworks")
         .description("Pause the scan and let Baritone land on a safe spot nearby when the rockets in your inventory drop to the threshold. Resume with .stashhunter resume.")
@@ -499,6 +501,13 @@ public class StashHunterModule extends Module {
     // A chunk is only read again when it changed or after this long (catches missed updates).
     private static final int RESCAN_TICKS = 1200;
     private final ChunkScanSchedule scanSchedule = new ChunkScanSchedule(RESCAN_TICKS);
+    // Chunks that were inside the scan radius before the server sent them: scanned once they arrive.
+    private final MissedChunks missedChunks = new MissedChunks(RESCAN_TICKS, 4096);
+    // Chunks that never arrived leave holes in the scanned area; the player hears about it now and then.
+    private static final int MISSED_WARNING_MIN_CHUNKS = 16;
+    private static final int MISSED_WARNING_INTERVAL_TICKS = 12_000; // 10 minutes
+    private int neverLoadedChunks = 0;
+    private int lastMissedWarningTick = -MISSED_WARNING_INTERVAL_TICKS;
     // Block set of the last scan: a settings change makes every cached chunk result stale.
     private Set<Block> lastScanBlocks = Set.of();
     private Set<Block> lastPlainBlocks = Set.of();
@@ -524,6 +533,9 @@ public class StashHunterModule extends Module {
         reportedStashes = null; // reloaded from disk for the current server
         stashBlockIndex.clear();
         scanSchedule.clear();
+        missedChunks.clear();
+        neverLoadedChunks = 0;
+        lastMissedWarningTick = -MISSED_WARNING_INTERVAL_TICKS;
         lastHealth = -1; // Reset health tracking
         lastDimension = null;
 
@@ -608,6 +620,7 @@ public class StashHunterModule extends Module {
         reportedStashes = null; // the next server has its own file
         stashBlockIndex.clear();
         scanSchedule.clear();
+        missedChunks.clear();
         foundStashes.clear();
         resetFlightState();
         lastHealth = -1;
@@ -648,6 +661,7 @@ public class StashHunterModule extends Module {
         ResourceKey<Level> dimension = mc.level.dimension();
         if (lastDimension != null && !dimension.equals(lastDimension)) {
             haltFlight("Dimension changed");
+            missedChunks.clear(); // the old dimension's chunks won't arrive anymore
         }
         lastDimension = dimension;
 
@@ -840,36 +854,93 @@ public class StashHunterModule extends Module {
         boolean scannedAny = false;
         for (int cx = playerChunkX - chunkRadius; cx <= playerChunkX + chunkRadius; cx++) {
             for (int cz = playerChunkZ - chunkRadius; cz <= playerChunkZ + chunkRadius; cz++) {
-                // Unloaded chunks read as an empty chunk and would wipe what we know about them.
-                if (!mc.level.hasChunk(cx, cz)) continue;
                 long dx = Math.clamp(px, cx << 4, (cx << 4) + 15) - px;
                 long dz = Math.clamp(pz, cz << 4, (cz << 4) + 15) - pz;
                 if (dx * dx + dz * dz > radiusSq) continue;
-                // Unchanged since its last scan: the index still holds its result.
-                if (!scanSchedule.isDue(dimension, cx, cz, tickCounter)) continue;
-
-                stashBlockIndex.update(dimension, cx, cz, scanChunk(mc.level.getChunk(cx, cz), activeBlocks, plainBlocks));
-                scanSchedule.markScanned(dimension, cx, cz, tickCounter);
-                scannedAny = true;
+                // Unloaded chunks read as an empty chunk and would wipe what we know about them.
+                // Scanned once the server sends them, even if the player has flown on by then.
+                if (!mc.level.hasChunk(cx, cz)) {
+                    missedChunks.add(dimension, cx, cz, tickCounter);
+                    continue;
+                }
+                if (scanChunkIfDue(dimension, cx, cz, activeBlocks, plainBlocks)) scannedAny = true;
             }
         }
-        // Nothing new around here, so clustering would reach the same result as last time.
-        if (!scannedAny) return;
 
-        // Cluster over everything found around here, including chunks scanned on earlier passes,
-        // so a stash split across two flight strips is seen whole. The margin lets a cluster that
-        // reaches into the scan circle pull in its members from outside it.
-        Map<BlockPos, Block> found = stashBlockIndex.near(dimension, px, pz, radius + maxClusterSize.get() + 16);
+        // Chunks that arrived after they were in range. Those far behind the player get their own
+        // cluster check below: the one around the player doesn't reach them anymore.
+        List<BlockPos> lateCenters = new ArrayList<>();
+        for (long key : missedChunks.takeLoaded(dimension, key -> mc.level.hasChunk(ChunkPos.getX(key), ChunkPos.getZ(key)))) {
+            int cx = ChunkPos.getX(key), cz = ChunkPos.getZ(key);
+            if (!scanChunkIfDue(dimension, cx, cz, activeBlocks, plainBlocks)) continue;
+            BlockPos center = new BlockPos((cx << 4) + 8, 0, (cz << 4) + 8);
+            if (horizontalDistSq(center, px, pz) <= radiusSq) {
+                scannedAny = true;
+            } else if (lateCenters.stream().noneMatch(c -> horizontalDistSq(c, center.getX(), center.getZ()) <= 32 * 32)) {
+                lateCenters.add(center);
+            }
+        }
+        warnAboutMissedChunks(radius);
+
+        // Nothing new around here, so clustering would reach the same result as last time.
+        if (scannedAny) findStashes(dimension, px, pz, radius, activeBlocks);
+        for (BlockPos center : lateCenters) findStashes(dimension, center.getX(), center.getZ(), 32, activeBlocks);
+    }
+
+    // Unchanged since its last scan: the index still holds its result. Returns whether it was scanned.
+    private boolean scanChunkIfDue(String dimension, int cx, int cz, Set<Block> activeBlocks, Set<Block> plainBlocks) {
+        if (!scanSchedule.isDue(dimension, cx, cz, tickCounter)) return false;
+        stashBlockIndex.update(dimension, cx, cz, scanChunk(mc.level.getChunk(cx, cz), activeBlocks, plainBlocks));
+        scanSchedule.markScanned(dimension, cx, cz, tickCounter);
+        return true;
+    }
+
+    private static long horizontalDistSq(BlockPos pos, int x, int z) {
+        long dx = pos.getX() - x, dz = pos.getZ() - z;
+        return dx * dx + dz * dz;
+    }
+
+    // Chunks the server never sent while they were in range are holes in the scanned area.
+    private void warnAboutMissedChunks(int radius) {
+        missedChunks.expire(tickCounter);
+        neverLoadedChunks += missedChunks.takeDropped();
+        if (neverLoadedChunks < MISSED_WARNING_MIN_CHUNKS || tickCounter - lastMissedWarningTick < MISSED_WARNING_INTERVAL_TICKS) return;
+
+        int viewBlocks = mc.options.getEffectiveRenderDistance() * 16;
+        warning(neverLoadedChunks + " chunks inside scan-radius never loaded and were not scanned. Either the server sends chunks"
+            + " slower than you fly, or its view distance (about " + viewBlocks + " blocks) is below scan-radius (" + radius + ").");
+        neverLoadedChunks = 0;
+        lastMissedWarningTick = tickCounter;
+    }
+
+    /**
+     * Clusters everything known within {@code range} of x/z, including chunks scanned on earlier
+     * passes, so a stash split across two flight strips is seen whole. The margin lets a cluster that
+     * reaches into the range pull in its members from outside it.
+     */
+    private void findStashes(String dimension, int x, int z, int range, Set<Block> activeBlocks) {
+        Map<BlockPos, Block> found = stashBlockIndex.near(dimension, x, z, range + maxClusterSize.get() + 16);
         found.values().removeIf(block -> !activeBlocks.contains(block)); // settings may have changed since
-        if (found.size() < blockDetectionThreshold.get()) return;
+        int threshold = blockDetectionThreshold.get();
+        if (found.size() < threshold) return;
 
         // Group blocks into clusters to separate actual stashes from natural structures
-        List<List<BlockPos>> clusters = StashClustering.cluster(new ArrayList<>(found.keySet()), maxClusterDistance.get(), maxClusterSize.get() / 2);
-        for (List<BlockPos> cluster : clusters) {
-            if (cluster.size() >= blockDetectionThreshold.get()) {
-                processCluster(cluster, found);
-            }
+        int linkDistance = maxClusterDistance.get(), maxRadius = maxClusterSize.get() / 2;
+        for (List<BlockPos> cluster : StashClustering.cluster(new ArrayList<>(found.keySet()), linkDistance, maxRadius)) {
+            if (cluster.size() < threshold) continue;
+            // Too big or too sparse for a stash as a whole: a dense core inside it is still reported.
+            List<List<BlockPos>> parts = filterNaturalStructures.get()
+                ? StashClustering.tighten(cluster, linkDistance, maxRadius, threshold, this::hasStashShape)
+                : List.of(cluster);
+            for (List<BlockPos> part : parts) processCluster(part, found);
         }
+    }
+
+    // The volume and density limits of filter-natural-structures: natural structures spread a few
+    // chests over a large space.
+    private boolean hasStashShape(List<BlockPos> cluster) {
+        double volume = StashClustering.boundingBoxVolume(cluster);
+        return volume <= maxVolumeThreshold.get() && cluster.size() / volume >= minDensityThreshold.get();
     }
 
     // Block types come from the scan, not from the level: members of a cluster may lie in chunks
@@ -900,7 +971,7 @@ public class StashHunterModule extends Module {
 
         // Enhanced filtering for natural structures. A grown cluster that now looks natural keeps
         // its first report.
-        if (isNaturalStructure(stashPos, cluster, types, volume, density)) {
+        if (isNaturalStructure(stashPos, cluster, types)) {
             return;
         }
 
@@ -1036,18 +1107,14 @@ public class StashHunterModule extends Module {
     /**
      * Enhanced natural structure detection
      */
-    private boolean isNaturalStructure(BlockPos center, List<BlockPos> blocks, Map<BlockPos, Block> types, double volume, double density) {
+    private boolean isNaturalStructure(BlockPos center, List<BlockPos> blocks, Map<BlockPos, Block> types) {
         if (!filterNaturalStructures.get()) {
             return false;
         }
 
-        // Volume check - natural structures tend to be very large
-        if (volume > maxVolumeThreshold.get()) {
-            return true;
-        }
-
-        // Density check - natural structures have very low density
-        if (density < minDensityThreshold.get()) {
+        // Volume and density: natural structures are large and sparse. findStashes has already
+        // looked for a dense core, so this only rejects what is still left.
+        if (!hasStashShape(blocks)) {
             return true;
         }
 
@@ -1108,7 +1175,10 @@ public class StashHunterModule extends Module {
     // Only changes involving a scanned block type matter (a chest placed or broken, ...).
     @EventHandler
     private void onBlockUpdate(BlockUpdateEvent event) {
-        if (mc.level == null) return;
+        // oldState is null when nothing changed (LevelChunk.setBlockState returns null then, e.g. for
+        // a block update the server sends with the state the client already has). An exception here
+        // would end the packet handling and disconnect the client.
+        if (mc.level == null || event.oldState == null || event.newState == null) return;
         if (!lastScanBlocks.contains(event.oldState.getBlock()) && !lastScanBlocks.contains(event.newState.getBlock())) return;
         scanSchedule.invalidate(PlayerUtils.getDimension().name(), SectionPos.blockToSectionCoord(event.pos.getX()),
             SectionPos.blockToSectionCoord(event.pos.getZ()));

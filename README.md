@@ -59,11 +59,10 @@ The command enables the `stash-hunter` module and Meteor's ElytraFly if they are
 
 - If they form a line or a consistent direction (a likely player trail), it follows that trail for up to 30 seconds.
 - A single new chunk straight ahead without a clear trail is avoided.
-- At the edge of unloaded terrain, it follows the boundary.
 
-After each detour it returns to its strips.
+After each detour it returns to its strips. Chunks the server hasn't sent yet are no reason to leave a strip: the bot flies on and scans them once they arrive.
 
-**Scanning.** Every `scan-interval` ticks the addon scans a cylinder of `scan-radius` blocks around the player over the **full world height**, so stashes far below the flight altitude are found too. Each chunk is read once when it loads and again only when a stash block in it changes or after a minute, so a large radius stays cheap.
+**Scanning.** Every `scan-interval` ticks the addon scans a cylinder of `scan-radius` blocks around the player over the **full world height**, so stashes far below the flight altitude are found too. Each chunk is read once when it loads and again only when a stash block in it changes or after a minute, so a large radius stays cheap. A chunk that was inside the radius before the server sent it is scanned as soon as it arrives, even if the bot has flown on by then. If chunks never arrive (the server is too slow for your flight speed, or its view distance is smaller than `scan-radius`), the chat warns you at most every 10 minutes, because those spots stay unscanned.
 
 - **Storage-only mode (default):** looks for chests, trapped chests, barrels and shulker boxes of every colour.
 - **Full mode:** also counts furnaces, blast furnaces, smokers, brewing stands, enchanting tables, anvils, crafting tables, beacons, conduits, hoppers, dispensers, droppers and beds.
@@ -72,6 +71,7 @@ After each detour it returns to its strips.
 
 - Found blocks are grouped into clusters. Neighbouring blocks may be up to `max-cluster-distance` apart, and one cluster is at most `max-cluster-size` across.
 - A cluster counts as a stash if it has at least `block-detection-threshold` blocks and passes the filters: `max-volume-threshold`, `min-density-threshold` and, if enabled, `filter-natural-structures`.
+- A cluster that is too big or too sparse is not simply dropped: it is split into tighter groups, and a group that still has enough blocks and passes the filters is reported. So a stash hidden in or next to a natural structure, or a base with a few chests far away from its storage room, is still found.
 - These filters are heuristics. Structure loot (dungeons, mineshafts, villages) can still be reported now and then.
 
 **Reporting.**
@@ -134,11 +134,11 @@ Scans for stashes, drives the flight and sends the notifications. It must be ena
 | `block-detection-threshold` | Minimum number of blocks for a cluster to count as a stash. | 10 |
 | `scan-radius` | Horizontal scan radius in blocks; the scan always covers the full world height. | 64 |
 | `storage-only-mode` | Only look for storage containers (see [How it works](#how-it-works)). | true |
-| `max-volume-threshold` | Clusters with a larger bounding box are treated as natural structures. | 5000 |
+| `max-volume-threshold` | Clusters with a larger bounding box are split into tighter groups; a group that is still larger counts as a natural structure. | 5000 |
 | `filter-natural-structures` | Apply the natural-structure filters (volume, density, and the structure filter below). | true |
 | `structure-filter-radius` | With `activated-spawner-detector` on: ignore clusters whose center is within this many blocks of a natural-structure spawner (dungeon, mineshaft, trial chamber, ...). Spawners with blocks placed/removed around them (farms) don't count. 0 = off; 6-8 covers dungeon chests. | 0 |
 | `include-spawners` | Also count mob spawners as stash blocks (spawner farms are a base signal). A plain dungeon (spawner + up to two chests) is still ignored while `filter-natural-structures` is on. | false |
-| `min-density-threshold` | Minimum blocks per bounding-box volume for a cluster to count. | 0.002 |
+| `min-density-threshold` | Minimum blocks per bounding-box volume for a cluster to count. Sparser clusters are split like oversized ones. | 0.002 |
 | `notification-density-threshold` | Minimum density for a Discord message and waypoint. 0 reports every find. | 0.005 |
 | `max-cluster-distance` | Maximum distance between neighbouring blocks of one cluster. | 30 |
 | `max-cluster-size` | Maximum diameter of one cluster, so neighbouring stashes aren't merged. | 64 |
@@ -401,7 +401,7 @@ Pings are opt-in: `@everyone` is only used when `mention-everyone` is on. Rate l
 Add the **stash-hunter-status** element in Meteor's HUD editor. It shows the bot's status:
 
 - **White:** idle.
-- **Green:** flying. It then also shows `Flying to waypoint n/m`, `Edge Following` or `Trail Following`, the current target with its distance, and the waypoint progress.
+- **Green:** flying. It then also shows `Flying to waypoint n/m` or `Trail Following`, the current target with its distance, and the waypoint progress.
 - **Yellow:** the area is completed.
 
 ## Files it creates
@@ -424,6 +424,7 @@ All paths are relative to your Minecraft game directory. Log output goes to the 
   - Check `notification-density-threshold`. Finds below it only appear in chat.
   - A stash that is already reported, or has a stash waypoint nearby, is not reported again.
   - `storage-only-mode` ignores everything that isn't a container.
+  - A warning that chunks "never loaded" means parts of the area were not scanned. Lower `scan-radius` (and the strip width) below the server's view distance, or fly slower.
 - **Too many false positives**: Raise `block-detection-threshold` or `min-density-threshold`, or lower `max-volume-threshold`.
 - **Repairs never start**: The repair needs XP bottles in your inventory and a Mending elytra, and the module must be enabled (`.sh repair` shows its state).
 - **No Discord messages**: Check the webhook URL. Rejected requests (for example a deleted webhook) are logged in `logs/latest.log`.

@@ -2,9 +2,9 @@
 
 **Projekt:** Stash-Hunter (Meteor-Client-Addon, Fabric, Minecraft 26.2, Java 25, Mojang-Mappings)
 
-**Stand 2026-10-31:** Alles unten ist eingebaut und bis `d2f5f57` committet (zuletzt Review-Fixes
-1–7 und Xaero-Waypoints), außer ChestIndex (umgesetzt, noch nicht committet).
-`gradlew build` läuft mit JDK 25 grün (inkl. Spotless + 116 Unit-Tests). **Offen ist nur noch der In-game-Test.**
+**Stand 2026-10-31:** Alles unten ist eingebaut und bis `c5dcaed` committet (zuletzt ChestIndex),
+außer „Zuverlässigeres Stash-Hunting“ (PLAN 97–100, umgesetzt, noch nicht committet).
+`gradlew build` läuft mit JDK 25 grün (inkl. Spotless + 125 Unit-Tests). **Offen ist nur noch der In-game-Test.**
 
 Den End-Detektor in NewerNewChunks beschreibt [DSH-HANDOFF.md](DSH-HANDOFF.md).
 
@@ -47,8 +47,9 @@ Den End-Detektor in NewerNewChunks beschreibt [DSH-HANDOFF.md](DSH-HANDOFF.md).
       während der Reparatur → „Repair aborted“, kein Weiterflug vom Spawn. Eigenes AutoEXP bleibt
       nach der Reparatur an.
 
-- [ ] **Edge-/Trail-Following** (NewerNewChunks an, `dynamic-trail-detection`): Mit Baritone wird der
-      Pfad nur noch alle ~25 Blöcke neu gesetzt statt jeden Tick; Flug folgt der Kante/Spur trotzdem.
+- [ ] **Trail-Following** (NewerNewChunks an, `dynamic-trail-detection`): Mit Baritone wird der
+      Pfad nur noch alle ~25 Blöcke neu gesetzt statt jeden Tick; Flug folgt der Spur trotzdem.
+      Edge-Following bei ungeladenen Chunks gibt es nicht mehr (PLAN 100).
 - [ ] **NewerNewChunks + activated-spawner-detector gleichzeitig an:** neue/alte Chunks und aktivierte
       Spawner/Trial-Spawner werden weiter erkannt; keine doppelt tickenden Spawner/Truhen.
 - [ ] **NewerNewChunks mit großen Datendateien:** Aktivieren lädt einmal (kein doppelter Hänger),
@@ -156,7 +157,40 @@ ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL e
 
 ## Erledigte Änderungen
 
-### ChestIndex, PLAN-Punkt 53 (nicht committet)
+### Zuverlässigeres Stash-Hunting, PLAN-Punkte 97–100 (nicht committet)
+
+- 97: `StashHunterModule.onBlockUpdate` kehrt bei `event.oldState == null` zurück. Meteors
+  `LevelChunkMixin` postet `BlockUpdateEvent` am `TAIL` von `LevelChunk.setBlockState` mit dem
+  Rückgabewert als `oldState`; der ist `null`, wenn der Zustand gleich bleibt oder Luft in eine
+  reine Luft-Section kommt (Bytecode 26.2 geprüft). Orbit fängt nichts ab, die NPE wäre bis in
+  `PacketUtils` gelaufen → `onPacketError` → Disconnect. Meteors eigenes BlockESP hat dieselbe
+  Lücke. `ChunkDataEvent`/`BlockUpdateEvent` laufen auf dem Client-Thread (geprüft), kein Race.
+- 98: `utils/MissedChunks` (+ Test). `scanForBlocks` prüft zuerst den Kreis, dann `hasChunk`;
+  ungeladene Chunks kommen in `MissedChunks` (erster Fehlversuch zählt, Ablauf `RESCAN_TICKS`,
+  max. 4096, älteste fliegen raus). Jeder Pass holt geladene über `takeLoaded` und scannt sie
+  (`scanChunkIfDue`). Liegen sie außerhalb des Radius, läuft `findStashes` um ihre Mitte (Bereich
+  32, Mitten < 32 Blöcke zusammengefasst), sonst die normale Suche um den Spieler. Abgelaufene/
+  verdrängte zählt `takeDropped`; ab 16 und höchstens alle 12 000 Ticks eine Chat-Warnung mit
+  `options.getEffectiveRenderDistance() * 16`. Geleert bei Aktivieren, `GameLeftEvent` und
+  Dimensionswechsel (ohne Zählung). Hintergrund: Der Client friert in ungeladenen Chunks nicht
+  ein (`LocalPlayer.tick` prüft nur `hasClientLoaded`), der Bot fliegt einfach weiter.
+- 99: `StashClustering.tighten(cluster, link, radius, minSize, accept)` (+ Test). Abgelehnter
+  Cluster → `cluster()` mit halbem Link-Abstand und Radius, rekursiv bis `MIN_LINK_DISTANCE` 4
+  (Standard 30 → 15 → 7). `findStashes` nutzt es nur mit `filter-natural-structures`; `accept` ist
+  `hasStashShape` (Volumen ≤ `max-volume-threshold`, Dichte ≥ `min-density-threshold`), das auch
+  `isNaturalStructure` statt der eigenen Prüfungen nutzt. Mehrere Teile derselben Basis: der erste
+  wird gemeldet, die anderen fängt `report-dedupe-radius` ab. Risiko: dichte Teile natürlicher
+  Strukturen (z. B. Trial-Chamber-Räume) können jetzt gemeldet werden; dafür gibt es
+  `structure-filter-radius`.
+- 100: `ElytraController`: `hasUnloadedArea`, `EDGE_FOLLOWING`, `handleEdgeFollowing`,
+  `switchToEdgeFollowing` entfernt; `edgeFollowStartTime`/`MAX_EDGE_FOLLOW_TIME` heißen jetzt
+  `trailFollowStartTime`/`MAX_TRAIL_FOLLOW_TIME`. `ChunkBoundaryInfo.description` steht jetzt im
+  Log von `switchToTrailFollowing`.
+- VS-Code-Problems: `AtomicFilesTest` nutzt `try (FileInputStream _ = ...)` (Java 22+);
+  `land-on-low-fireworks` hat kein `@SuppressWarnings("unused")` mehr (wird von `.visible(...)`
+  gelesen, JDT meldete die Unterdrückung deshalb als nicht analysierbar).
+
+### ChestIndex, PLAN-Punkt 53
 
 Clean-room: nur gegen die MC-/Meteor-APIs geschrieben, jeff-mod-Code nicht angesehen.
 

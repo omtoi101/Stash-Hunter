@@ -77,10 +77,10 @@ public class ElytraController {
     private static long lastTakeoffJumpMs = 0;
     private static final long TAKEOFF_JUMP_INTERVAL_MS = 500;
 
-    // Navigation state for edge following
+    // Navigation state for trail following
     private static NavigationMode navigationMode = NavigationMode.NORMAL;
-    private static long edgeFollowStartTime = 0;
-    private static final long MAX_EDGE_FOLLOW_TIME = 30000; // 30 seconds max edge following
+    private static long trailFollowStartTime = 0;
+    private static final long MAX_TRAIL_FOLLOW_TIME = 30000; // 30 seconds max trail following
     private static Vec3 boundaryDirection = null;
 
     // Trail analysis state
@@ -88,7 +88,6 @@ public class ElytraController {
 
     private enum NavigationMode {
         NORMAL,           // Following waypoints normally
-        EDGE_FOLLOWING,   // Following chunk boundary
         TRAIL_FOLLOWING,  // Following new chunk trail
         CLIMBING          // Climbing to target altitude
     }
@@ -365,9 +364,6 @@ public class ElytraController {
             case NORMAL:
                 handleNormalNavigation();
                 break;
-            case EDGE_FOLLOWING:
-                handleEdgeFollowing();
-                break;
             case TRAIL_FOLLOWING:
                 handleTrailFollowing();
                 break;
@@ -437,55 +433,25 @@ public class ElytraController {
             return;
         }
 
-        // Check for obstacles and boundaries
+        // Check for new-chunk trails. Chunks ahead that aren't loaded yet are no reason to leave the
+        // strip: the server is just slow, and the scan catches up on them once they arrive. (Turning
+        // aside left gaps, and after 30 s it even skipped the waypoint, i.e. most of a strip.)
         ChunkBoundaryInfo boundaryInfo = checkForBoundaries(playerPos);
 
         NewerNewChunks newerNewChunks = newerNewChunks();
         if (boundaryInfo.hasNewChunks && newerNewChunks != null && newerNewChunks.dynamicTrailDetection.get()) {
             // Found new chunks - switch to trail following mode
             switchToTrailFollowing(boundaryInfo);
-        } else if (boundaryInfo.hasUnloadedArea) {
-            // Hit unloaded area - switch to edge following mode
-            switchToEdgeFollowing(boundaryInfo);
         } else {
             // Normal flight
             driveTowards(target);
         }
     }
 
-    private static void handleEdgeFollowing() {
-        Vec3 playerPos = MeteorClient.mc.player.position();
-
-        // Check if we've been edge following too long
-        if (System.currentTimeMillis() - edgeFollowStartTime > MAX_EDGE_FOLLOW_TIME) {
-            // Return to normal navigation or try the next waypoint
-            navigationMode = NavigationMode.NORMAL;
-            if (currentWaypoint < waypoints.size() - 1) {
-                currentWaypoint++;
-                flyToNextWaypoint();
-            }
-            return;
-        }
-
-        // Follow the edge by maintaining direction parallel to the boundary
-        if (boundaryDirection != null) {
-            driveTowards(lookAheadTarget(playerPos));
-
-            // Check if we can return to normal navigation
-            ChunkBoundaryInfo boundaryInfo = checkForBoundaries(playerPos);
-            if (!boundaryInfo.hasUnloadedArea) {
-                // Boundary cleared, return to normal navigation
-                navigationMode = NavigationMode.NORMAL;
-                StashHunter.LOG.info("Edge following complete, returning to normal navigation");
-            }
-        }
-    }
-
     private static void handleTrailFollowing() {
         Vec3 playerPos = MeteorClient.mc.player.position();
 
-        // Similar to edge following but specifically for new chunk boundaries
-        if (System.currentTimeMillis() - edgeFollowStartTime > MAX_EDGE_FOLLOW_TIME) {
+        if (System.currentTimeMillis() - trailFollowStartTime > MAX_TRAIL_FOLLOW_TIME) {
             navigationMode = NavigationMode.NORMAL;
             return;
         }
@@ -503,7 +469,7 @@ public class ElytraController {
         }
     }
 
-    // Edge/trail following aims LOOK_AHEAD blocks ahead along the boundary. The point is kept until
+    // Trail following aims LOOK_AHEAD blocks ahead along the boundary. The point is kept until
     // the player is halfway there: re-aiming every tick handed Baritone a new destination each tick,
     // and every pathTo() starts a fresh elytra behaviour that repacks all loaded chunks.
     private static final double LOOK_AHEAD = 50;
@@ -520,7 +486,6 @@ public class ElytraController {
 
     private static class ChunkBoundaryInfo {
         boolean hasNewChunks = false;
-        boolean hasUnloadedArea = false;
         Vec3 boundaryDirection = null;
         String description = "";
     }
@@ -559,43 +524,18 @@ public class ElytraController {
                 info.boundaryDirection = new Vec3(-forwardVec.z, 0, forwardVec.x);
                 break;
             }
-
-            // Check if chunk is unloaded
-            if (MeteorClient.mc.level != null) {
-                boolean isLoaded = MeteorClient.mc.level.hasChunk(checkChunk.x(), checkChunk.z());
-                if (!isLoaded) {
-                    info.hasUnloadedArea = true;
-                    info.description = "Unloaded area ahead - following boundary";
-
-                    info.boundaryDirection = new Vec3(-forwardVec.z, 0, forwardVec.x);
-                    break;
-                }
-            }
         }
 
         return info;
     }
 
-    private static void switchToEdgeFollowing(ChunkBoundaryInfo boundaryInfo) {
-        navigationMode = NavigationMode.EDGE_FOLLOWING;
-        edgeFollowStartTime = System.currentTimeMillis();
-        boundaryDirection = boundaryInfo.boundaryDirection;
-        currentTarget = null; // still the waypoint; lookAheadTarget aims along the edge
-
-        StashHunter.LOG.info("Switching to edge following: " + boundaryInfo.description);
-
-        if (MeteorClient.mc.player != null) {
-            MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§eEdge following activated: " + boundaryInfo.description));
-        }
-    }
-
     private static void switchToTrailFollowing(ChunkBoundaryInfo boundaryInfo) {
         navigationMode = NavigationMode.TRAIL_FOLLOWING;
-        edgeFollowStartTime = System.currentTimeMillis();
+        trailFollowStartTime = System.currentTimeMillis();
         boundaryDirection = boundaryInfo.boundaryDirection;
         currentTarget = null; // still the waypoint; lookAheadTarget aims along the trail
 
-        StashHunter.LOG.info("New chunk boundary detected - following trail for potential stash locations");
+        StashHunter.LOG.info("New chunk boundary detected - following trail for potential stash locations: " + boundaryInfo.description);
 
         if (MeteorClient.mc.player != null) {
             MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§6Following new chunk boundary - potential player trail detected"));
@@ -842,7 +782,6 @@ public class ElytraController {
         }
 
         String modeStr = switch (navigationMode) {
-            case EDGE_FOLLOWING -> "Edge Following";
             case TRAIL_FOLLOWING -> "Trail Following";
             default -> "Flying to waypoint " + (currentWaypoint + 1) + "/" + waypoints.size();
         };

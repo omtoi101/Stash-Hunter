@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /** Pure geometry for turning scanned block positions into stash candidates. */
 public final class StashClustering {
@@ -59,6 +60,31 @@ public final class StashClustering {
         }
 
         return clusters;
+    }
+
+    // tighten() stops halving below this: containers a few blocks apart still belong together.
+    static final int MIN_LINK_DISTANCE = 4;
+
+    /**
+     * Returns the parts of {@code cluster} that pass {@code accept}. A rejected cluster is clustered
+     * again with half the link distance and radius, down to {@link #MIN_LINK_DISTANCE}, and its parts
+     * are checked on their own; parts smaller than {@code minSize} are dropped. A stash inside or next
+     * to a natural structure, or a base with a few chests far off, then still shows up as its dense
+     * core instead of being thrown away with the oversized or sparse cluster around it.
+     */
+    public static List<List<BlockPos>> tighten(List<BlockPos> cluster, int linkDistance, int maxRadius, int minSize,
+                                               Predicate<List<BlockPos>> accept) {
+        if (cluster.size() < minSize) return List.of();
+        if (accept.test(cluster)) return List.of(cluster);
+
+        int link = linkDistance / 2;
+        if (link < MIN_LINK_DISTANCE) return List.of();
+        int radius = Math.max(maxRadius / 2, link);
+        List<List<BlockPos>> result = new ArrayList<>();
+        for (List<BlockPos> part : cluster(cluster, link, radius)) {
+            result.addAll(tighten(part, link, radius, minSize, accept));
+        }
+        return result;
     }
 
     private static long cellKey(BlockPos pos, int cellSize) {
