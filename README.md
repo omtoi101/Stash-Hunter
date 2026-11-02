@@ -4,10 +4,11 @@ A [Meteor Client](https://meteorclient.com/) addon that finds stashes on anarchy
 
 It can also follow trails of newly generated chunks toward player activity, land to repair its elytra with XP bottles, and recover from rubber-banding and sudden altitude loss, so it can run for hours without you.
 
-Built for **Minecraft 26.2**. Licensed under the Apache License 2.0.
+Built for **Minecraft 26.2**. Current version: **26.2.2-pre1** (pre-release, see the [Changelog](CHANGELOG.md)). Licensed under the Apache License 2.0.
 
 ## Contents
 
+- [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Quick start](#quick-start)
@@ -19,6 +20,15 @@ Built for **Minecraft 26.2**. Licensed under the Apache License 2.0.
 - [Files it creates](#files-it-creates)
 - [Troubleshooting](#troubleshooting)
 - [Building from source](#building-from-source)
+
+## Features
+
+- **Automated stash search:** elytra flight over a rectangle (`.sh start`) or an outward spiral (`.sh spiral`), with Baritone pathing or the built-in controller. Flights can be paused, saved and resumed.
+- **Stash detection:** scans the full world height around you, clusters containers (optionally all base blocks and spawners), filters natural structures and reports each stash once, as a Meteor waypoint, optionally a Xaero's Minimap waypoint, and on Discord. Stashes found this session are outlined in the world (Stash ESP).
+- **Chunk analysis:** `NewerNewChunks` marks new and old chunks and lets the flight follow chunk trails; `old-chunk-notifier` tells you when you reach old terrain; `slime-chunks` marks slime chunks.
+- **More base signals:** `activated-spawner-detector` (spawners a player has been near), `stacked-minecarts` (hidden minecart storage) and `chest-index` (searchable record of container contents per server).
+- **Unattended runs:** `auto-elytra-repair` (spare elytra or landing + XP bottles), `stuck-detector`, `altitude-loss-detector`, `auto-firework`, landing on low rockets, plus `player-alarms`, `online-player-activity` and `auto-logout`.
+- **Notifications:** Discord webhook messages for finds, players, deaths, repairs, landings and disconnects, and a HUD element with the flight status.
 
 ## Requirements
 
@@ -32,7 +42,7 @@ Fabric API is **not** required.
 
 ## Installation
 
-1. Download the latest `.jar` from the [Releases](https://github.com/omtoi101/Stash-Hunter/releases) page.
+1. Download the latest `.jar` from the [Releases](https://github.com/omtoi101/Stash-Hunter/releases) page. The **Dev Build** (`snapshot`) release there is rebuilt from every push to `main` and may be ahead of the last numbered release.
 2. Put it into your `mods` folder next to Meteor Client.
 3. *(Optional)* Add the Baritone mod as well. Without it, Stash-Hunter uses its built-in flight controller.
 4. Start Minecraft with Fabric. The modules appear in Meteor's **Stash-Hunter** category.
@@ -78,7 +88,9 @@ After each detour it returns to its strips. Chunks the server hasn't sent yet ar
 
 - Each stash is reported once. Another cluster within `report-dedupe-radius` of a reported stash, or of an existing stash waypoint, is not reported again.
 - If the stash's density reaches `notification-density-threshold`, you get a Discord message and a Meteor waypoint named `<count> Blocks at <x, y, z>` in the current dimension. Lower-density finds are only mentioned in chat.
-- With `save-to-xaero` on and Xaero's Minimap installed, the same waypoint (gold, symbol `S`) is also added to Xaero's current waypoint set. Xaero's World Map reads the minimap's waypoints each time it is opened, so it shows there as well. When a stash report is corrected ("Stash Updated"), both waypoints are moved.
+- With `save-to-xaero` on and Xaero's Minimap installed, the same waypoint (gold, symbol `S`) is also added to Xaero's current waypoint set. Xaero's World Map reads the minimap's waypoints each time it is opened, so it shows there as well.
+- If a stash was first seen only in part and a later scan finds it with at least 3 and 20 % more blocks, a **"Stash Updated"** report follows (chat and Discord, without `@everyone`) and both waypoints move to the new centre. Two reported halves that turn out to be one stash are merged.
+- **Stash ESP:** the containers of every stash found this session are outlined in the world (see [Stash ESP settings](#stash-esp)). Containers broken since are no longer drawn.
 
 **Staying alive.** The flight is paused automatically (and saved, so `.sh resume` continues it) when you die, change dimension or leave the server. If the elytra breaks or goes missing and isn't replaced or repaired in time, the bot sends an "Out of Elytras" notification and disconnects, instead of falling.
 
@@ -159,6 +171,18 @@ Scans for stashes, drives the flight and sends the notifications. It must be ena
 | `land-after-completion` | After the area is scanned, let Baritone's elytra pathing land on a safe spot near the last waypoint. Without Baritone you keep gliding (a chat hint says so). `.sh stop` cancels the landing. | false |
 | `land-on-low-fireworks` | With Baritone flight: once the rockets in your inventory drop to `low-firework-threshold`, the scan is saved as a trip and Baritone lands on a safe spot about 64 blocks ahead. Restock and `.sh resume`. Without Baritone, ElytraFly needs no rockets, so nothing happens. | true |
 | `low-firework-threshold` | Rocket count (whole inventory) that triggers the landing. | 8 |
+
+#### Stash ESP
+
+Settings group **Stash ESP** of the same module. It only draws stashes reported in the current session.
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `render-stashes` | Outline the containers of found stashes. | true |
+| `stash-render-distance` | Maximum distance in blocks at which stashes are drawn (16-512). | 128 |
+| `stash-shape-mode`, `stash-side-color`, `stash-line-color` | Look of the outlines; the line colour is also used for the bounding box and the tracer. | Both, green |
+| `stash-bounding-box` | Also draw one box around all containers of a stash. | false |
+| `stash-tracers` | Draw a tracer to the nearest found stash. | false |
 
 ### Auto Elytra Repair (`auto-elytra-repair`)
 
@@ -384,16 +408,23 @@ Create a webhook in your Discord server (*Server Settings → Integrations → W
 
 | Notification | Sent when |
 | --- | --- |
-| **Stash Found** | A stash is found. Includes coordinates, block count, volume, density, a rating and a per-block-type breakdown. |
-| **Player Detected** | Another player comes within 100 blocks. Includes name, coordinates and distance. |
+| **Stash Found** | A stash is found. Includes coordinates, dimension, block count, volume, density, a rating and a per-block-type breakdown. |
+| **Stash Updated** | A reported stash turned out bigger (see [Reporting](#how-it-works)). Names the earlier count and position. |
+| **Player Detected** | Another player comes within `player-detection-radius` (default 100 blocks). Includes name, coordinates and distance. |
 | **Bot Died** / **Bot Respawned** | You die or respawn. Includes the location. |
 | **Scanning Completed** | An area is fully scanned. |
 | **Disconnected** | You leave or lose the server. |
 | **Out of Elytras** | The elytra is gone and couldn't be repaired; the bot disconnects. |
-| **Elytra Repair Started / Finished / Failed** | A repair runs (`notify-repairs`). |
+| **Elytra Swapped** | A spare elytra was put on instead of repairing (`swap-to-spare`). |
+| **Elytra Repair Started / Finished / Failed** | A repair runs (`notify-repairs`). *Failed - Paused* and *Impossible - Paused / Landing* mean the flight was saved and stopped on the ground or is landing; restock and `.sh resume`. |
+| **Fireworks Low - Landing** / **Land Manually** | Rockets dropped to `low-firework-threshold` during a Baritone flight; the trip is saved. |
+| **Flight Paused After Landing** | Baritone landed on its own and couldn't take off again (no rockets or 3 failed takeoffs); `.sh resume` continues. |
 | **Elytra Stuck Detected** | Rubber-banding is detected (Stuck Detector's own webhook). |
+| **Altitude Loss Detected** | A rapid drop (`altitude-loss-detector`, `discord` on). |
 | **Old Chunks Entered** | You enter old chunks (Old Chunk Notifier). Includes chunk, coordinates and dimension. |
 | **Stacked Minecarts** | A new minecart stack is found (`stacked-minecarts`, `discord` on). Includes count, coordinates and dimension. |
+| **Online Player Activity** | Players joined or left the server (`online-player-activity`, `discord` on). |
+| **Auto Logout** | `auto-logout` disconnected you (`discord` on). |
 
 Pings are opt-in: `@everyone` is only used when `mention-everyone` is on. Rate limits and temporary Discord errors are retried automatically. While Discord is unreachable, at most 50 messages are queued.
 
@@ -411,11 +442,11 @@ Add the **stash-hunter-status** element in Meteor's HUD editor. It shows the bot
 | --- | --- |
 | `meteor-client/stash-hunter.properties` | Addon configuration (also stored in Meteor's own settings). |
 | `meteor-client/stashhunter_trips.json` | Saved trips for `.sh resume`. If it is ever unreadable, it is moved to `stashhunter_trips.json.corrupt` instead of being overwritten. |
-| `meteor-client/StashHunter/NewChunks/<server>/<dimension>/*.txt` | Chunk data saved by NewerNewChunks, one `[x, z]` chunk position per line. Older versions saved it under `StashHunter/NewChunks/` relative to the launcher's working directory; that folder is moved here automatically the first time it's needed. |
+| `meteor-client/StashHunter/NewChunks/<server>/<dimension>/*.txt` | Chunk data saved by NewerNewChunks, one file per chunk type (`NewChunkData.txt`, `OldChunkData.txt`, `BeingUpdatedChunkData.txt`, `OldGenerationChunkData.txt`, `BlockExploitChunkData.txt`) with one `[x, z]` chunk position per line. Older versions saved it under `StashHunter/NewChunks/` relative to the launcher's working directory; that folder is moved here automatically the first time it's needed. |
 | `meteor-client/StashHunter/chest-index/<server>.json` | Containers recorded by `chest-index`: dimension, position (and the other half of a double chest), block, slot count, time, the items summed per id, and each shulker box inside with its name and contents. A file that can't be parsed is moved to `<server>.json.corrupt`. `.chest-index clear` deletes it. |
 | `meteor-client/StashHunter/reported-stashes/<server>.txt` | Stashes already reported on that server (`dimension x y z` per line), so they aren't reported again after a reconnect. `.clear-stashes` deletes it. |
 
-All paths are relative to your Minecraft game directory. Log output goes to the normal game log (`logs/latest.log`).
+All paths are relative to your Minecraft game directory. Config and trips are written through a temp file, so a crash mid-save keeps the previous version; leftover `*.tmp` files are cleaned up on the next start. Log output goes to the normal game log (`logs/latest.log`).
 
 ## Troubleshooting
 
@@ -428,6 +459,8 @@ All paths are relative to your Minecraft game directory. Log output goes to the 
   - A warning that chunks "never loaded" means parts of the area were not scanned. Lower `scan-radius` (and the strip width) below the server's view distance, or fly slower.
 - **Too many false positives**: Raise `block-detection-threshold` or `min-density-threshold`, or lower `max-volume-threshold`.
 - **Repairs never start**: The repair needs XP bottles in your inventory and a Mending elytra, and the module must be enabled (`.sh repair` shows its state).
+- **The bot landed and stands still**: A low-rocket landing, a failed repair or a Baritone landing it couldn't take off from saves the flight and pauses it. Restock rockets / XP bottles and run `.sh resume`.
+- **`.sh start` says a flight is already active**: Run `.sh stop` (or `.sh pause` to keep it as a trip) first.
 - **No Discord messages**: Check the webhook URL. Rejected requests (for example a deleted webhook) are logged in `logs/latest.log`.
 
 ## Building from source
