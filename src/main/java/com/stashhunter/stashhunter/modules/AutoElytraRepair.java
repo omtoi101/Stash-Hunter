@@ -120,6 +120,8 @@ public class AutoElytraRepair extends Module {
     private boolean keepFlightPaused = false;
     // Dimension the repair started in, to notice a portal/respawn into another one.
     private ResourceKey<Level> repairDimension = null;
+    // Repair impossible without Baritone: the landing ends on the ground instead of repairing.
+    private boolean landOnly = false;
 
     // Repair progress tracking
     private int lastRepairDamage = 0;
@@ -315,6 +317,12 @@ public class AutoElytraRepair extends Module {
     private void handleLanding() {
         if (mc.player.onGround()) {
             releaseKeys();
+            if (landOnly) {
+                warning("Landed. Flight paused on the ground. Restock and use .stashhunter resume.");
+                notifyDiscord("Elytra Landed - Paused", "Landed without repairing at " + mc.player.blockPosition().toShortString() + ".", 0xFFAA00);
+                abortRepair();
+                return;
+            }
             info("Landed. Repairing the elytra on the ground.");
             startRepairing();
             return;
@@ -479,7 +487,7 @@ public class AutoElytraRepair extends Module {
     }
 
     // The elytra still has repair-threshold durability left: enough for Baritone to land nearby.
-    // Only without Baritone (or if it can't take over) does it come to the emergency disconnect.
+    // Without Baritone (or if it can't take over) the repair's own landing is used.
     private void cannotRepair(String reason) {
         error(reason);
         // Standing (e.g. Baritone about to take off again): nothing to land, the elytra can't break here.
@@ -493,7 +501,15 @@ public class AutoElytraRepair extends Module {
             warning("Baritone is landing nearby instead. Restock and use .stashhunter resume.");
             notifyDiscord("Elytra Repair Impossible - Landing", reason + " Baritone is landing at a safe spot nearby.", 0xFFAA00);
         } else {
-            currentState = RepairState.EMERGENCY_DISCONNECT;
+            // Without Baritone: sink to the ground like a repair, then stay there (no XP to throw).
+            ElytraController.pause();
+            repairDimension = mc.level.dimension();
+            if (!borrowElytraFly()) return;
+            landOnly = true;
+            warning("Landing to wait on the ground instead. Restock and use .stashhunter resume.");
+            notifyDiscord("Elytra Repair Impossible - Landing", reason + " Landing at " + mc.player.blockPosition().toShortString() + ".", 0xFFAA00);
+            phaseStartMs = System.currentTimeMillis();
+            currentState = RepairState.LANDING;
         }
     }
 
@@ -507,6 +523,7 @@ public class AutoElytraRepair extends Module {
         elytraFlyEnabledByRepair = false;
         autoExpEnabledByRepair = false;
         keepFlightPaused = false;
+        landOnly = false;
         repairDimension = null;
         lastRepairDamage = 0;
         lastRepairProgressMs = 0;

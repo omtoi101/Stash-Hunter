@@ -1,11 +1,11 @@
 # Stash-Hunter — Plan
 
-## Stand (2026-10-31)
+## Stand (2026-11-02)
 
-- Branch `code-revision`, zuletzt `7b42e85` (97–100 Zuverlässigeres Stash-Hunting). Noch nicht
-  committet: **101 Spiral-Suche überarbeitet**, **102 Elytra-Reparatur am Boden** (Abschnitt 0).
+- Branch `code-revision`. 101/102 sind in `aeec164` committet. **103** (`cannotRepair` ohne
+  Baritone landet selbst statt Disconnect) ist umgesetzt. Version **26.2.2** ist damit fertig.
 - `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **131 Unit-Tests in 26 Suites**.
-- Version **26.2.2-pre1** (Pre-Release, CHANGELOG-Abschnitt `[v26.2.2-pre1]`). Die fehlenden
+- Version **26.2.2** (CHANGELOG `[v26.2.2]`), davor 26.2.2-pre1. Die fehlenden
   CHANGELOG-Einträge aus `5a843cc`/`ec9efdb` (Stash ESP, Takeoff, Reparatur, Trips, Scan-Cache,
   `.sh altitude`, Raketen-Landung, Ersatz-Elytra) sind nachgetragen.
 - Von Abschnitt 0 ist nur 96 offen (nur beobachten).
@@ -90,6 +90,9 @@ Elytra-Reparatur (2026-10-31, Details in [CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md))
       `flight-altitude`). Scaffold entfällt. Stockt die Reparatur am Boden, bleibt der Flug dort
       pausiert statt Disconnect. Kein Fallschaden beim Sinken (Bytecode geprüft).
       `AltitudeLossDetector` ignoriert den Sinkflug.
+- [x] **103 Reparatur unmöglich ohne Baritone** (2026-11-02): keine XP/kein Mending → eigener
+      Sinkflug wie bei 102, am Boden bleibt der Flug pausiert (vorher Disconnect). Nicht gebaut
+      (Schulnetz), in-game offen.
 
 ## 1. In-game-Test (als Nächstes)
 
@@ -98,7 +101,7 @@ Grundfunktionen:
 - [ ] Stuck-Auto-Fix
 - [ ] Elytra-Reparatur am Boden (102), mit und ohne Baritone: Sinkflug ohne Fallschaden, Reparatur
       am Boden, Start und Weiterflug; über Wasser/Lava/Void wird weitergeglitten; XP leer → Flug
-      bleibt am Boden pausiert
+      bleibt am Boden pausiert; ohne XP/Mending und ohne Baritone landet er (103)
 
 Scan und Stashes:
 - [ ] `scan-by-distance` (CPU-Last beim Flug), `scan-only-while-flying`

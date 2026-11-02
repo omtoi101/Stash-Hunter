@@ -4,13 +4,16 @@ All notable changes to Stash-Hunter. Newest version first, format based on [Keep
 
 One line per change. How a feature works and what each setting does is in the [README](README.md); the full reasoning behind a change is in the commit history. Build, test and code changes that don't affect players are listed under **Development**.
 
-## [Unreleased]
+## [v26.2.2] - 2026-11-02
+
+First release of 26.2.2. Builds and passes all unit tests; in-game testing is still pending.
 
 ### Changed
 
 - **Elytra repair lands first.** `auto-elytra-repair` sinks to safe ground with ElytraFly, repairs there with XP bottles and then resumes the flight. Scaffold blocks are no longer needed.
 - **Unsafe ground is skipped.** Over water, lava, fire, magma, cactus, powder snow or the End's void the bot glides on until the ground is safe.
 - **A stalled repair pauses instead of disconnecting.** The flight stays saved on the ground; restock and `.sh resume`.
+- **No disconnect when a repair is impossible without Baritone.** Without XP bottles or Mending the bot now lands on safe ground and pauses the flight there.
 - **`altitude-loss-detector` ignores the repair descent.**
 - **Shorter spirals.** `.sh spiral` stops at the last ring the scan needs (e.g. 24 km less flight at radius 3000).
 - **The spiral gap follows `scan-radius`** (default: twice the radius). A wider gap shows how much is left unscanned.

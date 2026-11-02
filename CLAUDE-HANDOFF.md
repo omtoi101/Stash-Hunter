@@ -199,8 +199,8 @@ Abbremsen und Positionieren sind weg (samt `readBool`/`writeBool` für Scaffold-
   ElytraFly-Autopiloten bleibt (PLAN 4, Punkt 30).
 - `AltitudeLossDetector` zählt den Sinkflug nicht (`isRepairing()`); bei 10 Blöcken/s lag er genau
   an der Standard-Schwelle 10, der Sprung-Fix hätte gegen die Landung gearbeitet.
-- `cannotRepair` (keine XP/kein Mending) unverändert: Baritone-Landung bzw. Disconnect. Könnte jetzt
-  auch die eigene Landung nutzen (offen, nicht angefasst).
+- `cannotRepair` (keine XP/kein Mending) unverändert: Baritone-Landung, ohne Baritone seit 2026-11-02 die
+  eigene Landung (`landOnly`): Sinkflug wie bei der Reparatur, am Boden pausiert statt Disconnect.
 
 ### Zuverlässigeres Stash-Hunting, PLAN-Punkte 97–100 (nicht committet)
 

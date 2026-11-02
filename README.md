@@ -4,7 +4,7 @@ A [Meteor Client](https://meteorclient.com/) addon that finds stashes on anarchy
 
 It can also follow trails of newly generated chunks toward player activity, land to repair its elytra with XP bottles, and recover from rubber-banding and sudden altitude loss, so it can run for hours without you.
 
-Built for **Minecraft 26.2**. Current version: **26.2.2-pre1** (pre-release, see the [Changelog](CHANGELOG.md)). Licensed under the Apache License 2.0.
+Built for **Minecraft 26.2**. Current version: **26.2.2** (see the [Changelog](CHANGELOG.md)). Licensed under the Apache License 2.0.
 
 ## Contents
 
@@ -199,7 +199,7 @@ If the bot is already standing on the ground (for example after a Baritone landi
 - **XP bottles** anywhere in your inventory
 
 **When it gives up:**
-- **No XP bottles or no Mending:** the repair does not start. With Baritone flight the scan is saved and Baritone lands on a safe spot nearby (`.sh resume` later); otherwise the bot disconnects.
+- **No XP bottles or no Mending:** the repair does not start. With Baritone flight the scan is saved and Baritone lands on a safe spot nearby (`.sh resume` later); otherwise the bot sinks to safe ground itself and pauses the flight there.
 - **No safe ground within 90 seconds:** the bot disconnects.
 - **Elytra about to break (≤ 10 durability) during the descent:** it keeps sinking if it reaches the ground before the elytra gives out, otherwise the bot disconnects rather than risk a fall. During a Baritone landing it disconnects.
 - **On the ground, no progress for 5 seconds or `repair-timeout` reached:** if the elytra is above the threshold, the flight resumes. Otherwise the flight stays paused on the ground (Discord message); restock and `.sh resume`.
