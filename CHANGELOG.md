@@ -1,185 +1,198 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
+All notable changes to Stash-Hunter. Newest version first, format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+One line per change. How a feature works and what each setting does is in the [README](README.md); the full reasoning behind a change is in the commit history. Build, test and code changes that don't affect players are listed under **Development**.
 
 ## [Unreleased]
 
 ### Changed
 
-- **`auto-elytra-repair` lands to repair instead of repairing mid-air.** The flight is paused and the bot sinks straight down with ElytraFly (Vanilla mode, as if holding sneak). Over unsafe ground (liquids, fire, magma, cactus, powder snow, the End's void) it glides forward until the ground below is safe. AutoEXP then repairs on the ground, and the flight resumes: Baritone takes off by itself, without Baritone the module first climbs back to `flight-altitude`. Scaffold and blocks in the hotbar are no longer needed. A repair that stalls or times out on the ground now pauses the flight there (Discord message, `.sh resume` after restocking) instead of disconnecting. With critical durability during the descent the bot keeps sinking if it reaches the ground before the elytra gives out, and only disconnects otherwise.
-- **`altitude-loss-detector` no longer reacts to the repair's descent.** Its jump hold would have fought the landing.
-- **`.stashhunter spiral` no longer flies a ring the scan doesn't need.** The spiral used as many rings as `radius / gap` rounded up, so the last ring often ran less than half a gap outside the previous one, whose scan already covered that ground: at radius 3000 and gap 128 that was 24 km of extra flight (8 × radius). The spiral now ends at the first ring whose scan (half the gap outward) reaches the radius, and the flight still never leaves the radius.
-- **The spiral's default gap follows `scan-radius`.** Without `gap` the rings are twice `scan-radius` apart (50-500), so neighbouring rings' scans just meet. With the default `scan-radius` of 64 this stays 128. A `gap` wider than that is still allowed, but the start now warns how wide the unscanned bands between the rings are.
-- **Flight path and progress in km.** `.stashhunter spiral` shows the length of the flight path, and `.stashhunter status` shows the progress along it (percent and km) next to the waypoint count. In a spiral the legs grow ring by ring, so halfway through the waypoints is only about a quarter of the flight.
+- **Elytra repair lands first.** `auto-elytra-repair` sinks to safe ground with ElytraFly, repairs there with XP bottles and then resumes the flight. Scaffold blocks are no longer needed.
+- **Unsafe ground is skipped.** Over water, lava, fire, magma, cactus, powder snow or the End's void the bot glides on until the ground is safe.
+- **A stalled repair pauses instead of disconnecting.** The flight stays saved on the ground; restock and `.sh resume`.
+- **`altitude-loss-detector` ignores the repair descent.**
+- **Shorter spirals.** `.sh spiral` stops at the last ring the scan needs (e.g. 24 km less flight at radius 3000).
+- **The spiral gap follows `scan-radius`** (default: twice the radius). A wider gap shows how much is left unscanned.
+- **Progress in km.** `.sh spiral` shows the path length, `.sh status` the progress in percent and km.
 
 ## [v26.2.2-pre1] - 2026-10-31
 
 Pre-release: builds and passes all unit tests, not yet tested in-game.
 
-### Fixed
+**Highlights**
 
-- **A block update without a real change could disconnect the client while `stash-hunter` was on.** Minecraft reports such an update (for example a state the client already has, as redstone or pistons near a base can cause) with no old state, and the scan's block-update handler failed on it. The exception ended the packet handling, which disconnects with "Network Protocol Error". These updates are now ignored.
-- **Chunks that arrived late were never scanned.** On a server that sends chunks slower than the bot flies, the chunks at the edge of a flight strip often arrived after the player had passed them, and the scan around the player never came back to them. Chunks that are inside `scan-radius` but not loaded yet are now remembered (up to a minute) and scanned as soon as they arrive, and the clusters around them are checked even if the player is far away by then. If chunks keep not arriving, the chat warns at most every 10 minutes and names the server's view distance.
-- **Big bases and stashes next to natural structures were dropped as "natural".** A cluster with a bounding box above `max-volume-threshold` or a density below `min-density-threshold` was thrown away as a whole. A large storage room with a few chests far away, or a shulker pile next to the spread-out chests of an ancient city, therefore never got reported. Such a cluster is now split into tighter groups (half the link distance and size per step, down to 4 blocks), and every group that still has `block-detection-threshold` blocks and passes the filters is reported.
-- **With `NewerNewChunks` on, unloaded chunks ahead sent the bot off its strip.** The flight turned aside along the unloaded edge ("Edge following activated") and after 30 s skipped the current waypoint, so most of a strip went unscanned. On a server that sends chunks slowly this happened over and over. The bot now keeps its strip; the late chunks are scanned when they arrive (see above).
-- **Taking off and steering were unreliable.** Baritone's elytra process only takes off from flat ground with its `elytraAutoJump` setting on, so the player just stood there; it is now switched on for the flight and restored afterwards. ElytraFly stays off while Baritone flies (two controllers fighting over the player caused rubber-banding and stuck landings), and its auto-takeoff setting is restored on stop. The built-in controller aimed the wrong way vertically and pushed the player with a velocity that only existed on the client (it does not move the player on a server); it now steers and holds the forward key.
-- **The bot got stuck in the elytra pose on the ground after Baritone landed on its own** (rockets used up, destination reached, no path). The flight stayed active, fell back to the built-in controller and started a glide every tick that only existed on the client, and `.stashhunter start`/`resume` answered "already active". On the ground Baritone is now restarted instead: first after 5 s, then every 20 s so a walk to a jump spot isn't interrupted, and a waypoint within 64 blocks counts as reached. Without rockets or after 3 failed takeoffs the flight pauses ("Flight Paused After Landing") and `.stashhunter resume` continues it. The elytra is now opened like vanilla does it (jump on the ground, a real `START_FALL_FLYING` packet in the air).
-- **With Baritone, a climb after a repair or an altitude change made the bot land.** The climb target straight above the player was a destination Baritone had already reached. Baritone now climbs on its way to the next waypoint, which carries the altitude.
-- **An elytra repair during a Baritone flight did not stop the flight.** Baritone kept flying, the ElytraFly switches the repair relied on had no effect, the stop timed out, the scaffold block missed, and the repair looped until it disconnected. The repair now checks for Mending first, pauses the flight, hovers with ElytraFly in Vanilla mode (mode, autopilot and auto-takeoff are restored afterwards), tries the scaffold block up to 3 times and then resumes the flight. If no repair is possible (no Mending, no XP), a Baritone flight lands instead of disconnecting, and on the ground the flight only pauses. Leaving the server, dying or changing dimension aborts a repair cleanly (borrowed modules restored, no repair carried on after rejoining), `.stashhunter stop`/`pause` during a repair keeps the flight stopped, and AutoEXP and Scaffold are only switched off again if the repair switched them on.
-- **`stuck-detector` interfered with repairs and dropped players out of the sky.** The hover during a repair looked like rubber-banding, and the fix ended the glide. It now waits while a repair runs, and it only closes the elytra within 4 blocks of the ground; higher up it leaves the recovery to the flight controller.
-- **Every pause saved another trip.** Repairs, low rockets and landings each added an entry, so `.stashhunter list` filled up with copies of one flight. A flight now keeps a single entry that is updated, and at most 20 trips are kept.
-- **`NewerNewChunks` logged a warning with a stack trace for every data file that didn't exist yet**, which is normal for a new server or dimension. Missing files are now skipped silently.
-- **Saving the config or trips failed on Windows while another program had the file open.** Since saves go through a temp file (see below), the final rename failed with "access denied" whenever a virus scanner, a cloud sync client (OneDrive) or an editor held the target or the temp file open, and the save was lost apart from a log warning. The rename is now retried a few times (5 × 30 ms); if the file is still locked, it is overwritten in place as before. A temp file that can't be deleted afterwards no longer turns a finished save into an error.
-- **A failed config save was not retried.** The change only reached the disk with the next setting change. A failed save now keeps the change pending, retries after 30 s and is written on exit at the latest.
-- **Temp files of an interrupted save stayed in `meteor-client/`.** Killing the game mid-save left `stash-hunter.properties<number>.tmp` or `stashhunter_trips.json<number>.tmp` behind. They are now deleted when the config and the trips are first loaded.
-- **An unfinished last line in the reported-stashes or NewChunks data files swallowed the next entry.** After a power loss mid-append, the next entry was glued onto the fragment and both became unreadable: the stash was reported again, the chunk was missing. A missing line break is now added before appending.
-- **The `stash-hunter` module ended every glide on the ground, even without a running flight.** The fix for the stuck elytra pose after a Baritone landing ran every tick while the module was on, so it probably also braked a manual ElytraFly `Bounce` flight while the module was only scanning. It now only runs during a stash-hunter flight or its landing.
-- **`stacked-minecarts` could report a stack on a block border twice.** Reported stacks were remembered by the block of their first cart, and since the entity order isn't fixed, that cart could be on either side of the border. A stack now counts as reported if its anchor is within `detection-radius` of a reported one.
-- **A saved trip with an empty waypoint list blocked flights.** `.stashhunter resume` started a flight that never moved, and `.stashhunter start` answered "already active" until `.stashhunter stop`. Such trips (only possible through hand-editing or a damaged file) are now dropped when loading.
-- **A crash or power loss while saving could leave `stash-hunter.properties` or `stashhunter_trips.json` truncated.** Both were written straight into the file. They are now written to a temp file in the same folder, flushed to disk and then moved over the old file, so a save either completes or leaves the previous version intact.
-- **`NewerNewChunks` leaked block entities into the world.** Its private copy of each new chunk was decoded with the packet's block entities. In a client level a chunk counts as loaded from the start, so every chest, spawner or furnace in it was registered with the real level and got a ticker there - from the network thread, and never removed. The copy is now decoded without block entities (NewerNewChunks never read them).
-- **`NewerNewChunks` marked every Nether and End chunk as old while `PaletteExploit` was on.** The palette heuristic only had a new-chunk signal in the Overworld, so in the other two dimensions every chunk without another classification became "old" (and `old-chunk-notifier` fired there right away). See *Changed* for the new palette check, which works in all dimensions.
-- **`auto-firework` fired while `auto-elytra-repair` was braking and hovering for a repair.** It now waits until the repair is over.
-- **`online-player-activity` sent stale changes after Discord was switched off and on again.** Changes collected while `discord` is off are now dropped.
-- **`player-alarms` used the system clock for `repeat-interval`**, so changing the system time could stall or re-trigger the alarm. It now uses a monotonic clock.
-- **A config save could be written twice on exit.** A debounced save that had already started and was waiting for the lock wrote again after the shutdown hook's save. Saves now track whether anything is left to write.
-- **Stashes on the border between two flight strips were missed or reported half.** Every scan only looked at the blocks inside its own circle, and the default strip width (128) is exactly twice the default scan radius (64), so a stash on a strip border was seen half on each pass - with e.g. 14 chests and the default threshold of 10, neither half was enough and the stash was never reported. The stash blocks found in each chunk are now remembered (per dimension, while the module is on, up to 8192 chunks with hits), and clustering runs over everything found around the player, including earlier passes. Chunks touching the scan circle are now scanned whole, unloaded chunks are skipped instead of read as empty. Block counts, the container list, the dungeon filter and the Stash ESP use the block types from the scan, so cluster members in unloaded chunks no longer count as air. Stash reports (chat and Discord) now name the dimension.
-- **A stash first seen only in part kept its wrong report.** When a stash was reported while only part of it was in range, the rest was later ignored as "already reported", so the block count, container list and waypoint position stayed wrong. If a later scan finds the same stash (its cluster contains blocks of the earlier report) with at least 3 and 20 % more blocks, a "Stash Updated" report follows in chat and on Discord (without `@everyone`), naming the earlier count and position; the old waypoint is replaced by one at the new centre, and the Stash ESP shows all containers. Two reported halves that turn out to be one stash are merged into one report. A stash that was announced on Discord gets its correction there even if the grown cluster is below `notification-density-threshold`; a grown cluster that now fails the natural-structure filter keeps its first report. Only stashes reported in the current session are corrected.
-- **Stopping a flight (`.stashhunter stop`, a dimension change, the altitude-loss recovery) no longer re-arms Baritone's elytra flight first.** `BaritoneBridge.cancel()` called `IElytraProcess.resetState()` before `cancelEverything()`, but `resetState()` keeps the current destination and re-paths ("will try to keep flying") - so every stop tore the elytra path down, re-issued it, and only then cancelled it again, wasting a native pathfinder recalculation each time. It now calls only `cancelEverything()`, which makes the elytra process lose control and tear down its pathfinder directly.
-- **A stuck post-scan landing no longer mutes the altitude-loss detector and auto-firework forever.** When `land-after-completion` hands the landing to Baritone but it never finds a safe spot, the flight now gives up after 2 minutes, cancels Baritone and says so in chat, so the other modules resume working.
-- **Pending config saves and queued Discord messages are no longer lost on exit.** A JVM shutdown hook now writes a still-debounced config save synchronously and gives queued webhooks (e.g. the disconnect notice) up to 3 s to send before giving up; the "queue full" warning is no longer logged for messages rejected during shutdown.
-- **Stash scans now keep up with fast flight.** The scan ran only every `scan-interval` ticks - at the default 40 ticks and ~30 blocks/s that is ~60 blocks between scans at a 64-block radius, leaving gaps. A scan now also runs once the player has flown half the scan radius since the last one; `scan-interval` is now the longest wait between scans. The new `scan-by-distance` setting (on by default, saved in the config) can be turned off to get the old fixed interval back.
-- **Two stash settings were not saved, and setting limits disagreed with the config.** `max-cluster-size` and `report-dedupe-radius` are now saved to `stash-hunter.properties` like the other settings. The limits `Config.validate()` applies at startup now match the UI: `flight-altitude` 100-400 (validate allowed 50), `scan-radius` max 256, `scan-interval` max 1200 ticks, StuckDetector `detection-threshold` at least 1. Before, a value typed above the slider range was accepted and silently clamped on the next start.
-- **`NewerNewChunks` saved its chunk data relative to the JVM working directory** (`StashHunter/NewChunks/...`), not the game folder, so with launchers like MultiMC/Prism the data ended up elsewhere and *LoadChunkData* found nothing. It now lives in `.minecraft/meteor-client/StashHunter/NewChunks/`, next to the config and trips. Data from the old location is moved over once, the first time it's needed; if that fails (e.g. different drive), a warning names both folders.
-- **Stashes below `notification-density-threshold` were reported again after every reconnect or module toggle.** Only waypoints were persistent, and those stashes don't get one. Reported stashes are now stored per server in `meteor-client/StashHunter/reported-stashes/<server>.txt`, per dimension, and no longer forgotten on a dimension change. `.clear-stashes` also deletes that file.
-- **Area scans left the far X edge unscanned.** Strips were placed every `strip-width` from the min X edge, so if the area's width wasn't a multiple of it, a band of up to `strip-width` blocks at the max X edge was never flown. A final strip now always runs along the max X edge (the waypoint estimate in `.stashhunter start` counts it).
-- **`NewerNewChunks` marked nearly every End island chunk as old-version.** The `Pre 1.13 End OldChunk Detector` checked for end stone at y=64 (and flagged the chunk as old if the check threw) instead of the biome its description promised. It now checks the chunk's biome palette: outside the main island (chunk x² + z² > 4096), `minecraft:the_end` means pre-1.13 terrain. Wrong entries already saved in `OldGenerationChunkData.txt` stay until removed with *DELETE CHUNK DATA* in the End.
-- **Jump holds from different modules cut each other off.** `KeyHold` released the key unconditionally, so e.g. the altitude-loss recovery ending released a jump the stash module was still holding. Presses are now counted per key, and `AltitudeLossDetector`, `StuckDetector` and `AutoElytraRepair` cancel their holds when deactivated (the hold's callback was otherwise the only thing that cleared their fix-in-progress state).
-- **Compilation failure in `ElytraController`**: `BlockPos` was used at three sites (the `baritoneTargetPos` field, `startGroundPath(...)`, and the landing-target call) but `net.minecraft.core.BlockPos` was never imported, so `compileJava` failed with `cannot find symbol` on all three. Added the missing import.
-- **Compilation failure in `StashHunterModule`**: `onActivate()` reset health tracking via `lastHealthCheck = -1;`, but no such field exists - the declared field is `lastHealth` (line 240). The leftover name from an earlier rename broke the build with `cannot find symbol: variable lastHealthCheck`. Corrected to `lastHealth`.
-- **`NewerNewChunks`: enabling `SaveChunkData` mid-session only dumped the already detected chunks the first time.** The one-shot counter was never reset when saving was switched off again, so a second off/on cycle silently skipped the dump. Replaced with plain on-edge detection.
-- **`Config.validate()` is now actually called** after `Config.load()`, so out-of-range values in `stash-hunter.properties` are clamped on startup. `max-volume-threshold` now has the same minimum (100) in the UI as in validation.
-- **Documentation drift**: README listed the `flight-altitude` default as 320 (code: 160) and the clear commands as `.clearstashes`/`.clearplayers` (registered: `.clear-stashes`/`.clear-players`); the `.stashhunter help` output printed `/stashhunter` instead of the Meteor prefix.
-- **Bot kept flying to stale coordinates after death, a dimension change or leaving the server.** `ElytraController`'s waypoints and target are static and survived all three. `StashHunterModule` now pauses the flight (trip saved, `.stashhunter resume` continues it) on death, on a dimension change and on `GameLeftEvent`, and resets its elytra/jump state. Death detection no longer depends on `notify-on-death`; only the Discord message does.
-- **Built-in controller and Baritone steered at the same time.** The "Baritone dropped its path" check asked Baritone's generic pathing behavior, which is idle during elytra flight, so `ElytraController` overrode Baritone every tick and `StuckDetector` treated every Baritone flight as stuck. Both now ask the elytra process itself (`BaritoneBridge.isElytraActive()`); the unused `isPathing()`/`hasPath()` were removed.
-- **Stopping a flight switched off a user-enabled ElytraFly.** `ElytraController.stop()` now only disables ElytraFly if the flight enabled it.
-- **Elytra could break mid-repair.** `repair-threshold` minimum raised from 1 to 30 so the sequence has headroom. If remaining durability drops to 10 while still gliding (waiting/scaffolding), the repair aborts via emergency disconnect; once the block is placed, positioning is skipped and the repair starts in place.
-- **Repair hung for the full `repair-timeout` (300 s) without XP.** The sequence no longer starts without XP bottles in the inventory, and aborts if the damage value has not dropped for 5 s - with an emergency disconnect if the elytra is still below the threshold, otherwise by resuming flight.
-- **`NewerNewChunks` mutated chunk sets, read `mc.level` and wrote files from the Netty connection thread.** `PacketEvent.Receive` is posted from `Connection.channelRead0`. Block/section updates are now handled on the client thread via `mc.execute(...)`; the chunk-packet decoding and analysis stay on the Netty thread (they only touch a private `LevelChunk` copy), and only the resulting classification is applied on the client thread.
-- **`NewerNewChunks` decoded every chunk packet through `CompletableFuture.runAsync(...).join()`** on a static, never shut down thread pool - a pointless context switch that blocked the connection thread anyway. Decoding is now synchronous; a failed decode skips the chunk instead of analysing a half-filled one. The executor is gone.
-- **One file open/append/close per detected chunk.** Detections are queued and appended per file in one write: every 5 s, on dimension change, on disable, on leaving the server and before reloading data. Deleting a dimension's data also drops its queued writes, and a chunk promoted from block-exploit to new is no longer queued for both files. The chunk sets are now plain `HashSet`s, since only the client thread touches them.
-- **Emergency disconnect toggled `AutoElytraRepair` off from inside its own tick handler** and left its state on `EMERGENCY_DISCONNECT`. The state is now reset to `MONITORING` and the module deactivates on the next tick. Early aborts no longer write default values into ElytraFly's `autoPilot`/`autoHover`/`autoTakeOff` when those were never captured.
-- **Stashes below the bot were never found while flying.** Both scan passes used a spherical radius around the player, so at the default flight altitude (160) and `scan-radius` 64 only containers above y≈96 were seen, and the block-by-block pass (radius 32, y < 80) found nothing at all. The scan is now a cylinder: horizontal `scan-radius`, full world height (`getMinY()`..`getMaxY()`), so Nether roof, End and mountains are covered too.
-- **Containers were counted twice.** They were collected from the block-entity list and again by the block-by-block pass, doubling cluster size, density and the reported block count. The block-by-block pass now only looks for active blocks without a block entity (crafting tables, anvils); it checks every block of a candidate section instead of every 2nd, since sections whose palette can't contain such a block are skipped anyway.
-- **Neighbouring stashes merged into one cluster, close stashes were discarded.** Clustering chained blocks transitively (up to `max-cluster-distance` per link) without limit, collapsing the density, and a fixed 100-block dedupe radius swallowed nearby real stashes. Clusters now grow from the densest blocks outward and are capped by the new `max-cluster-size` setting (diameter, default 64); the dedupe radius is the new `report-dedupe-radius` setting (default 48). The grid-based neighbour lookup also replaces the old O(n²) loop.
-- **The same stash was reported again every 10 minutes** (another `@everyone` and a duplicate waypoint), because the reported list was wiped on a timer. It is now cleared only on dimension change and on leaving the server, and existing stash waypoints nearby also suppress a report - so toggling the module or reconnecting doesn't re-report either.
-- **Stash waypoints were always created in the Overworld.** The waypoint builder never set a dimension, so Nether/End stashes got an Overworld waypoint at the wrong coordinates. The current dimension is now set.
-- **`NewerNewChunks` used hard-coded section indices** (`< 17`, `== 4`, `< 8`) that assume vanilla heights; a dimension with fewer sections would throw on the connection thread. They are derived from the level now. The misleading comment claiming `getChunk(x, z, false)` never returns `null` was corrected - it returns `null` until the chunk is loaded, so the chunk analysis does run.
-- **Discord webhook treated every answer as success.** The response code was ignored, so rate limits (429), deleted webhooks (404) and bad tokens (401) failed silently, and the connection was not closed on errors. Now 429 waits for `retry_after`, 5xx and network errors retry with backoff (up to 4 attempts), other 4xx are logged once; the send queue is bounded (50) instead of growing without limit while Discord is down.
-- **Every slider step wrote the config file on the client thread.** `onChanged` now calls `Config.saveLater()`, which coalesces changes into one write after 1 s on a background thread.
-- **`AltitudeLossDetector` fired on stale or irrelevant drops.** After the 200-tick cooldown it compared against a Y from before the cooldown, and it also fired while walking or falling without an elytra. The reference is now kept fresh while not checking, only elytra flight (or an active bot flight) counts, and Baritone is only cancelled when the drop happened during the bot's own flight.
-- **Unreadable lines in `NewerNewChunks` data files aborted the whole load**, which was then retried every tick (only `IOException` was caught). Bad lines are now skipped and counted; lines are written as `[x, z]` explicitly instead of relying on `ChunkPos.toString()`.
-- **A corrupt `stashhunter_trips.json` threw out of `pause()`/`resume()`**, e.g. inside the death teardown, and the next `addTrip()` would have overwritten it. It is now moved to `stashhunter_trips.json.corrupt` with a warning. Waypoints with a missing or non-finite coordinate are rejected instead of silently becoming `(0, 0, 0)`, and unknown fields are skipped instead of aborting the read.
-- **The scan-completed flag could get stuck** when `notify-on-completion` was off, because the `&&` skipped consuming it; a later completion message then fired at the wrong time.
-- **`.stashhunter start`/`resume` without the module enabled started a flight that never moved**, since only `StashHunterModule` ticks `ElytraController`. The commands now enable the module. `ElytraController.start` rejects a `stripWidth <= 0` (endless waypoint loop), and the estimated waypoint count now includes the last strip.
-
-### Removed
-
-- **Dead Woodland Mansion check in the natural-structure filter.** It compared ratios of dark oak/cobblestone inside the cluster, but a cluster only holds the scanned stash blocks, so it could never match. The mineshaft check it mentioned never existed (mineshaft loot is in chest minecarts, which the block scan doesn't see anyway). The volume and density filters are unchanged.
-- **Dead utility code**: `WorldScanner` (6 of its 8 methods had no callers; the two used ones moved to `StashClustering`), the unused `Utils`, and the custom `Logger`, which wrote to a hard-coded `~/.meteor-client/stashhunter.log` instead of `MeteorClient.FOLDER`, was not thread-safe and never closed. Its messages now go to the normal game log via `StashHunter.LOG`.
-- **The separate Gson dependency** - Minecraft already ships Gson (2.14.0) on the classpath; the declared 2.10.1 was redundant.
-- **Dead `lastForwardPressed` reflection in `AutoElytraRepair`.** It looked the field up on the flight-mode subclass, but it is declared in `ElytraFlightMode`, so it always threw `NoSuchFieldException` and was silently ignored - removing it changes nothing at runtime.
-- **Dead mixins and event**: `PlayerInventoryAccessor` (unused, and a boot-crash risk under `defaultRequire: 1`), `LivingEntityMixin` (`LivingEntity#die` runs server-side, so it never fired on the client) and the subscriber-less `PlayerDeathEvent`. With no mixins left, the `addon-template.mixins.json` config is dropped from `fabric.mod.json`.
-
-### Changed
-
-- **The stash scan reads each chunk only once.** A chunk is read again only when a stash block in it changes, when the server sends it again, or after a minute (to catch missed updates); changing the block settings starts over. Without a newly read chunk the clustering is skipped too, so a large `scan-radius` stays cheap.
-- **Performance pass.** Edge and trail following kept moving their target 50 blocks ahead of the player every tick, so with Baritone each tick started a new elytra path (`pathTo()` builds a fresh elytra behaviour and repacks all loaded chunks for the native pathfinder); the look-ahead point is now kept until the player is halfway there. `NewerNewChunks` read all its data files twice when switched on, walked every saved chunk each frame to render the few in range (it now probes the render square once a set is bigger than that), and rebuilt the dimension folder name every tick. The stash scan reads chunk sections in storage order, looks up only the index chunks around the player instead of all of them, counts cluster neighbours without building lists, and the Stash ESP's container check is a set lookup. `ElytraController` no longer keeps a never-read set of every chunk flown over. A chunk packet is decoded only once for `NewerNewChunks` and `activated-spawner-detector` together (before: once per module, on top of vanilla's own decode). Chunk positions for trail analysis and the new-chunk look-ahead are now floored, so negative coordinates no longer land in the neighbouring chunk.
-- **`NewerNewChunks` `PaletteExploit` now reads the palette order instead of guessing from sampled blocks.** World generation starts every section as air and adds block states to the palette in placement order, so in a freshly generated section with a small (linear) palette entry 0 is still air. Saving rebuilds the palette in the order the states first occur, so in a chunk loaded from disk entry 0 is the block at the section origin. One saved-order section marks the chunk old, fresh-order sections without a saved one mark it new, and chunks without a usable section stay unmarked instead of being called old. This works in the Overworld, Nether and End. The being-updated detection (`Detection for chunks that haven't been explored since <=1.17`) still uses the old sampling heuristic. Servers that rewrite palettes before sending (some anti-xray plugins) can confuse the check.
-- **The natural-structure memory drops the least recently used entries** instead of the oldest ones when it is full (4096 per dimension). Seeing a spawner again or a stash check matching it counts as use.
-- **`slime-chunks` reads the singleplayer seed once per world** instead of every frame.
-
-- **NewerNewChunks chunk classification is much cheaper.** The old/new-generation scans and the liquid-flow check now skip sections whose palette cannot contain a relevant block, read each block once, and stop as soon as the result is settled. Detection results are unchanged. Classification deliberately stays on the network thread: it works on a private decoded chunk copy, and moving it to the client thread would only shift the work onto the render thread.
-- **Slime chunk overlay no longer allocates a `Random` per chunk or re-parses the seed every frame.** The slime-chunk check now runs java.util.Random's LCG inline and gives exactly the same results (checked against vanilla over 100k random seeds and coordinates). The world-seed text is only parsed again when it changes.
-- **Player detection radius and report cooldown are settings.** `player-detection-radius` (default 100 blocks) and `player-report-cooldown` (default 5 minutes) were hard-coded; both are saved in the config and only shown while `player-detection` is on.
-- **Dev builds only publish from `main`.** `dev_build.yml` ran on every push to any branch, overwrote the rolling `snapshot` release each time and built every PR twice; PRs are still built as artifacts by `pull_request.yml`.
-- **The optional Baritone dependency is version-ranged**: `fabric.mod.json` recommends `baritone-meteor` `~26.2-` instead of `*`, like `meteor-client`. Also removed a stray tab in `NewerNewChunks` and noted the hard-pinned `fabric-resource-loader-v1` for future ports.
-- **Fabric API is no longer required.** It was only used for its client-disconnect event; the Discord disconnect notification now hangs off Meteor's `GameLeftEvent` (fired on kicks, lost connections and own disconnects alike), and the internal `PlayerDisconnectEvent` is gone. `fabric.mod.json` now depends only on Java, Minecraft and Meteor; the build compiles against the single `fabric-resource-loader-v1` module Meteor bundles.
-- **`meteor-client` dependency narrowed from `*` to `~26.2-`**, i.e. any Meteor build of the 26.2 line. (Plain `>=26.2` would reject every Meteor build, since they are versioned as pre-releases like `26.2-35`.)
-- **Toolchain**: Fabric Loader 0.19.3 → 0.20.1; Loom pinned to the 1.17.21 release instead of the moving `1.17-SNAPSHOT`. Loom 1.18+/1.19 were not taken: they require Gradle itself to run on JDK 25 (and 1.19 Gradle ≥ 9.8).
-- **Pure logic extracted into testable classes**: `StashClustering` (clustering, bounding box, center - now `Optional` instead of `BlockPos.ZERO` for an empty list), `GridWaypoints` (strip waypoints and their count), `TrailAnalysis` (trail detection, takes a `Predicate<ChunkPos>` instead of the module) and `ChunkDataFormat` (data file lines).
-- **`AutoElytraRepair` no longer reads Meteor internals via reflection.** ElytraFly's `autoPilot`/`autoHover`/`autoTakeOff` are public settings; Scaffold's `air-place`/`auto-switch` go through Meteor's `settings.get(name)`. A missing setting is logged once as a warning instead of being swallowed.
-- **`ElytraController` looks `NewerNewChunks` up per call** instead of in a `static final` field filled at class-load time, which stayed `null` for good if the class loaded before the module was registered.
-- **Errors are logged instead of printed**: all `printStackTrace()`/`System.err` calls go through `StashHunter.LOG`; empty `catch` blocks around calls that can't throw were removed, the remaining intentional ones are commented.
-- **`NewerNewChunks` is indented with spaces** like the rest of the code (`.editorconfig`).
-- **Rendering and trail analysis no longer allocate per chunk per frame/tick.** `NewerNewChunks` renders and prunes with plain int/double distance math instead of creating `BlockPos`/`Vec3`/`AABB` per chunk. `getNewChunks()` (copied the whole set, twice per tick) is replaced by `isNewChunk(ChunkPos)`; `ElytraController` probes only its 5-chunk analysis radius, caps the O(n³) collinearity search at the 24 nearest chunks and no longer sorts its caller's list in place.
-- **Faster `scanForBlocks`.** The active block list is turned into a set once per scan, sections whose palette cannot contain an active block are skipped, block states are read straight from the section, and the two `sqrt`/`pow` distance checks became one squared int check. Scanned positions (radius, Y range, step) are unchanged.
-- **Removed template leftovers**: icon moved to `assets/stash-hunter/icon.png`, `maven_group` is now `com.stashhunter`, `mod_version` aligned with the changelog (`26.2.1`).
-- **CI builds with Java 25** (was 21), matching `jdk_version` and the toolchain.
-
-- **Consolidated all repository and branding references onto the upstream monorepo `omtoi101/Stash-Hunter`**, removing the leftover fork identity ("StashhunterPort by _og3"):
-  - `fabric.mod.json`: mod `name` changed from `StashhunterPort by _og3` to `StashHunter`; the description no longer describes the project as a third-party fork; `contact.sources` now points at `omtoi101/Stash-Hunter`.
-  - `meteor-addon-list.json`: `homepage` and `icon` now point at `omtoi101/Stash-Hunter` instead of the fork repository, so the addon-scanner resolves the upstream project.
-  - `README.md`: title changed to `Stash-Hunter`; removed the "maintained by _og3" line; clone/Releases links and the `cd` example now use the canonical `omtoi101/Stash-Hunter` casing; `_og3` credited in the Credits section, matching the `authors` array.
+- 9 new modules: `chest-index`, `stacked-minecarts`, `activated-spawner-detector`, `auto-firework`, `online-player-activity`, `player-alarms`, `auto-logout`, `slime-chunks`, `old-chunk-notifier`.
+- Spiral search (`.sh spiral`), altitude command (`.sh altitude`), Stash ESP and Xaero's Minimap waypoints.
+- Much more reliable stash detection: full world height, no double counting, stashes on strip borders and late-loading chunks are found.
+- Safer long runs: spare elytra swap, landing on low rockets, saves that survive crashes, flights that pause on death or disconnect.
+- Fabric API is no longer required.
 
 ### Added
 
-- **Stash ESP in `stash-hunter`.** Outlines the containers of the stashes found this session (`render-stashes`, on by default) up to `stash-render-distance` (default 128 blocks), with an optional box around the whole stash (`stash-bounding-box`) and a tracer to the nearest one (`stash-tracers`); colours and shape mode are configurable. Containers broken since are no longer drawn.
-- **`.stashhunter altitude [y]`** shows or sets `flight-altitude` (100-400) during a flight. The remaining waypoints move to the new height, the bot climbs if it is below it, the GUI value follows, and `.stashhunter resume` uses the current altitude.
-- **Landing when rockets run low** (`land-on-low-fireworks`, on by default; `low-firework-threshold`, default 8). Baritone's elytra flight can't climb or take off again without rockets, so once the inventory is down to the threshold during a Baritone flight, the trip is saved, chat and Discord report it ("Fireworks Low - Landing"), and Baritone lands on a safe spot about 64 blocks ahead. Refill and continue with `.stashhunter resume`. If Baritone can't take over, the flight stops and you are told to land manually. The built-in controller doesn't need rockets and is not affected.
-- **Spare elytra before a repair** (`swap-to-spare` in `auto-elytra-repair`, on by default). When the worn elytra reaches `repair-threshold`, the spare elytra from the inventory with the most durability above the threshold is put on and the flight continues without stopping. Only without a spare does the repair start.
-- **`chest-index` module and `.chest-index` command.** Records what chests, trapped chests, barrels and shulker boxes hold, including the contents of shulker boxes inside them, per server in `meteor-client/StashHunter/chest-index/<server>.json`. With `auto-open` (on by default) it opens the containers in reach one after another, reads each once the server has sent its contents and closes it again (`delay`, `rotate`, `skip-indexed`); it pauses while a screen is open, while sneaking and during elytra flight. Containers you open yourself are indexed as well and updated until you close them. Double chests are one entry. `.chest-index search <item>` lists the containers with the most matching items, `.chest-index clear` forgets the server's index. Clean-room implementation, no code from other stash-hunting addons.
-- **Stash waypoints in Xaero's Minimap** (`save-to-xaero`, off by default). Every stash that gets a Meteor waypoint also gets one in Xaero's current waypoint set (gold, symbol `S`, same name), which Xaero's World Map shows as well. When a report is corrected ("Stash Updated"), the Xaero waypoint is moved along with the Meteor one. Xaero's Minimap is an optional dependency: it is only compiled against, never bundled, and without it (or with an incompatible version, which is logged once) the setting has no effect. Built against Xaero's Minimap `fabric-26.2-26.6.2`.
-- **`stacked-minecarts` module**, ported from [PathSeeker](https://github.com/FaxHack/PathSeeker) (Apache-2.0) and adapted. Marks minecarts stacked in one spot (a common way to hide chest/hopper minecart storage) with a box that grows with the stack and optional tracers, and reports each new stack once per world in chat and, opt-in, on Discord. Changes from the original: `detection-radius` is actually used (the original grouped by block position and ignored it), the scan runs every 10 ticks instead of every tick, everything is forgotten on toggle, server leave and dimension change, and the new `storage-only` setting limits it to chest and hopper minecarts.
-- **Optional spawner signal for stash detection.** The new `include-spawners` setting in `stash-hunter` (default off, saved to the config) counts mob spawners as stash blocks, because spawner farms are built around them. While `filter-natural-structures` is on, a cluster made only of spawners and the chests a vanilla dungeon can explain (up to 2 plain chests per spawner, inside the dungeon room) is ignored. A lone dungeon therefore never triggers a report, even with a low `block-detection-threshold`. Trial spawners are not included: they only occur in trial chambers and cannot be moved in survival.
-- **Exact natural-structure filter from activated-spawner-detector.** While `activated-spawner-detector` and `filter-natural-structures` are both on, a stash cluster whose center is within `structure-filter-radius` (default 0 = off, saved in the config; 6-8 covers dungeon chests) of a spawner from a natural structure the detector has seen is no longer reported. Natural structures are dungeons, mineshafts, strongholds, fortresses, bastions, woodland mansions and trial chambers, and the spawner counts whether it was activated or not - except spawners with blocks placed or removed around them (farms), so storage at a spawner farm is still reported. Nothing changes without the detector or with radius 0.
-- **Optional structure waypoints in activated-spawner-detector.** The new `structure-waypoints` setting (default off) creates a Meteor waypoint for each structure with a detected activated spawner. Spawners of one type closer than a per-type distance (dungeon 16, bastion 48, trial chamber and mansion 64, mineshaft, stronghold and fortress 96) count as one structure, chained from spawner to spawner and checked against existing waypoints, so a mineshaft or trial chamber gets one waypoint rather than one per spawner, while two neighbouring dungeons each get their own.
-- **New opt-in Auto-Firework module (`auto-firework`).** While you fly with an elytra and your forward speed (velocity along your look direction) drops below `min-speed`, it uses a firework rocket from the hotbar or offhand. For a hotbar rocket it switches to that slot, uses it and switches back. Settings: `min-speed` (default 20 blocks/s), `use-delay` (minimum ticks between rockets, default 40), `check-cooldown` (ticks between speed checks, default 5) and `only-when-flying` (only during the Stash-Hunter scan flight, default off). It never fires while a screen is open, during the post-scan landing or while Baritone's elytra process is flying (Baritone boosts on its own). Only plain rockets are used; rockets with firework stars explode on the player and are skipped. The module is disabled by default and labeled as automation.
-- **Spiral search mode.** `.stashhunter spiral [<x> <z>] <radius> [gap]` flies a square spiral that starts at you (or at the given center) and works outward, `gap` blocks between rings (default 128, range 50-500; radius 50-25000). Ground closest to the start gets scanned first, which helps when hunting around spawn or a portal. Spiral trips are saved like rectangle trips, so `pause`/`resume`/`list` work the same. The rectangle mode (`start`) is unchanged.
-- **New OnlinePlayerActivityDetector module (`online-player-activity`).** It watches the server tab list (listed entries only, so plugin NPCs don't cause false joins/leaves) and reports when other players join or leave anywhere on the server. Reports go to chat, and optionally show only the count change (`count-only`). Discord is opt-in, with a cooldown, and changes during the cooldown are sent together in the next message. The online count can be shown next to the module name in the module list. The first tab-list fill after joining is not reported, and neither are changes during a short grace period (`join-grace`, 5 s) after a world or dimension change. Your own name is never reported.
-- **New opt-in `player-alarms` module: a local alarm sound while a player is nearby.** It rings immediately when another player comes within `radius` (default 100 blocks) and repeats every `repeat-interval` seconds (default 3) while they stay. You can pick the vanilla sound (bell, pling, anvil, level-up, orb) and the volume. Meteor friends are ignored by default. It can also print the players in range to chat and show them in the action bar (not as a title, which would overwrite a server's title and its timings). Leaving the radius takes a margin of 10 % (at least 2 blocks), so a player on the edge doesn't re-arm the alarm. It is meant for unattended (AFK) runs, where Discord pings are easy to miss.
-- **New opt-in `auto-logout` module (RISKY: some servers treat it as combat logging).** It disconnects when a non-friend player comes within a configurable radius and/or your health drops below a threshold. Before disconnecting it can send a Discord notification, and it pauses the elytra flight so the trip is saved and can be resumed. Meteor's client-side fake players (Blink, FakePlayer) are ignored. By default it turns itself off after triggering, so reconnecting does not log you out again immediately.
-- **Optional landing after a completed scan.** New setting `land-after-completion` (off by default). With Baritone elytra pathing, the path to the last waypoint is kept when the scan ends, so Baritone picks a safe spot and lands instead of leaving the player gliding at cruise altitude. Without Baritone a chat hint is shown and nothing changes; there is no built-in descent. The altitude-loss detector ignores this descent, and `.stashhunter stop` also cancels a landing still in progress.
-- **New `scan-only-while-flying` setting (off by default).** The module has always scanned whenever it is on, also without a flight - now documented as a "standing scanner". With the setting on, it only scans while a flight (`.stashhunter start`/`resume`, including Baritone pathing) is running.
-- **AltitudeLossDetector can report to Discord.** Opt-in `discord` setting (default off) sends position, dimension and auto-fix state to the Stash-Hunter webhook on a rapid altitude loss; `discord-cooldown` (default 60 s, kept across module toggles) stops a long fall from posting every second.
-- **Unit tests** (JUnit 5, run by `./gradlew build` and CI) for clustering, waypoint generation, trail analysis, the chunk data format and trip/`Vec3` serialization.
-- **Spotless** whitespace check (indentation, trailing whitespace, final newline; `./gradlew spotlessApply` fixes it) and a **Dependabot** config for Gradle plugins/libraries and GitHub Actions.
-- **`mention-everyone` setting** (default: off). Discord messages no longer ping `@everyone` unless enabled; `allowed_mentions` is set explicitly either way.
-- **`max-cluster-size` and `report-dedupe-radius` settings** for the stash clustering (see Fixed).
-- **`slime-chunks` module.** Marks slime chunks around you in the Overworld. Java Edition slime chunks depend on the world seed: singleplayer reads it from the integrated server, in multiplayer it has to be entered in `world-seed` (number or text, like the Create World screen). Unit-tested against vanilla's `WorldgenRandom.seedSlimeChunk`.
-- **`old-chunk-notifier` module.** Sends a chat and Discord message when you fly from new/unclassified terrain into chunks `NewerNewChunks` marked as old (optionally including old-version and being-updated chunks). Only the transition is reported, with a configurable `cooldown` (default 60 s), so a long stretch of old chunks gives one message. A dimension change starts a new area, so the first old chunks in the Nether or End are reported too; the cooldown carries over, so walking back and forth through a portal doesn't spam Discord. The message includes chunk, coordinates and dimension and uses the webhook from `discord-webhook-url`.
-- **`activated-spawner-detector` module**, ported from [PathSeeker](https://github.com/FaxHack/PathSeeker) (Apache-2.0) and adapted. Finds spawners a player has been near and names the structure from the mob type (dungeon, woodland mansion, mineshaft, stronghold, fortress, bastion), plus trial spawners a player has triggered. It flags storage within 16 blocks as a possible stash, marks spawners with light blocks next to them separately, and can mark amethyst geodes. One toggle per structure type, render distance, tracers, colours and shape mode. Unlike the original, it reads the spawners from the chunk packet instead of scanning every loaded chunk each tick: decoding runs on the Netty thread on a private `LevelChunk` copy, and results go to the client thread via `mc.execute(...)`. Because the server's own `Delay` value is used, the client's spawner ticking near the player can no longer fake an activation. Trial spawners in the `INACTIVE` state (never ticked by the server) are no longer reported.
+#### New modules
+
+- **`chest-index`** and the `.chest-index` command: records what containers hold (shulker contents included) per server and makes it searchable.
+- **`stacked-minecarts`**: marks minecarts stacked in one spot. Ported from [PathSeeker](https://github.com/FaxHack/PathSeeker).
+- **`activated-spawner-detector`**: finds spawners a player has been near and names the structure. Ported from [PathSeeker](https://github.com/FaxHack/PathSeeker); reads the chunk packet instead of scanning every tick.
+- **`auto-firework`** (opt-in): fires a rocket when your elytra speed drops below `min-speed`.
+- **`online-player-activity`**: reports players joining and leaving the server (tab list).
+- **`player-alarms`** (opt-in): local alarm sound while a player is nearby.
+- **`auto-logout`** (opt-in, risky): disconnects on a nearby player or low health and saves the flight first.
+- **`slime-chunks`**: marks slime chunks (needs the world seed in multiplayer).
+- **`old-chunk-notifier`**: tells you in chat and on Discord when you fly into old chunks.
+
+#### Flight
+
+- **Spiral search:** `.sh spiral [<x> <z>] <radius> [gap]` scans outward from you or a given point.
+- **`.sh altitude [y]`** shows or changes `flight-altitude` during a flight.
+- **Landing on low rockets** (`land-on-low-fireworks`, `low-firework-threshold`): with Baritone the trip is saved and the bot lands.
+- **Landing after a completed scan** (`land-after-completion`, Baritone only).
+- **Spare elytra** (`swap-to-spare`): a worn elytra is swapped for a spare from the inventory instead of being repaired.
+
+#### Stash detection
+
+- **Stash ESP:** outlines the containers of stashes found this session, with optional bounding box and tracer.
+- **Xaero's Minimap waypoints** (`save-to-xaero`), also shown on Xaero's World Map.
+- **`scan-by-distance`:** also scans after flying half the scan radius, so fast flight leaves no gaps.
+- **`scan-only-while-flying`:** only scan during a flight; off keeps the standing scanner.
+- **`include-spawners`:** counts mob spawners as stash blocks; a plain dungeon is still ignored.
+- **`structure-filter-radius`:** ignores stashes next to natural-structure spawners seen by `activated-spawner-detector`.
+- **`structure-waypoints`** in `activated-spawner-detector`: one waypoint per structure.
+- **`max-cluster-size` and `report-dedupe-radius`** to keep neighbouring stashes apart.
+
+#### Notifications
+
+- **`mention-everyone`** (off by default): Discord messages no longer ping `@everyone` unless you turn it on.
+- **`player-detection-radius` and `player-report-cooldown`** replace fixed values (100 blocks, 5 minutes).
+- **`altitude-loss-detector` can report to Discord** (`discord`, `discord-cooldown`).
+
+### Changed
+
+- **Fabric API is no longer required.** Only Java, Minecraft and Meteor are needed.
+- **Version ranges:** Meteor `~26.2-` (any 26.2 build) and Baritone `~26.2-` instead of `*`.
+- **`PaletteExploit` reads the palette order** and now works in the Overworld, Nether and End. Chunks it can't judge stay unmarked instead of "old".
+- **Chunk data moved** to `meteor-client/StashHunter/NewChunks/` in the game folder. Old data is moved over automatically.
+- **Reported stashes are remembered per server** on disk, so they aren't reported again after a reconnect.
+- **Saved trips:** a flight keeps one entry that is updated on each pause; at most 20 trips are kept.
+
+#### Performance
+
+- The stash scan reads each chunk only once and skips clustering when nothing new was read, so a large `scan-radius` stays cheap.
+- A chunk packet is decoded once for `NewerNewChunks` and `activated-spawner-detector` together.
+- Baritone no longer gets a new path every tick during trail following.
+- Faster block scan, chunk classification, overlay rendering and slime chunk check, with fewer allocations per frame.
+
+### Fixed
+
+#### Stash detection
+
+- Stashes below the bot were never found while flying; the scan now covers the full world height.
+- Containers were counted twice, doubling block count and density.
+- Stashes on the border between two flight strips were missed or reported in halves.
+- Chunks that loaded after the bot had passed were never scanned; they are now scanned when they arrive.
+- Large bases and stashes next to natural structures were dropped as "natural"; such clusters are now split into tighter groups.
+- A stash first seen only in part kept its wrong report; a later scan now sends a "Stash Updated" report.
+- Neighbouring stashes merged into one, and nearby real stashes were swallowed by a fixed 100-block dedupe radius.
+- The same stash was reported again every 10 minutes.
+- Stash waypoints were always created in the Overworld.
+- The far X edge of an area was never flown.
+- Scans left gaps during fast flight (see `scan-by-distance`).
+- A block update without a real change could disconnect the client ("Network Protocol Error").
+
+#### Flight and Baritone
+
+- Unloaded chunks ahead sent the bot off its strip; it now keeps its strip.
+- Taking off and steering were unreliable, both with Baritone and with the built-in controller.
+- The bot got stuck in the elytra pose after Baritone landed on its own; it now takes off again or pauses the flight.
+- With Baritone, climbing after a repair or an altitude change made the bot land.
+- Baritone and the built-in controller steered at the same time.
+- The bot kept flying to old coordinates after death, a dimension change or leaving the server; the flight now pauses.
+- Stopping a flight switched off an ElytraFly you had turned on yourself, and re-armed Baritone before cancelling it.
+- A post-scan landing that never found a spot blocked other modules; it now gives up after 2 minutes.
+- `.sh start` / `resume` without the module enabled started a flight that never moved.
+- A saved trip without waypoints blocked new flights.
+- The module ended every glide on the ground, even without a running flight.
+- Jump holds from different modules cut each other off.
+
+#### Elytra repair
+
+- A repair during a Baritone flight didn't stop the flight and looped until it disconnected.
+- `stuck-detector` interfered with repairs and could drop the player from cruise altitude.
+- The elytra could break mid-repair; `repair-threshold` is now at least 30.
+- Without XP bottles a repair hung for the full `repair-timeout`.
+- `auto-firework` fired during a repair.
+
+#### NewerNewChunks
+
+- Every Nether and End chunk was marked as old while `PaletteExploit` was on.
+- Nearly every End island chunk was marked as old-version.
+- Block entities of new chunks leaked into the world.
+- Work from the network thread touched the world and the files; it now runs on the client thread.
+- Detections were written to disk one file open per chunk; they are now batched.
+- A bad line in a data file aborted the whole load, and missing data files logged a warning with a stack trace.
+- Turning `SaveChunkData` off and on again only saved the existing chunks the first time.
+
+#### Saving and files
+
+- A crash or power loss while saving could leave the config or the trips file truncated.
+- Saving failed on Windows while a virus scanner, OneDrive or an editor had the file open.
+- A failed config save was not retried, and on exit a save could be written twice.
+- Pending config saves and queued Discord messages were lost on exit.
+- Temp files of an interrupted save stayed in `meteor-client/`.
+- An unfinished last line in a data file swallowed the next entry.
+- A corrupt `stashhunter_trips.json` broke pause and resume; it is now moved to `.corrupt`.
+- `max-cluster-size` and `report-dedupe-radius` were not saved, and some limits in the config file differed from the UI.
+- Every slider step wrote the config file immediately; changes are now saved together after 1 second.
+
+#### Discord
+
+- Errors from Discord (rate limits, deleted webhooks) were ignored; requests are now retried and at most 50 messages are queued.
+- `online-player-activity` sent old changes after Discord was switched off and on again.
+
+#### Other modules
+
+- `altitude-loss-detector` reacted to old or irrelevant drops, e.g. while walking.
+- `stacked-minecarts` could report a stack on a block border twice.
+- `player-alarms` used the system clock, so changing the time could stall the alarm.
+- The "scan completed" message could fire at the wrong time when `notify-on-completion` was off.
+- `.sh help` showed `/stashhunter` instead of Meteor's command prefix.
+
+### Removed
+
+- The Woodland Mansion check of the natural-structure filter (it could never match).
 
 ### Security
 
-- **Gradle distribution is now checksum-verified.** `gradle-wrapper.properties` had no `distributionSha256Sum`, so the wrapper downloaded the Gradle 9.6.1 distribution without verifying it - a supply-chain gap, since a tampered download would have been executed unopposed. Pinned the official SHA-256 (`9c0f7fae...a32c9e14`, taken from Gradle's published `gradle-9.6.1-bin.zip.sha256` and independently confirmed against the downloaded archive); the wrapper now aborts the build if the distribution does not match.
-- **Regenerated the committed `gradle-wrapper.jar`.** The checked-in jar was not the Gradle 9.6.1 wrapper: `gradle-wrapper.properties` had been hand-edited from `8.14.3` to `9.6.1` (commit `6a0d4f4`) without regenerating the jar, leaving an older wrapper in the tree. Re-running the `wrapper` task replaced `gradlew`, `gradlew.bat` and `gradle-wrapper.jar` with the genuine 9.6.1 artifacts (jar SHA-256 now `497c8c2a...194a9c7`), so all four wrapper files are consistent with the declared distribution version.
+- The Gradle download is now checked against its official SHA-256, and the Gradle wrapper files were regenerated for 9.6.1.
+
+### Development
+
+- Unit tests (JUnit 5) and a Spotless whitespace check run with `./gradlew build` and in CI; Dependabot keeps dependencies current.
+- CI builds with Java 25; the rolling dev build is only published from `main`.
+- Fabric Loader 0.20.1, Loom pinned to 1.17.21.
+- Pure logic moved into testable classes (`StashClustering`, `GridWaypoints`, `TrailAnalysis`, `ChunkDataFormat` and others).
+- Errors go to the game log instead of `printStackTrace()`; reflection on Meteor internals removed.
+- Removed dead code: `WorldScanner`, `Utils`, the custom `Logger`, unused mixins and events, and the separate Gson dependency.
+- Fixed two compile errors in `ElytraController` and `StashHunterModule`.
+- Repository, mod name and links point to `omtoi101/Stash-Hunter`; template leftovers cleaned up.
 
 ## [v26.2.1] - 2026-09-11
 
 ### Added
 
-- **Optional Baritone pathfinding integration** (`com.stashhunter.stashhunter.baritone`): when the [Baritone](https://github.com/MeteorDevelopment/baritone) mod (26.2 branch) is also installed, `ElytraController` hands its flight and landing targets to Baritone's elytra and ground pathfinding (`IElytraProcess`/`ICustomGoalProcess`) for more precise, obstacle-aware movement execution. Baritone only replaces movement *execution* - the existing grid/trail-following exploration strategy (`NewerNewChunks`, `WorldScanner`) is unchanged.
-  - New `BaritoneBridge`/`BaritoneImpl` facade keeps Baritone a true soft/optional dependency: every call is gated behind `FabricLoader.isModLoaded("baritone-meteor")`, so the addon starts and runs normally without Baritone installed.
-  - New `use-baritone-pathing` setting (default: on) to force the built-in flight controller even when Baritone is present.
-  - `StuckDetector` now also treats an unexpectedly dropped Baritone path as a stuck condition.
-  - `AltitudeLossDetector` cancels an in-progress Baritone path before attempting its own jump-hold recovery.
-  - Added `compileOnly` dependency on `meteordevelopment:baritone:26.2-SNAPSHOT` and a `recommends` entry in `fabric.mod.json`.
+- **Optional Baritone support:** with the Baritone mod installed, flight and landing use its obstacle-aware pathfinding. `use-baritone-pathing` turns it off. Without Baritone nothing changes.
 
 ### Fixed
 
-- **Crash on startup**: `PlayerInventoryAccessor`'s generated `@Accessor` method had the same name and signature as a method `Inventory` already declares natively in 26.2 (`setSelectedSlot(int)`), producing two methods with an identical name/descriptor in the same class file. The JVM verifier rejects this (`ClassFormatError: Duplicate method name&signature`), crashing the game as soon as the mixin was applied. Renamed the accessor method so it no longer collides with the vanilla method.
-- **`NewerNewChunks` old-chunk/palette-exploit detection was silently broken**: a double negation (`!!section.hasOnlyAir()`) in three detector loops meant they only ever scanned chunk sections that were pure air, instead of sections with actual content. Fixed to `!section.hasOnlyAir()` in all three places.
-- **Build could fail even though the dependency existed**: Gradle would sometimes probe Mojang's `libraries.minecraft.net` for Meteor-published artifacts (`meteordevelopment:*`, `org.meteordev:*`) before trying `maven.meteordev.org`, and a hiccup on that unrelated host aborted resolution entirely. Restricted those groups to Meteor's own Maven repositories via Gradle's `exclusiveContent`.
+- The game crashed on startup (duplicate method from a mixin).
+- `NewerNewChunks` old-chunk detection only looked at empty chunk sections.
+- The build could fail when Mojang's library server was unreachable.
 
 ### Removed
 
-- Dead, unused `ElytraController.generateChunkBasedWaypoints(...)` stub (empty method body, already marked as unused).
-- Dead `NewerNewChunks.getOldChunks()` public accessor (zero callers anywhere in the codebase).
-- Redundant same-package import of `TripManager` in `ElytraController`.
+- Unused code in `ElytraController` and `NewerNewChunks`.
 
-### Changed
-
-- Tightened misleading "simplified due to API compatibility issues" comments in `NewerNewChunks`'s End-dimension and palette-exploit detectors to accurately describe them as heuristic/best-effort, now that the underlying double-negation bug is fixed.
+[Unreleased]: https://github.com/omtoi101/Stash-Hunter/commits/main
+[v26.2.2-pre1]: https://github.com/omtoi101/Stash-Hunter/releases/tag/v26.2.2-pre1
+[v26.2.1]: https://github.com/omtoi101/Stash-Hunter/releases/tag/v26.2.1
