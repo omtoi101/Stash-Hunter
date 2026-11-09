@@ -31,6 +31,18 @@ class TripSerializationTest {
     }
 
     @Test
+    void nameIsSavedAndOldFilesWithoutItStillLoad() {
+        TripManager.TripData named = new TripManager.TripData(1L, List.of(new Vec3(0, 160, 0)), 0, "north");
+        List<TripManager.TripData> roundTrip = GSON.fromJson(GSON.toJson(List.of(named)), TRIPS);
+        assertEquals("north", roundTrip.get(0).name);
+
+        String unnamed = GSON.toJson(List.of(new TripManager.TripData(2L, List.of(new Vec3(0, 160, 0)), 0)));
+        assertFalse(unnamed.contains("name"), "no name field for unnamed trips: " + unnamed);
+        List<TripManager.TripData> read = GSON.fromJson("[{\"timestamp\": 3, \"waypoints\": [{\"x\": 0, \"y\": 160, \"z\": 0}], \"currentWaypoint\": 0}]", TRIPS);
+        assertNull(read.get(0).name);
+    }
+
+    @Test
     void unknownFieldsAreSkipped() {
         Vec3 vec = GSON.fromJson("{\"x\": 1, \"note\": {\"a\": [1, 2]}, \"y\": 2, \"z\": 3}", Vec3.class);
         assertEquals(new Vec3(1, 2, 3), vec);

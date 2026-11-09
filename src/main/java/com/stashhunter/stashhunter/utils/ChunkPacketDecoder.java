@@ -12,8 +12,9 @@ import net.minecraft.world.level.chunk.LevelChunk;
 
 /**
  * Decodes a chunk packet into a private LevelChunk copy once and shares it between the modules that
- * analyse chunk packets on the Netty thread (NewerNewChunks, ActivatedSpawnerDetector). Vanilla
- * decodes its own copy anyway, so every extra decode was a second full read of all sections.
+ * analyse chunk packets on the Netty thread (NewerNewChunks, ActivatedSpawnerDetector,
+ * CaveDisturbanceDetector). Vanilla decodes its own copy anyway, so every extra decode was a second
+ * full read of all sections.
  * <p>
  * The copy has no block entities: in a chunk of a client level, creating one registers it and its
  * ticker in the real level (LevelChunk.isInLevel() is always true client-side) - from the Netty

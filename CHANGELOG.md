@@ -4,6 +4,37 @@ All notable changes to Stash-Hunter. Newest version first, format based on [Keep
 
 One line per change. How a feature works and what each setting does is in the [README](README.md); the full reasoning behind a change is in the commit history. Build, test and code changes that don't affect players are listed under **Development**.
 
+## [Unreleased]
+
+Builds and passes all unit tests; not yet tested in-game.
+
+### Added
+
+- **`cave-disturbance-detector`** (new module): marks plain air among cave air, i.e. blocks a player broke in Nether caves, mineshafts, strongholds, dungeons and the caves of chunks generated in 1.13-1.17. Overworld caves generated since 1.18 contain no cave air, so it finds nothing there. Settings `min-air-blocks`, `max-pocket-size`, `max-y`, ESP and tracers.
+- **`.chest-index search` highlights its finds** in the world (outline and tracer, `highlight-seconds`, also with the module off).
+- **Clickable coordinates in `.chest-index` results:** with Baritone installed a click walks next to the container (like `#goto`); otherwise, or for another dimension, it copies the coordinates.
+- **`.chest-index shulker <name>`** finds shulker boxes by their custom name.
+- **`[+waypoint]` in `.chest-index` results** adds a Meteor waypoint for the container.
+- **`open-after-walk`** (`chest-index`, opt-in): opens the container once Baritone has walked to a clicked search result.
+- **Named trips:** `.sh name <name>` names the current or latest trip, `.sh resume <name>` continues it, `.sh delete <name|timestamp>` removes a trip. Named trips are not dropped by the 20-trip limit.
+
+### Changed
+
+- **Saving a trip no longer stutters.** Trips are written on a background thread; pausing, landing or starting a flight only copies the waypoints.
+- **The chest index is saved in the background too**, so a big index doesn't stutter every minute.
+- **`.sh list` shows each trip's name, progress, path length and save time** instead of bare timestamps.
+- **A completed flight is saved as complete;** `.sh resume` no longer flies it again from the last pause.
+- **`.sh resume` says when there is nothing to resume** instead of always reporting success.
+
+### Development
+
+- `utils/BackgroundSaver` (+ test): ordered background writes where a burst of saves collapses into the newest; used by `TripManager`, drained by the shutdown hook.
+- `TripManager` reads the trips file once and keeps the list in memory (`saveCurrentTripAsync` replaces `saveTrip`).
+- `utils/CaveAirPockets` (+ test): flood fill for small plain-air pockets touching cave air, clean-room (idea from Trouser-Streak, no code used).
+- `ChestIndex.searchShulkerNames` (+ test); `BaritoneBridge.startGetToBlock` (Baritone `GoalGetToBlock`) and `isGoalActive`.
+- `ChestIndex` writes through its own `BackgroundSaver` (`close()` on leaving the server, failed writes are retried, `clear()` deletes in order) (+ tests).
+- `TripData.name`, `TripHistory.find`/`nameProblem`/`renamed`/`without`/`progress` (+ tests); `ElytraController.resume` returns whether a flight started.
+
 ## [v26.2.2] - 2026-11-02
 
 First release of 26.2.2. Builds and passes all unit tests; in-game testing is still pending.
@@ -197,5 +228,6 @@ Pre-release: builds and passes all unit tests, not yet tested in-game.
 - Unused code in `ElytraController` and `NewerNewChunks`.
 
 [Unreleased]: https://github.com/omtoi101/Stash-Hunter/commits/main
+[v26.2.2]: https://github.com/omtoi101/Stash-Hunter/releases/tag/v26.2.2
 [v26.2.2-pre1]: https://github.com/omtoi101/Stash-Hunter/releases/tag/v26.2.2-pre1
 [v26.2.1]: https://github.com/omtoi101/Stash-Hunter/releases/tag/v26.2.1

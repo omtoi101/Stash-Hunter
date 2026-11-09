@@ -118,7 +118,7 @@ public class ElytraController {
         baritoneTargetPos = null;
 
         waypoints.addAll(generated);
-        tripTimestamp = TripManager.saveTrip(0, waypoints, currentWaypoint);
+        tripTimestamp = TripManager.saveCurrentTripAsync(0, waypoints, currentWaypoint);
 
         initiateFlight();
     }
@@ -162,27 +162,20 @@ public class ElytraController {
 
     public static void pause() {
         if (!active) return;
-        tripTimestamp = TripManager.saveTrip(tripTimestamp, waypoints, currentWaypoint);
+        tripTimestamp = TripManager.saveCurrentTripAsync(tripTimestamp, waypoints, currentWaypoint);
         stop();
     }
 
-    public static void resume() {
-        if (active) return;
+    /** Resumes the latest saved trip. False if there is none, it is complete or a flight is running. */
+    public static boolean resume() {
+        if (active) return false;
         TripManager.TripData tripData = TripManager.getLatestTrip();
-        if (tripData != null) {
-            resume(tripData);
-        }
+        return tripData != null && resume(tripData);
     }
 
-    public static void resume(long timestamp) {
-        if (active) return;
-        TripManager.TripData tripData = TripManager.getTrip(timestamp);
-        if (tripData != null) {
-            resume(tripData);
-        }
-    }
-
-    private static void resume(TripManager.TripData tripData) {
+    /** Resumes a saved trip. False if it is complete or a flight is running. */
+    public static boolean resume(TripManager.TripData tripData) {
+        if (active || TripHistory.isComplete(tripData)) return false;
         tripTimestamp = tripData.timestamp;
         currentWaypoint = tripData.currentWaypoint;
         // A trip keeps the altitude it was started with; the current setting wins on resume.
@@ -195,6 +188,12 @@ public class ElytraController {
         baritoneTargetPos = null;
 
         initiateFlight();
+        return true;
+    }
+
+    /** Saved-trip entry of the running (or last) flight; 0 if none was started this session. */
+    public static long getTripTimestamp() {
+        return tripTimestamp;
     }
 
     /**
@@ -253,7 +252,7 @@ public class ElytraController {
         Vec3 ahead = pos.add(heading.normalize().scale(SAFE_LANDING_DISTANCE));
         BlockPos destination = BlockPos.containing(ahead.x, pos.y, ahead.z);
 
-        tripTimestamp = TripManager.saveTrip(tripTimestamp, waypoints, currentWaypoint);
+        tripTimestamp = TripManager.saveCurrentTripAsync(tripTimestamp, waypoints, currentWaypoint);
         if (handOffLandingToBaritone(destination)) {
             beginBaritoneLanding();
             return true;
@@ -341,6 +340,8 @@ public class ElytraController {
                 MeteorClient.mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§aCompleted scanning area!"));
             }
             justCompleted = true;
+            // Marks the trip as done (.stashhunter list), so resuming it doesn't fly it again from the last pause.
+            tripTimestamp = TripManager.saveCurrentTripAsync(tripTimestamp, waypoints, waypoints.size());
             Vec3 last = waypoints.get(waypoints.size() - 1);
             if (Config.landAfterCompletion && handOffLandingToBaritone(BlockPos.containing(last.x, last.y, last.z))) {
                 beginBaritoneLanding();

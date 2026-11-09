@@ -3,6 +3,7 @@ package com.stashhunter.stashhunter.baritone;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.pathing.goals.GoalBlock;
+import baritone.api.pathing.goals.GoalGetToBlock;
 import net.minecraft.core.BlockPos;
 
 /**
@@ -31,6 +32,15 @@ final class BaritoneImpl {
 
     static void pathGroundTo(BlockPos target) {
         primary().getCustomGoalProcess().setGoalAndPath(new GoalBlock(target.getX(), target.getY(), target.getZ()));
+    }
+
+    static void pathNextTo(BlockPos target) {
+        primary().getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(target));
+    }
+
+    /** The custom goal process gives up control (state NONE) when the goal is reached, the path fails or on cancel. */
+    static boolean isCustomGoalActive() {
+        return primary().getCustomGoalProcess().isActive();
     }
 
     static void cancel() {

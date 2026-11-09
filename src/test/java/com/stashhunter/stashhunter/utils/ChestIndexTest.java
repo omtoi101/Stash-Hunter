@@ -78,11 +78,40 @@ class ChestIndexTest {
         ChestIndex index = ChestIndex.load(file);
         Entry entry = chest(new Pos(0, 64, 0), new Pos(0, 64, 1), item("minecraft:diamond", 5), shulker("Kit", item("minecraft:elytra", 1)));
         index.put(entry);
-        index.saveIfDirty();
+        index.close(); // waits for the background write
 
         ChestIndex reloaded = ChestIndex.load(file);
         assertEquals(entry, reloaded.get(OVERWORLD, new Pos(0, 64, 1)));
         assertEquals(1, reloaded.size());
+    }
+
+    @Test
+    void clearDeletesTheFileEvenWithAWriteQueued() {
+        Path file = dir.resolve("server.json");
+        ChestIndex index = ChestIndex.load(file);
+        index.put(chest(new Pos(0, 64, 0), null, item("minecraft:diamond", 5)));
+        index.saveIfDirty();
+        index.clear();
+        index.close();
+
+        assertFalse(Files.exists(file));
+        assertEquals(0, ChestIndex.load(file).size());
+    }
+
+    @Test
+    void failedWriteIsRetriedOnTheNextSave() throws IOException {
+        Path folder = dir.resolve("chest-index");
+        Path file = folder.resolve("server.json");
+        ChestIndex index = ChestIndex.load(file);
+        index.put(chest(new Pos(0, 64, 0), null, item("minecraft:diamond", 5)));
+        Files.writeString(folder, "a file where the folder should be"); // the write can't create the folder
+        index.close();
+        assertFalse(Files.isDirectory(folder));
+
+        Files.delete(folder);
+        index.saveIfDirty(); // nothing changed since, but the last write failed
+
+        assertEquals(1, ChestIndex.load(file).size());
     }
 
     @Test
@@ -97,6 +126,22 @@ class ChestIndexTest {
         assertEquals(new Pos(5, 64, 0), hits.get(0).entry().pos());
         assertEquals(66, hits.get(0).count());
         assertTrue(index.search("").isEmpty());
+    }
+
+    @Test
+    void shulkerNameSearchIgnoresCaseAndUnnamedBoxes() {
+        ChestIndex index = ChestIndex.load(dir.resolve("server.json"));
+        index.put(chest(new Pos(0, 64, 0), null, shulker("PvP Kit", item("minecraft:totem_of_undying", 1)), shulker(null)));
+        index.put(chest(new Pos(5, 64, 0), null, shulker("kit 1"), shulker("Food"), shulker("KIT 2")));
+        index.put(chest(new Pos(9, 64, 0), null, item("minecraft:diamond", 64)));
+
+        List<ChestIndex.NameHit> hits = index.searchShulkerNames(" Kit ");
+        assertEquals(2, hits.size());
+        assertEquals(new Pos(5, 64, 0), hits.get(0).entry().pos());
+        assertEquals(List.of("kit 1", "KIT 2"), hits.get(0).shulkers().stream().map(ChestIndex.Shulker::name).toList());
+        assertEquals(List.of("PvP Kit"), hits.get(1).shulkers().stream().map(ChestIndex.Shulker::name).toList());
+        assertTrue(index.searchShulkerNames("").isEmpty());
+        assertTrue(index.searchShulkerNames("diamond").isEmpty(), "item ids are no names");
     }
 
     @Test

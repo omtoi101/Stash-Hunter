@@ -26,11 +26,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * What the containers on one server held when they were last opened, including the contents of
  * shulker boxes inside them. Stored as JSON so other tools can read it. One file per server.
- * Not thread-safe: the chest-index module and its command use it on the client thread only.
+ * Not thread-safe: the chest-index module and its command use it on the client thread only. The
+ * file is written on a background thread (a big index takes a while to serialize and fsync).
  */
 public final class ChestIndex {
     /** One stack as read from a slot. contents is set for items that hold items (shulker boxes). */
@@ -71,8 +74,13 @@ public final class ChestIndex {
 
     private record FileFormat(int version, List<Entry> containers) {}
 
+    // What the save thread writes. entries is immutable (records of immutable lists); null deletes the file.
+    private record Snapshot(List<Entry> entries) {}
+
     private static final int FORMAT_VERSION = 1;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
+    // How long close() waits for the last write.
+    private static final long CLOSE_TIMEOUT_MS = 2000;
 
     private final Path file;
     // Both halves of a double chest map to the same entry.
@@ -80,6 +88,10 @@ public final class ChestIndex {
     private boolean dirty;
     // Set if the file exists but couldn't be read: saving would replace it with a partial index.
     private boolean readFailed;
+    // Created on the first save. Writes and deletes go through it in order.
+    private BackgroundSaver<Snapshot> saver;
+    // Set by the save thread when a write failed; the next saveIfDirty() tries again.
+    private final AtomicBoolean writeFailed = new AtomicBoolean();
 
     private ChestIndex(Path file) {
         this.file = file;
@@ -218,18 +230,33 @@ public final class ChestIndex {
         return count;
     }
 
-    public void saveIfDirty() {
-        if (!dirty || readFailed) return;
-        try {
-            AtomicFiles.write(file, out -> {
-                Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8);
-                GSON.toJson(new FileFormat(FORMAT_VERSION, List.copyOf(entries())), writer);
-                writer.flush();
-            });
-            dirty = false;
-        } catch (IOException | JsonIOException e) {
-            StashHunter.LOG.warn("Could not save chest index {}", file, e);
+    /** A container holding shulker boxes whose custom name matched a search, in slot order. */
+    public record NameHit(Entry entry, List<Shulker> shulkers) {}
+
+    /**
+     * Containers holding shulker boxes (or other item holders) whose custom name contains the query,
+     * ignoring case, e.g. "kit" finds "PvP Kit". Most matching boxes first.
+     */
+    public List<NameHit> searchShulkerNames(String query) {
+        String needle = query.trim().toLowerCase(Locale.ROOT);
+        List<NameHit> hits = new ArrayList<>();
+        if (needle.isEmpty()) return hits;
+        for (Entry entry : entries()) {
+            List<Shulker> named = entry.shulkers().stream()
+                .filter(shulker -> shulker.name() != null && shulker.name().toLowerCase(Locale.ROOT).contains(needle))
+                .toList();
+            if (!named.isEmpty()) hits.add(new NameHit(entry, named));
         }
+        hits.sort(Comparator.comparingInt((NameHit hit) -> hit.shulkers().size()).reversed());
+        return hits;
+    }
+
+    /** Queues a save if something changed since the last one; returns at once. */
+    public void saveIfDirty() {
+        if (writeFailed.getAndSet(false)) dirty = true;
+        if (!dirty || readFailed) return;
+        saver().save(new Snapshot(List.copyOf(entries())));
+        dirty = false;
     }
 
     /** Forgets every container on this server, on disk too. */
@@ -237,10 +264,40 @@ public final class ChestIndex {
         byPos.clear();
         dirty = false;
         readFailed = false;
+        writeFailed.set(false);
+        // Queued behind a pending write, so that write can't bring the file back afterwards.
+        saver().save(new Snapshot(null));
+    }
+
+    /**
+     * Saves what changed and waits (at most 2 s) until it is on disk, then stops the save thread.
+     * For leaving the server; later saves would be written on the calling thread.
+     */
+    public void close() {
+        saveIfDirty();
+        if (saver != null) saver.shutdown(CLOSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private BackgroundSaver<Snapshot> saver() {
+        if (saver == null) saver = new BackgroundSaver<>("StashHunter-ChestIndexSave", this::write);
+        return saver;
+    }
+
+    // Runs on the save thread. Reads only the snapshot and the final file field.
+    private void write(Snapshot snapshot) {
         try {
-            Files.deleteIfExists(file);
-        } catch (IOException e) {
-            StashHunter.LOG.warn("Could not delete {}", file, e);
+            if (snapshot.entries() == null) {
+                Files.deleteIfExists(file);
+                return;
+            }
+            AtomicFiles.write(file, out -> {
+                Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8);
+                GSON.toJson(new FileFormat(FORMAT_VERSION, snapshot.entries()), writer);
+                writer.flush();
+            });
+        } catch (IOException | JsonIOException e) {
+            if (snapshot.entries() != null) writeFailed.set(true);
+            StashHunter.LOG.warn("Could not {} chest index {}", snapshot.entries() == null ? "delete" : "save", file, e);
         }
     }
 

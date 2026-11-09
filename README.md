@@ -26,7 +26,7 @@ Built for **Minecraft 26.2**. Current version: **26.2.2** (see the [Changelog](C
 - **Automated stash search:** elytra flight over a rectangle (`.sh start`) or an outward spiral (`.sh spiral`), with Baritone pathing or the built-in controller. Flights can be paused, saved and resumed.
 - **Stash detection:** scans the full world height around you, clusters containers (optionally all base blocks and spawners), filters natural structures and reports each stash once, as a Meteor waypoint, optionally a Xaero's Minimap waypoint, and on Discord. Stashes found this session are outlined in the world (Stash ESP).
 - **Chunk analysis:** `NewerNewChunks` marks new and old chunks and lets the flight follow chunk trails; `old-chunk-notifier` tells you when you reach old terrain; `slime-chunks` marks slime chunks.
-- **More base signals:** `activated-spawner-detector` (spawners a player has been near), `stacked-minecarts` (hidden minecart storage) and `chest-index` (searchable record of container contents per server).
+- **More base signals:** `activated-spawner-detector` (spawners a player has been near), `stacked-minecarts` (hidden minecart storage), `cave-disturbance-detector` (blocks broken in cave air) and `chest-index` (searchable record of container contents per server).
 - **Unattended runs:** `auto-elytra-repair` (spare elytra or landing + XP bottles), `stuck-detector`, `altitude-loss-detector`, `auto-firework`, landing on low rockets, plus `player-alarms`, `online-player-activity` and `auto-logout`.
 - **Notifications:** Discord webhook messages for finds, players, deaths, repairs, landings and disconnects, and a HUD element with the flight status.
 
@@ -104,8 +104,10 @@ After each detour it returns to its strips. Chunks the server hasn't sent yet ar
 | `.sh spiral [<x> <z>] <radius> [gap]` | Scans a square spiral outward from your position (or from `x z`; `~` works) up to `radius` blocks (50-25000), rings `gap` blocks apart (50-500; default twice `scan-radius`, i.e. 128). The flight stays inside the radius and stops at the last ring the scan needs to reach it. Shows the flight path in km and warns if `gap` leaves unscanned bands. Pause/resume like `start`. Example: `.sh spiral 3000`. |
 | `.sh stop` | Stops the current flight. |
 | `.sh pause` | Stops the flight and saves it as a trip. |
-| `.sh resume [timestamp]` | Continues the latest saved trip, or the one with the given timestamp. |
-| `.sh list` | Lists the timestamps of all saved trips. Only the 20 newest are kept; a flight that is paused again replaces its own entry. |
+| `.sh resume [name\|timestamp]` | Continues the latest saved trip, or the one with the given name or timestamp. A completed trip isn't flown again. |
+| `.sh name <name>` | Names the running flight's trip (or the latest saved one), e.g. `.sh name north of spawn`. Named trips can be resumed by name and are kept until you delete them; the name stays through every pause and resume. Names are unique, up to 32 characters and not just digits. |
+| `.sh delete <name\|timestamp>` | Deletes a saved trip (not the running flight's). |
+| `.sh list` | Lists the saved trips, newest first, with name, progress (waypoint and percent of the flight path, or *complete*), path length and when they were saved. Only the 20 newest unnamed trips are kept; a flight that is paused again replaces its own entry. |
 | `.sh status` | Shows the status, the current waypoint, the current target and the progress along the flight path in km. |
 | `.sh altitude [y]` | Shows or sets the flight altitude (100-400). A running flight moves its remaining waypoints to the new height; resumed trips also use the current value. |
 | `.sh repair` | Shows the Auto Elytra Repair state and your elytra's durability. |
@@ -114,7 +116,8 @@ After each detour it returns to its strips. Chunks the server hasn't sent yet ar
 | `.clear-stashes` | Forgets the already reported stashes of the current server (also on disk), so they can be reported again. Existing stash waypoints still prevent a repeat report until you delete them. |
 | `.clear-players` | Forgets the recently reported players, so they are reported again. |
 | `.chest-index` | Shows how many containers the `chest-index` module has recorded on this server. |
-| `.chest-index search <item>` | Lists the 10 indexed containers with the most items whose id contains `<item>` (e.g. `diamond`, `totem`, `elytra`), shulker box contents included, with position and dimension. |
+| `.chest-index search <item>` | Lists the 10 indexed containers with the most items whose id contains `<item>` (e.g. `diamond`, `totem`, `elytra`), shulker box contents included, with position and dimension. All finds are outlined in the world for `highlight-seconds`. Click the coordinates: with Baritone, it walks next to the container (like `#goto`) and, with `open-after-walk`, opens it on arrival; without Baritone or for another dimension, they are copied to the clipboard. Click `[+waypoint]` to add a Meteor waypoint for the container (named like `64x diamond (chest-index)`; a second click adds no duplicate). |
+| `.chest-index shulker <name>` | Same for shulker boxes whose custom name contains `<name>` (case doesn't matter), e.g. `kit`. |
 | `.chest-index clear` | Forgets every indexed container of this server (also on disk). |
 
 ### `start` in detail
@@ -392,7 +395,8 @@ Records what chests, trapped chests, barrels and shulker boxes hold, including t
 - **Auto-open:** standing still or walking, the module opens the nearest container in reach, reads it once the server has sent its contents and closes it again, then moves on to the next one. It pauses while a screen is open, while you sneak and during elytra flight (including a stash-hunter flight). Chests under a solid block can't be opened and are skipped. Containers it has opened, or given up on because nothing opened within 2 seconds, are not opened again until the module is toggled or you change dimension.
 - **Containers you open yourself** are indexed too (also with `auto-open` off). They stay open, and the entry is updated while you take things out and once more when you close them.
 - A double chest is one entry for both halves.
-- The index is saved every minute and when you leave the server or turn the module off.
+- **Walking to a search result:** a click on green coordinates sends Baritone next to the container. With `open-after-walk` the container is opened once Baritone arrives (after you close the chat), and it stays open like one you opened yourself. Nothing is opened if Baritone stops early (no path, `#stop`), after 3 minutes, or if you change dimension. Auto-open waits meanwhile.
+- The index is saved every minute and when you leave the server or turn the module off, on a background thread so a big index doesn't stutter.
 
 | Setting | Description | Default |
 | --- | --- | --- |
@@ -401,6 +405,29 @@ Records what chests, trapped chests, barrels and shulker boxes hold, including t
 | `rotate` | Look at a container before opening it (some anti-cheats reject clicks on blocks you don't look at). | true |
 | `skip-indexed` | Don't auto-open containers that are already in the index, also from earlier sessions. Turn off to refresh it. | true |
 | `chat-feedback` | Report each indexed container in chat (item count, shulker boxes). | true |
+| `open-after-walk` | Open a container once Baritone has walked to it after a click on a search result. Works with the module off, too (the container is then opened but not indexed). | false |
+| `highlight-seconds` | How long `.chest-index search`/`shulker` outline the containers found. Works with the module off, too. | 60 |
+| `highlight-shape`, `highlight-side-color`, `highlight-line-color` | How the found containers are drawn. | Both, cyan |
+| `highlight-tracers` | Draw a line to each found container. | true |
+
+### Cave Disturbance Detector (`cave-disturbance-detector`)
+
+Marks plain air among cave air. World generation fills some spaces with `cave_air`; a block a player breaks there (or places and removes again) becomes plain `air`. The module searches every chunk you receive for small groups of plain air that touch cave air and are otherwise closed in, and marks them.
+
+- **Where it works:** Nether caves (above Y 31), mineshafts, strongholds and dungeons in any version, and all caves of overworld chunks generated in 1.13-1.17.
+- **Where it can't work:** overworld caves generated since 1.18 (including everything below Y 0 outside mineshafts and other structures). They are plain air from the start, so there is no cave air to compare with.
+- Large groups of plain air (a natural cave a mineshaft runs through, the sky above a ravine) are ignored, see `max-pocket-size`.
+- Each area is reported once in chat; nearby disturbed chunks (48 blocks) don't repeat the message.
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `min-air-blocks` | Plain-air blocks in cave air a chunk needs before it is reported. Higher: fewer false alarms, but single broken blocks are missed. | 2 |
+| `max-pocket-size` | Largest group of connected plain-air blocks that still counts; bigger groups are natural caves. | 48 |
+| `max-y` | Only search below this height. 128 covers the Nether's caves and mineshafts in badlands. | 128 |
+| `chat-feedback` | Report disturbed areas in chat. | true |
+| `render-distance` | Chunks from you in which detections are kept and rendered. | 32 |
+| `shape-mode`, `side-color`, `line-color` | Box on each disturbed air block. | Both, orange |
+| `tracers` | Line to each disturbed chunk. | false |
 
 ## Discord notifications
 
@@ -416,7 +443,7 @@ Create a webhook in your Discord server (*Server Settings → Integrations → W
 | **Disconnected** | You leave or lose the server. |
 | **Out of Elytras** | The elytra is gone and couldn't be repaired; the bot disconnects. |
 | **Elytra Swapped** | A spare elytra was put on instead of repairing (`swap-to-spare`). |
-| **Elytra Repair Started / Finished / Failed** | A repair runs (`notify-repairs`). *Failed - Paused* and *Impossible - Paused / Landing* mean the flight was saved and stopped on the ground or is landing; restock and `.sh resume`. |
+| **Elytra Repair Started / Finished / Failed** | A repair runs (`notify-repairs`). *Failed - Paused* and *Impossible - Paused / Landing* mean the flight was saved and stopped on the ground or is landing; restock and `.sh resume`. **Elytra Landed - Paused** follows once such a landing without Baritone has reached the ground. |
 | **Fireworks Low - Landing** / **Land Manually** | Rockets dropped to `low-firework-threshold` during a Baritone flight; the trip is saved. |
 | **Flight Paused After Landing** | Baritone landed on its own and couldn't take off again (no rockets or 3 failed takeoffs); `.sh resume` continues. |
 | **Elytra Stuck Detected** | Rubber-banding is detected (Stuck Detector's own webhook). |
@@ -441,12 +468,12 @@ Add the **stash-hunter-status** element in Meteor's HUD editor. It shows the bot
 | File | Content |
 | --- | --- |
 | `meteor-client/stash-hunter.properties` | Addon configuration (also stored in Meteor's own settings). |
-| `meteor-client/stashhunter_trips.json` | Saved trips for `.sh resume`. If it is ever unreadable, it is moved to `stashhunter_trips.json.corrupt` instead of being overwritten. |
+| `meteor-client/stashhunter_trips.json` | Saved trips for `.sh resume` (waypoints, progress, optional name). If it is ever unreadable, it is moved to `stashhunter_trips.json.corrupt` instead of being overwritten. |
 | `meteor-client/StashHunter/NewChunks/<server>/<dimension>/*.txt` | Chunk data saved by NewerNewChunks, one file per chunk type (`NewChunkData.txt`, `OldChunkData.txt`, `BeingUpdatedChunkData.txt`, `OldGenerationChunkData.txt`, `BlockExploitChunkData.txt`) with one `[x, z]` chunk position per line. Older versions saved it under `StashHunter/NewChunks/` relative to the launcher's working directory; that folder is moved here automatically the first time it's needed. |
 | `meteor-client/StashHunter/chest-index/<server>.json` | Containers recorded by `chest-index`: dimension, position (and the other half of a double chest), block, slot count, time, the items summed per id, and each shulker box inside with its name and contents. A file that can't be parsed is moved to `<server>.json.corrupt`. `.chest-index clear` deletes it. |
 | `meteor-client/StashHunter/reported-stashes/<server>.txt` | Stashes already reported on that server (`dimension x y z` per line), so they aren't reported again after a reconnect. `.clear-stashes` deletes it. |
 
-All paths are relative to your Minecraft game directory. Config and trips are written through a temp file, so a crash mid-save keeps the previous version; leftover `*.tmp` files are cleaned up on the next start. Log output goes to the normal game log (`logs/latest.log`).
+All paths are relative to your Minecraft game directory. Config, trips and the chest index are written through a temp file (trips and the chest index on a background thread, so saving never stutters), so a crash mid-save keeps the previous version; leftover `*.tmp` files are cleaned up on the next start. Log output goes to the normal game log (`logs/latest.log`).
 
 ## Troubleshooting
 

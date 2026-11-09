@@ -6,21 +6,31 @@ import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.GridWaypoints;
 import com.stashhunter.stashhunter.utils.SpiralWaypoints;
+import com.stashhunter.stashhunter.utils.TripHistory;
+import com.stashhunter.stashhunter.utils.TripManager;
+import com.stashhunter.stashhunter.utils.TripManager.TripData;
 import com.stashhunter.stashhunter.utils.WaypointPath;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
-import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import meteordevelopment.meteorclient.commands.Command;
 import meteordevelopment.meteorclient.MeteorClient;
 import net.minecraft.client.multiplayer.ClientSuggestionProvider;
+import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.world.phys.Vec3;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 public class StashHunterCommand extends Command {
+    private static final DateTimeFormatter SAVED_AT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT)
+        .withZone(ZoneId.systemDefault());
+
     public StashHunterCommand() {
         super("stashhunter", "Controls the stash finding flight system.", "sh");
     }
@@ -137,27 +147,50 @@ public class StashHunterCommand extends Command {
             })
         );
 
-        // Resume scanning
+        // Resume scanning: the latest trip, or one given by name or timestamp
         builder.then(literal("resume")
-            .executes(context -> {
-                if (ElytraController.isActive()) {
-                    error("Stash hunter is already active.");
-                } else {
-                    ensureModuleActive();
-                    ElytraController.resume();
-                    info("Stash hunter flight resumed.");
-                }
-                return SINGLE_SUCCESS;
-            })
-            .then(argument("timestamp", LongArgumentType.longArg())
+            .executes(context -> resumeTrip(TripManager.getLatestTrip(), "No saved trip to resume."))
+            .then(argument("trip", StringArgumentType.greedyString())
+                .suggests((context, suggestions) -> SharedSuggestionProvider.suggest(tripNames(), suggestions))
                 .executes(context -> {
-                    if (ElytraController.isActive()) {
-                        error("Stash hunter is already active.");
+                    String key = StringArgumentType.getString(context, "trip");
+                    return resumeTrip(TripManager.findTrip(key), "No saved trip called \"" + key.trim() + "\" (see .stashhunter list).");
+                })
+            )
+        );
+
+        // Name the running flight's trip (or the latest one), so it can be resumed by name and isn't dropped
+        builder.then(literal("name")
+            .then(argument("name", StringArgumentType.greedyString())
+                .executes(context -> {
+                    TripData trip = runningOrLatestTrip();
+                    if (trip == null) {
+                        error("No saved trip to name. Start a flight first.");
+                        return SINGLE_SUCCESS;
+                    }
+                    String name = StringArgumentType.getString(context, "name").trim();
+                    String problem = TripManager.renameTrip(trip.timestamp, name);
+                    if (problem != null) error("%s", problem);
+                    else info("Trip %d is now called \"%s\". Resume it with .stashhunter resume %s", trip.timestamp, name, name);
+                    return SINGLE_SUCCESS;
+                })
+            )
+        );
+
+        // Delete a saved trip (named trips are only removed this way)
+        builder.then(literal("delete")
+            .then(argument("trip", StringArgumentType.greedyString())
+                .suggests((context, suggestions) -> SharedSuggestionProvider.suggest(tripNames(), suggestions))
+                .executes(context -> {
+                    String key = StringArgumentType.getString(context, "trip");
+                    TripData trip = TripManager.findTrip(key);
+                    if (trip == null) {
+                        error("No saved trip called \"%s\" (see .stashhunter list).", key.trim());
+                    } else if (ElytraController.isActive() && trip.timestamp == ElytraController.getTripTimestamp()) {
+                        error("That is the running flight. Stop it first (.stashhunter stop).");
                     } else {
-                        long timestamp = LongArgumentType.getLong(context, "timestamp");
-                        ensureModuleActive();
-                        ElytraController.resume(timestamp);
-                        info("Stash hunter flight resumed.");
+                        TripManager.deleteTrip(trip.timestamp);
+                        info("Deleted trip %s.", describe(trip));
                     }
                     return SINGLE_SUCCESS;
                 })
@@ -167,9 +200,18 @@ public class StashHunterCommand extends Command {
         // List trips
         builder.then(literal("list")
             .executes(context -> {
-                info("Saved trips:");
-                for (com.stashhunter.stashhunter.utils.TripManager.TripData trip : com.stashhunter.stashhunter.utils.TripManager.getTrips()) {
-                    info("  " + trip.timestamp);
+                List<TripData> trips = TripManager.getTrips();
+                if (trips.isEmpty()) {
+                    info("No saved trips.");
+                    return SINGLE_SUCCESS;
+                }
+                info("Saved trips (newest first):");
+                for (TripData trip : trips) {
+                    String progress = TripHistory.isComplete(trip) ? "complete"
+                        : String.format(Locale.ROOT, "waypoint %d/%d, %d%%", trip.currentWaypoint + 1, trip.waypoints.size(),
+                            Math.round(100 * TripHistory.progress(trip)));
+                    info("  §f%s §7- %s, %s km, saved %s", describe(trip), progress, km(WaypointPath.length(trip.waypoints)),
+                        SAVED_AT.format(Instant.ofEpochMilli(trip.timestamp)));
                 }
                 return SINGLE_SUCCESS;
             })
@@ -228,8 +270,10 @@ public class StashHunterCommand extends Command {
                 info("§7.stashhunter spiral [<x> <z>] <radius> [gap] §f- Scan in a square spiral (centered on you without x/z)");
                 info("§7.stashhunter stop §f- Stop the current scanning operation");
                 info("§7.stashhunter pause §f- Pause the current scanning operation");
-                info("§7.stashhunter resume [timestamp] §f- Resume the latest or a specific trip");
-                info("§7.stashhunter list §f- List all saved trips");
+                info("§7.stashhunter resume [name|timestamp] §f- Resume the latest or a specific trip");
+                info("§7.stashhunter name <name> §f- Name the current (or latest) trip; named trips are kept until deleted");
+                info("§7.stashhunter delete <name|timestamp> §f- Delete a saved trip");
+                info("§7.stashhunter list §f- List all saved trips with their progress");
                 info("§7.stashhunter status §f- Show current status and progress");
                 info("§7.stashhunter altitude [y] §f- Show or set the flight altitude (100-400, applies to the current flight)");
                 info("§7.stashhunter repair §f- Show elytra repair status");
@@ -408,6 +452,39 @@ public class StashHunterCommand extends Command {
 
     private static String km(double blocks) {
         return String.format(Locale.ROOT, "%.1f", blocks / 1000);
+    }
+
+    private int resumeTrip(TripData trip, String missing) {
+        if (ElytraController.isActive()) {
+            error("Stash hunter is already active.");
+        } else if (trip == null) {
+            error("%s", missing);
+        } else if (TripHistory.isComplete(trip)) {
+            error("Trip %s is already complete.", describe(trip));
+        } else {
+            ensureModuleActive();
+            if (ElytraController.resume(trip)) info("Resumed trip %s at waypoint %d/%d.", describe(trip), trip.currentWaypoint + 1, trip.waypoints.size());
+            else error("Could not resume trip %s.", describe(trip));
+        }
+        return SINGLE_SUCCESS;
+    }
+
+    // The trip the running flight saves to; otherwise the latest saved one.
+    private static TripData runningOrLatestTrip() {
+        if (ElytraController.isActive()) {
+            TripData running = TripManager.getTrip(ElytraController.getTripTimestamp());
+            if (running != null) return running;
+        }
+        return TripManager.getLatestTrip();
+    }
+
+    private static List<String> tripNames() {
+        return TripManager.getTrips().stream().map(trip -> trip.name).filter(Objects::nonNull).toList();
+    }
+
+    // "\"north\" (1731150000000)" or just the timestamp.
+    private static String describe(TripData trip) {
+        return trip.name != null ? "\"" + trip.name + "\" (" + trip.timestamp + ")" : String.valueOf(trip.timestamp);
     }
 
     // ElytraController is only ticked by StashHunterModule; without it a started flight never moves.

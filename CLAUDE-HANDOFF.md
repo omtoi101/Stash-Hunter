@@ -2,10 +2,12 @@
 
 **Projekt:** Stash-Hunter (Meteor-Client-Addon, Fabric, Minecraft 26.2, Java 25, Mojang-Mappings)
 
-**Stand 2026-10-31:** Alles unten ist eingebaut und bis `c5dcaed` committet (zuletzt ChestIndex),
-außer „Zuverlässigeres Stash-Hunting“ (PLAN 97–100, umgesetzt, noch nicht committet) und der
-Reparatur am Boden (PLAN 102, noch nicht committet).
-`gradlew build` läuft mit JDK 25 grün (inkl. Spotless + 125 Unit-Tests). **Offen ist nur noch der In-game-Test.**
+**Stand 2026-11-09:** Alles bis Version 26.2.2 ist committet (`27d6bb5`). Neu und noch nicht
+committet: Trip-Save im Hintergrund (PLAN 96), ChestIndex-Ausbau (53-Rest, jetzt komplett),
+benannte Trips (55-Rest) und `cave-disturbance-detector` (57), siehe die ersten beiden Abschnitte
+unter „Erledigte Änderungen“. `gradlew build` läuft mit JDK 25 grün (inkl. Spotless + 157
+Unit-Tests in 28 Suites). **Offen ist nur noch der In-game-Test** (Checkliste in
+[PLAN.md](PLAN.md), Abschnitt 1; sie enthält jetzt auch alle Punkte der Liste unten).
 
 Den End-Detektor in NewerNewChunks beschreibt [DSH-HANDOFF.md](DSH-HANDOFF.md).
 
@@ -45,7 +47,8 @@ Den End-Detektor in NewerNewChunks beschreibt [DSH-HANDOFF.md](DSH-HANDOFF.md).
 - [ ] **Ersatz-Elytra:** zweite Elytra im Inventar → bei Schwelle „Swapped to a spare elytra“, Flug
       läuft ohne Stopp weiter; ohne Ersatz startet die Reparatur.
 - [ ] **Reparatur unmöglich** (keine XP/kein Mending) im Baritone-Flug → Landung statt Disconnect.
-- [ ] **Trips:** `.sh list` zeigt höchstens 20; Pause → Resume → Pause ergibt einen Eintrag.
+- [ ] **Trips:** `.sh list` zeigt höchstens 20 unbenannte (benannte bleiben); Pause → Resume →
+      Pause ergibt einen Eintrag.
 - [ ] **Baritone landet mitten im Scan** (z. B. Raketen leer mit `land-on-low-fireworks` aus):
       keine Elytra-Pose am Boden; mit Raketen startet Baritone nach ≤ 5 s neu (Waypoint im Umkreis
       von 64 Blöcken zählt als erreicht), ohne Raketen bzw. nach 3 Fehlstarts „Flight Paused After
@@ -96,7 +99,7 @@ sortiert. In [PLAN.md](PLAN.md) stehen sie als Abschnitt 0, Punkte 89–96 (1 = 
   bei jedem Anker derselben Wagen. Zwei Stapel in Nachbarblöcken bleiben getrennt (Test).
 - 7: `loadTrips()` verwirft auch `waypoints.isEmpty()`.
 
-**Offen:** 8 (nur beobachten).
+8 ist am 2026-11-09 umgesetzt (Trip-Save im Hintergrund, siehe unten).
 
 Die ursprünglichen Befunde:
 
@@ -165,6 +168,108 @@ kann die vorige Version zurückkommen, aber keine kaputte Datei. Unter Linux hat
 ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL eher erwünscht.
 
 ## Erledigte Änderungen
+
+### ChestIndex fertig, benannte Trips (2026-11-09, nicht committet)
+
+**PLAN 53-Rest – Waypoints, Öffnen nach dem Hinlaufen, Save im Hintergrund:**
+
+- `ChestIndexCommand.hitLine(before, entry, label, server)`: hinter jedem Treffer `[+waypoint]`
+  (`RunnableClickEvent`) → Meteor-`Waypoint` „`<label> (chest-index)`“. Dimension über
+  `Dimension.toString()` (Meteor kennt nur Overworld/Nether/End, sonst kein Link). Gibt es an der
+  Position schon einen Waypoint mit dem Suffix, wird keiner angelegt. Beide Links prüfen beim
+  Klick `ServerKey.current()` gegen den Server der Suche (Chat-Links überleben einen
+  Serverwechsel, Meteor-Waypoints sind pro Server).
+- `ChestIndexer.walkTo(pos)` ersetzt den Aufruf im Befehl. Mit `open-after-walk` (Standard aus,
+  Lizenz-/Opt-in-Regel) merkt sich ein eigener, im Konstruktor angemeldeter Listener
+  (`WalkThenOpen`, läuft auch bei ausgeschaltetem Modul) das Ziel. Jeden Tick: solange
+  `BaritoneBridge.isGoalActive()` (`ICustomGoalProcess.isActive()`, im Bytecode geprüft: `path()`
+  setzt `PATH_REQUESTED`, Ankunft/Fehlschlag/`#stop` → `onLostControl()` → `NONE`) warten; dann in
+  Reichweite und ohne offenen Screen (der Chat mit dem Link) → `autoTarget = null`, Klick mit
+  Rotation. Nicht in Reichweite → Warnung, Abbruch. Timeout 3 min; Level-Wechsel, Tod und
+  `GameLeftEvent` brechen ab. `canAutoOpen()` pausiert, solange ein Ziel offen ist. Der Container
+  wird so wie ein selbst geöffneter gelesen (bleibt offen).
+- `ChestIndex` speichert über einen eigenen `BackgroundSaver<Snapshot>` (lazy, ein Thread pro
+  Index). `Snapshot(entries)`; `entries == null` löscht die Datei, so kann ein noch wartender
+  Write ein `clear()` nicht rückgängig machen. Schlägt ein Write fehl, setzt der Thread
+  `writeFailed`, der nächste `saveIfDirty()` speichert erneut (vorher blieb `dirty` stehen).
+  `close()` (in `ChestIndexer.onGameLeft`, auch beim Schließen des Fensters aus der Welt)
+  speichert und wartet bis 2 s, danach stoppt der Thread. Kein eigener Eintrag im Shutdown-Hook:
+  der Index gehört dem Client-Thread, und `GameLeftEvent` kommt vorher.
+
+**PLAN 55-Rest – benannte Trips (clean-room, jeff mod nicht angesehen):**
+
+- `TripData.name` (null = unbenannt, Gson lässt das Feld dann weg; alte Dateien laden weiter).
+  `TripHistory.withTrip` übernimmt den Namen des ersetzten Eintrags und kürzt nur unbenannte Trips
+  auf `MAX_TRIPS`. Neu: `find` (Name ohne Groß-/Kleinschreibung, sonst Zeitstempel),
+  `nameProblem` (leer, > 32 Zeichen, nur Ziffern, `§`, schon vergeben), `renamed`, `without`,
+  `isComplete`, `progress` (über `WaypointPath`, Stand am Anfang des gespeicherten Abschnitts).
+- `TripManager.findTrip`/`renameTrip`/`deleteTrip`, alle über den Saver.
+- `ElytraController`: `resume()`/`resume(TripData)` geben `boolean` zurück und starten keinen
+  fertigen Trip; `resume(long)` entfällt (der Befehl sucht selbst). `getTripTimestamp()`. Beim
+  Abschluss wird der Trip mit `currentWaypoint = waypoints.size()` gespeichert (vorher blieb der
+  Stand der letzten Pause stehen, `.sh resume` flog den Rest noch einmal).
+- `StashHunterCommand`: `resume [trip]` (Name oder Zeitstempel, Vorschläge mit den Namen; vorher
+  `LongArgumentType`), `name <name>` (laufender Flug, sonst neuester Trip), `delete <trip>` (nicht
+  der laufende Flug), `list` mit Name, Waypoint, %, km und Zeit. Benutzertexte gehen als
+  Format-Argument an `info`/`error` (ein `%` im Namen würde sonst `String.format` sprengen).
+
+### Trip-Save im Hintergrund, ChestIndex-Ausbau, CaveDisturbanceDetector (2026-11-09, nicht committet)
+
+**PLAN 96 – Trip-Save:**
+
+- `utils/BackgroundSaver<T>` (+ Test): ein Daemon-Thread, `save(snapshot)` kehrt sofort zurück.
+  `AtomicReference pending`: Ist schon ein Snapshot vorgemerkt, ersetzt der neue ihn nur (der
+  wartende Task schreibt dann den neuesten); sonst wird ein Task eingereiht. Reihenfolge bleibt,
+  veraltete Zwischenstände werden nie geschrieben. `flush()` über einen Marker-Task (FIFO),
+  `shutdown(timeout)` wartet und schreibt Reste. Nach `shutdown()` schreibt `save()` direkt auf
+  dem aufrufenden Thread. `RuntimeException` des Writers wird geloggt, der Thread bleibt.
+- `TripManager`: liest die Datei einmal (`readTrips`, dabei `deleteLeftovers`), hält die Trips
+  als unveränderliche Liste (Waypoint-Listen per `List.copyOf`/`toList()`, `null`-Waypoints aus
+  handbearbeiteten Dateien fallen raus). `saveCurrentTripAsync` (ersetzt `saveTrip`) baut auf dem
+  Client-Thread die neue Liste und übergibt sie dem Saver. `getTrips`/`getLatestTrip`/`getTrip`
+  lesen nur noch den Speicher (vorher jedes Mal die Datei). Folge: Eine Änderung an der Datei
+  von außen während des Spiels wird nicht mehr gelesen.
+- Shutdown-Hook: `Config.shutdown()` → `TripManager.shutdown()` (max. 2 s) →
+  `DiscordWebhook.shutdown()`.
+- `ChestIndex.saveIfDirty()` schreibt inzwischen ebenfalls im Hintergrund (siehe oben, 53-Rest).
+
+**PLAN 53-Rest – `.chest-index`:**
+
+- `ChestIndex.searchShulkerNames(query)` (+ Test) → `NameHit(entry, shulkers)`, Teilstring ohne
+  Groß-/Kleinschreibung, unbenannte Boxen zählen nicht. Befehl `.chest-index shulker <name>`.
+- Trefferzeilen: Koordinaten als Link. Baritone installiert und gleiche Dimension → grün,
+  `RunnableClickEvent` (Meteor, `ScreenMixin.onDefaultHandleClickEvent` führt das Runnable aus) →
+  `BaritoneBridge.startGetToBlock` → `GoalGetToBlock` (läuft neben den Block). `#goto x y z` wäre
+  `GoalBlock`: Baritone würde in den Block wollen und die Kiste abbauen. Verweigert, solange
+  `ElytraController.isActive()`. Sonst türkis, `ClickEvent.CopyToClipboard`.
+- Highlight: `ChestIndexer.highlight(entries)` (max. 256 Boxen, Doppelkiste als eine Box),
+  Gruppe „Search Highlight“ (`highlight-seconds` 60, Form, Farben, Tracer). Der Render-Listener
+  ist ein eigenes Objekt, im Konstruktor am `EVENT_BUS` angemeldet, weil der Befehl auch bei
+  ausgeschaltetem Modul funktioniert. `GameLeftEvent` löscht die Boxen, `.chest-index clear` auch.
+
+**PLAN 57 – `cave-disturbance-detector` (clean-room, kein Trouser-Streak-Code angesehen):**
+
+- Im Bytecode 26.2 geprüft, wo `cave_air` entsteht: `NetherWorldCarver.carveBlock` (oberhalb
+  `minGenY + 31`), `MineshaftPieces`, `StrongholdPieces`, `MonsterRoomFeature`, `LakeFeature`.
+  `WorldCarver.getCarveState` (Overworld-Höhlen und Schluchten) nimmt
+  `Aquifer.computeSubstance`, das `Blocks.AIR` liefert; Noise-Höhlen sind ebenfalls `AIR`. Die
+  Annahme „unter Y 0 ist natürlicher Hohlraum `cave_air`“ stimmt für Chunks ab 1.18 also nicht.
+  Funktioniert: Nether, Mineshafts/Strongholds/Dungeons, Overworld-Chunks aus 1.13–1.17.
+- `utils/CaveAirPockets` (+ Test, rein): Seeds = `AIR` mit `CAVE_AIR`-Nachbar im Suchquader;
+  Flood-Fill (6er-Nachbarschaft, Zellliste als Queue). Gruppe > `maxSize` → verworfen (natürliche
+  Höhle, Himmel über einer Schlucht). `seen` merkt die Fill-ID; trifft ein Fill auf Blöcke eines
+  anderen, gehört er zu einer schon verworfenen großen Gruppe → ebenfalls verworfen (Aufwand
+  linear). `UNKNOWN` (Nachbarchunk) → `resolved = false`.
+- Modul: Netty-Thread, Chunk-Kopie aus `ChunkPacketDecoder`. Nur Chunks mit einer Section, deren
+  Palette `CAVE_AIR` enthalten kann (`maybeHas`); Seed-Bereich diese Sections ±1, bis `max-y`.
+  Offene Taschen am Chunkrand prüft der Client-Thread alle 20 Ticks in `mc.level` erneut
+  (ungeladene Chunks = `UNKNOWN`), nach 400 Ticks verworfen. Pro Chunk eine `Detection`
+  (max. 128 Blöcke); gemeldet ab `min-air-blocks` (Standard 2), Chat höchstens einmal pro Chunk
+  und Level, nicht innerhalb von 48 Blöcken um einen schon gemeldeten. Entfernt außerhalb von
+  `render-distance`, geleert bei Level-Wechsel/`GameLeftEvent`.
+- Unsicher (in-game prüfen): Falschtreffer, wo Noodle-Höhlen (dünn, ab 1.18) einen Mineshaft
+  kreuzen; fallender Kies; Creeper-Explosionen in Mineshafts (sind aber auch Spieleraktivität).
+  Aufwand pro Chunk in alten 1.13–1.17-Gebieten (dort hat fast jede Section `cave_air`).
 
 ### AutoElytraRepair: Reparatur am Boden statt in der Luft, PLAN-Punkt 102 (nicht committet)
 

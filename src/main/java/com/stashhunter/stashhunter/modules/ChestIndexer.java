@@ -1,6 +1,7 @@
 package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.baritone.BaritoneBridge;
 import com.stashhunter.stashhunter.utils.ChestIndex;
 import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.ElytraController;
@@ -8,13 +9,20 @@ import com.stashhunter.stashhunter.utils.ServerKey;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.entity.player.InteractBlockEvent;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
+import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.BoolSetting;
+import meteordevelopment.meteorclient.settings.ColorSetting;
+import meteordevelopment.meteorclient.settings.EnumSetting;
 import meteordevelopment.meteorclient.settings.IntSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.player.Rotations;
+import meteordevelopment.meteorclient.utils.render.RenderUtils;
+import meteordevelopment.meteorclient.utils.render.color.Color;
+import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -39,6 +47,7 @@ import net.minecraft.world.phys.Vec3;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -103,6 +112,52 @@ public class ChestIndexer extends Module {
         .build()
     );
 
+    private final Setting<Boolean> openAfterWalk = sgGeneral.add(new BoolSetting.Builder()
+        .name("open-after-walk")
+        .description("After a click on a .chest-index result Baritone walks to the container; this opens it once Baritone arrives (also while this module is off).")
+        .defaultValue(false)
+        .build()
+    );
+
+    private final SettingGroup sgHighlight = settings.createGroup("Search Highlight");
+
+    private final Setting<Integer> highlightSeconds = sgHighlight.add(new IntSetting.Builder()
+        .name("highlight-seconds")
+        .description("How long .chest-index search outlines the containers it found (also while this module is off).")
+        .defaultValue(60)
+        .range(5, 600)
+        .sliderRange(5, 300)
+        .build()
+    );
+
+    private final Setting<ShapeMode> highlightShape = sgHighlight.add(new EnumSetting.Builder<ShapeMode>()
+        .name("highlight-shape")
+        .description("How the found containers are drawn.")
+        .defaultValue(ShapeMode.Both)
+        .build()
+    );
+
+    private final Setting<SettingColor> highlightSideColor = sgHighlight.add(new ColorSetting.Builder()
+        .name("highlight-side-color")
+        .description("Fill color of the found containers.")
+        .defaultValue(new SettingColor(0, 255, 255, 40))
+        .build()
+    );
+
+    private final Setting<SettingColor> highlightLineColor = sgHighlight.add(new ColorSetting.Builder()
+        .name("highlight-line-color")
+        .description("Outline and tracer color of the found containers.")
+        .defaultValue(new SettingColor(0, 255, 255, 220))
+        .build()
+    );
+
+    private final Setting<Boolean> highlightTracers = sgHighlight.add(new BoolSetting.Builder()
+        .name("highlight-tracers")
+        .description("Draw a line to each found container.")
+        .defaultValue(true)
+        .build()
+    );
+
     // Client thread only.
     private ChestIndex index;
     private ClientLevel lastLevel;
@@ -122,9 +177,134 @@ public class ChestIndexer extends Module {
     private int cooldown;
     private int ticksSinceSave;
 
+    // A found container as a box: both halves of a double chest. Client thread only.
+    private record Highlight(String dimension, int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {}
+
+    // Bounds the render cost of a search that matches nearly everything.
+    private static final int MAX_HIGHLIGHTS = 256;
+    private List<Highlight> highlights = List.of();
+    private long highlightUntil;
+
+    // A container a click on a search result sent Baritone to, opened on arrival (open-after-walk).
+    // Gives up after this long, e.g. when Baritone keeps searching for a path.
+    private static final long WALK_TIMEOUT_MS = 180_000;
+    private BlockPos walkTarget;
+    private ClientLevel walkLevel;
+    private long walkUntil;
+
     public ChestIndexer() {
         super(StashHunter.CATEGORY, "chest-index",
             "Records what the containers you open (or that it opens for you) hold, shulker contents included. Search with .chest-index.");
+        // The search command works with the module off, so its highlight and the walk to a result
+        // have to work then too.
+        MeteorClient.EVENT_BUS.subscribe(new HighlightRenderer());
+        MeteorClient.EVENT_BUS.subscribe(new WalkThenOpen());
+    }
+
+    public boolean opensAfterWalk() {
+        return openAfterWalk.get();
+    }
+
+    /**
+     * Sends Baritone next to the container (GoalGetToBlock); with open-after-walk it is opened once
+     * Baritone arrives. False if Baritone isn't available.
+     */
+    public boolean walkTo(BlockPos target) {
+        if (!BaritoneBridge.startGetToBlock(target)) return false;
+        walkTarget = openAfterWalk.get() ? target.immutable() : null;
+        walkLevel = mc.level;
+        walkUntil = System.currentTimeMillis() + WALK_TIMEOUT_MS;
+        return true;
+    }
+
+    private final class WalkThenOpen {
+        @EventHandler
+        private void onTick(TickEvent.Post event) {
+            if (walkTarget == null) return;
+            if (mc.level == null || mc.player == null || mc.level != walkLevel || !mc.player.isAlive()) {
+                walkTarget = null; // left, changed dimension or died
+                return;
+            }
+            if (System.currentTimeMillis() > walkUntil) {
+                warning("Baritone didn't reach the container at %s in time - not opening it.", walkTarget.toShortString());
+                walkTarget = null;
+                return;
+            }
+            if (BaritoneBridge.isGoalActive()) return; // still walking
+            if (!mc.player.isWithinBlockInteractionRange(walkTarget, 0)) {
+                // Baritone found no path, or #stop.
+                warning("Baritone stopped before reaching the container at %s - not opening it.", walkTarget.toShortString());
+                walkTarget = null;
+                return;
+            }
+            if (mc.gui.screen() != null) return; // e.g. the chat with the clicked link is still open
+            BlockPos target = walkTarget;
+            walkTarget = null;
+            BlockState state = mc.level.getBlockState(target);
+            if (!isIndexable(state)) {
+                warning("There is no container at %s any more.", target.toShortString());
+                return;
+            }
+            if (state.getBlock() instanceof ChestBlock && ChestBlock.isChestBlockedAt(mc.level, target)) {
+                warning("The chest at %s is blocked from above and can't be opened.", target.toShortString());
+                return;
+            }
+            // Opened for the player: the module reads it like a container the player opened (and
+            // keeps it open), not like one of its own auto-open clicks.
+            autoTarget = null;
+            click(target, true);
+        }
+
+        @EventHandler
+        private void onGameLeft(GameLeftEvent event) {
+            walkTarget = null;
+        }
+    }
+
+    /** Outlines these containers for highlight-seconds; replaces the previous search's outlines. */
+    public void highlight(Collection<ChestIndex.Entry> entries) {
+        List<Highlight> boxes = new ArrayList<>();
+        for (ChestIndex.Entry entry : entries) {
+            if (boxes.size() >= MAX_HIGHLIGHTS) break;
+            ChestIndex.Pos a = entry.pos();
+            ChestIndex.Pos b = entry.pair() != null ? entry.pair() : a;
+            boxes.add(new Highlight(entry.dimension(), Math.min(a.x(), b.x()), Math.min(a.y(), b.y()), Math.min(a.z(), b.z()),
+                Math.max(a.x(), b.x()) + 1, Math.max(a.y(), b.y()) + 1, Math.max(a.z(), b.z()) + 1));
+        }
+        highlights = List.copyOf(boxes);
+        highlightUntil = System.currentTimeMillis() + highlightSeconds.get() * 1000L;
+    }
+
+    /** The dimension id the index uses, e.g. "minecraft:overworld"; null outside a world. */
+    public static String currentDimension() {
+        return MeteorClient.mc.level == null ? null : MeteorClient.mc.level.dimension().identifier().toString();
+    }
+
+    private final class HighlightRenderer {
+        @EventHandler
+        private void onRender(Render3DEvent event) {
+            if (highlights.isEmpty() || mc.level == null || event.renderer == null) return;
+            if (System.currentTimeMillis() > highlightUntil) {
+                highlights = List.of();
+                return;
+            }
+            String dimension = dimension();
+            Color sides = highlightSideColor.get();
+            Color lines = highlightLineColor.get();
+            for (Highlight box : highlights) {
+                if (!box.dimension().equals(dimension)) continue;
+                event.renderer.box(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ(), sides, lines, highlightShape.get(), 0);
+                if (highlightTracers.get()) {
+                    event.renderer.line(RenderUtils.center.x, RenderUtils.center.y, RenderUtils.center.z,
+                        (box.minX() + box.maxX()) / 2.0, (box.minY() + box.maxY()) / 2.0, (box.minZ() + box.maxZ()) / 2.0, lines);
+                }
+            }
+        }
+
+        @EventHandler
+        private void onGameLeft(GameLeftEvent event) {
+            highlights = List.of();
+        }
     }
 
     @Override
@@ -140,7 +320,8 @@ public class ChestIndexer extends Module {
 
     @EventHandler
     private void onGameLeft(GameLeftEvent event) {
-        if (index != null) index.saveIfDirty();
+        // Also runs when the game window is closed from a world: wait for the write there.
+        if (index != null) index.close();
         index = null; // the next server has its own file
         resetSession();
     }
@@ -220,8 +401,9 @@ public class ChestIndexer extends Module {
     private boolean canAutoOpen() {
         // Screens (chat, inventory), sneaking (opens nothing while holding an item) and flights
         // (a screen would release the movement keys) all get in the way.
+        // A walk to a search result gets to open its container first.
         return mc.gui.screen() == null && mc.player.isAlive() && !mc.player.isShiftKeyDown() && !mc.player.isFallFlying()
-            && mc.player.containerMenu == mc.player.inventoryMenu && !ElytraController.isActive();
+            && mc.player.containerMenu == mc.player.inventoryMenu && !ElytraController.isActive() && walkTarget == null;
     }
 
     private BlockPos nextTarget() {
@@ -263,9 +445,13 @@ public class ChestIndexer extends Module {
         pendingAuto = true;
         pendingSince = ticks;
         cooldown = delay.get();
+        click(target, rotate.get());
+    }
+
+    private static void click(BlockPos target, boolean lookAt) {
         BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(target), BlockUtils.getDirection(target), target, false);
         Runnable click = () -> BlockUtils.interact(hit, InteractionHand.MAIN_HAND, true);
-        if (rotate.get()) Rotations.rotate(Rotations.getYaw(target), Rotations.getPitch(target), click);
+        if (lookAt) Rotations.rotate(Rotations.getYaw(target), Rotations.getPitch(target), click);
         else click.run();
     }
 
@@ -325,7 +511,7 @@ public class ChestIndexer extends Module {
     }
 
     private String dimension() {
-        return mc.level.dimension().identifier().toString();
+        return currentDimension();
     }
 
     private static ChestIndex.Pos toPos(BlockPos pos) {

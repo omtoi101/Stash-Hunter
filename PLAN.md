@@ -1,16 +1,18 @@
 # Stash-Hunter — Plan
 
-## Stand (2026-11-02)
+## Stand (2026-11-09)
 
-- Branch `code-revision`. 101/102 sind in `aeec164` committet. **103** (`cannotRepair` ohne
-  Baritone landet selbst statt Disconnect) ist umgesetzt. Version **26.2.2** ist damit fertig.
-- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **131 Unit-Tests in 26 Suites**.
-- Version **26.2.2** (CHANGELOG `[v26.2.2]`), davor 26.2.2-pre1. Die fehlenden
-  CHANGELOG-Einträge aus `5a843cc`/`ec9efdb` (Stash ESP, Takeoff, Reparatur, Trips, Scan-Cache,
-  `.sh altitude`, Raketen-Landung, Ersatz-Elytra) sind nachgetragen.
-- Von Abschnitt 0 ist nur 96 offen (nur beobachten).
-- **Nichts davon ist in-game getestet.** Das ist der nächste Schritt (Checkliste in Abschnitt 1).
-- Offen sind danach nur noch Feature-Ideen (Abschnitt 3).
+- Branch `code-revision`. Version **26.2.2** ist fertig (101–103, CHANGELOG `[v26.2.2]`).
+- Neu (2026-11-09, nicht committet, CHANGELOG `[Unreleased]`): **96** Trip-Save im Hintergrund,
+  **53-Rest** für `.chest-index` komplett (Treffer-ESP, klickbare Koordinaten, Shulker-Namenssuche,
+  `[+waypoint]`-Link, `open-after-walk`, Index-Save im Hintergrund), **55-Rest** benannte Trips
+  (`.sh name`/`resume <name>`/`delete`, `.sh list` mit Fortschritt), **57** Modul
+  `cave-disturbance-detector` (clean-room).
+- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **157 Unit-Tests in 28 Suites**.
+- Abschnitt 0 ist komplett erledigt, alle angefangenen Punkte aus Abschnitt 3 auch.
+- **Nichts davon ist in-game getestet.** Das ist der nächste Schritt (Checkliste in Abschnitt 1,
+  enthält jetzt auch alle offenen Punkte aus den beiden Handoffs).
+- Offen sind danach nur noch neue Feature-Ideen (Abschnitt 3).
 
 Die letzten Änderungen beschreiben [CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md) (OldChunkNotifier,
 Baritone-Cancel, Landungs-Timeout, Stashfinden, ActivatedSpawnerDetector) und
@@ -52,8 +54,11 @@ Code-Review“, 1–8 = 89–96).
 - [x] **94 `stacked-minecarts`**: gemeldete Stapel werden über den Abstand zum Anker erkannt
       (`Stack.isNear`), nicht über die Blockposition.
 - [x] **95 Leere Trips**: `loadTrips()` verwirft Trips ohne Waypoints.
-- [ ] **96 Trip-Save mit `fsync` auf dem Client-Thread** (niedrig, beobachten): nur angehen, wenn
-      es beim Pausieren/Landen spürbar ruckelt.
+- [x] **96 Trip-Save mit `fsync` auf dem Client-Thread** (2026-11-09): `TripManager` hält die Trips
+      im Speicher (Datei einmal gelesen) und schreibt über `utils/BackgroundSaver` (+ Test) auf
+      einem eigenen Thread. `saveCurrentTripAsync` kopiert die Waypoints auf dem Client-Thread
+      (unveränderliche Liste), Reihenfolge bleibt, mehrere Saves während eines Schreibvorgangs
+      ergeben nur einen weiteren. Der Shutdown-Hook wartet bis 2 s auf den letzten Save.
 
 Zuverlässigeres Stash-Hunting (2026-10-31, Details in [CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md)):
 
@@ -91,8 +96,8 @@ Elytra-Reparatur (2026-10-31, Details in [CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md))
       pausiert statt Disconnect. Kein Fallschaden beim Sinken (Bytecode geprüft).
       `AltitudeLossDetector` ignoriert den Sinkflug.
 - [x] **103 Reparatur unmöglich ohne Baritone** (2026-11-02): keine XP/kein Mending → eigener
-      Sinkflug wie bei 102, am Boden bleibt der Flug pausiert (vorher Disconnect). Nicht gebaut
-      (Schulnetz), in-game offen.
+      Sinkflug wie bei 102, am Boden bleibt der Flug pausiert (vorher Disconnect). Gebaut und
+      getestet am 2026-11-09 (grün, 131 Tests), in-game offen.
 
 ## 1. In-game-Test (als Nächstes)
 
@@ -101,10 +106,26 @@ Grundfunktionen:
 - [ ] Stuck-Auto-Fix
 - [ ] Elytra-Reparatur am Boden (102), mit und ohne Baritone: Sinkflug ohne Fallschaden, Reparatur
       am Boden, Start und Weiterflug; über Wasser/Lava/Void wird weitergeglitten; XP leer → Flug
-      bleibt am Boden pausiert; ohne XP/Mending und ohne Baritone landet er (103)
+      bleibt am Boden pausiert; ohne XP/Mending landet er, mit Baritone über Baritone, ohne
+      Baritone selbst (103). ElytraFly danach wieder im alten Modus/aus; AltitudeLossDetector,
+      AutoFirework und StuckDetector bleiben während des Sinkflugs still
+- [ ] Während einer Reparatur: `.sh stop` → Landung und Reparatur laufen zu Ende, Flug bleibt aus;
+      Kick mitten in der Reparatur → nach Rejoin kein Weiterreparieren, ElytraFly/AutoEXP im alten
+      Zustand; Tod → „Repair aborted“, kein Weiterflug vom Spawn; eigenes AutoEXP bleibt an
+- [ ] Ersatz-Elytra: zweite Elytra im Inventar → „Swapped to a spare elytra“, Flug läuft weiter;
+      ohne Ersatz startet die Reparatur
+- [ ] Raketen knapp (Baritone-Flug, ≤ `low-firework-threshold`): Chat + Discord „Fireworks low“,
+      Trip gespeichert, Baritone landet ~64 Blöcke voraus; nach Auffüllen setzt `.sh resume` fort
+- [ ] Baritone landet mitten im Scan (Raketen leer, `land-on-low-fireworks` aus): keine
+      Elytra-Pose am Boden; mit Raketen Neustart nach ≤ 5 s, ohne bzw. nach 3 Fehlstarts
+      „Flight Paused After Landing“ und `.sh resume` geht
+- [ ] `.sh altitude <y>` während eines Flugs: Baritone plant auf neuer Höhe neu, GUI-Wert
+      `flight-altitude` zieht mit, `.sh resume` nutzt die aktuelle Höhe
 
 Scan und Stashes:
 - [ ] `scan-by-distance` (CPU-Last beim Flug), `scan-only-while-flying`
+- [ ] Scan-Cache: Flug mit `scan-radius` 256 findet weiter Stashes, mit `spark` weniger Tick-Zeit;
+      Kiste in einem schon gescannten Chunk setzen → nächster Scan meldet sie
 - [ ] Stash auf einer Streifengrenze wird gemeldet; ein zuerst halb gesehener Stash bekommt
       „Stash Updated“ und einen verschobenen Waypoint
 - [ ] `reported-stashes`-Datei hält nach Reconnect (keine doppelten Meldungen)
@@ -123,6 +144,21 @@ Scan und Stashes:
       geöffnete Kiste bleibt offen, Herausnehmen landet im Index; JSON in
       `meteor-client/StashHunter/chest-index/` nach Verlassen der Welt aktuell;
       `.chest-index search diamond` zählt Shulker-Inhalte mit; kein Anti-Cheat-Kick bei `delay` 10
+- [ ] `.chest-index search diamond`: Treffer leuchten `highlight-seconds` lang (auch bei
+      ausgeschaltetem Modul, nur in der passenden Dimension); Klick auf die grünen Koordinaten →
+      Baritone läuft neben die Kiste (baut sie nicht ab); ohne Baritone/andere Dimension
+      (türkis) kopiert der Klick die Koordinaten; während `.sh start` verweigert. `.chest-index
+      shulker kit` findet benannte Shulker
+- [ ] `[+waypoint]` hinter einem Treffer: Meteor-Waypoint „64x diamond (chest-index)“ in der
+      richtigen Dimension, zweiter Klick legt keinen zweiten an; Klick nach Serverwechsel →
+      „from another server“
+- [ ] `open-after-walk` an: Klick auf grüne Koordinaten → Baritone läuft hin, nach dem Schließen
+      des Chats öffnet sich die Kiste und bleibt offen (Index wird aktualisiert); `#stop` unterwegs
+      → „Baritone stopped before reaching …“, nichts öffnet sich; Auto-Open öffnet unterwegs
+      nichts dazwischen; mit ausgeschaltetem Modul öffnet sich die Kiste trotzdem
+- [ ] Index-Save im Hintergrund: großer Index (Stash mit Hunderten Kisten), kein Ruckler im
+      Minutentakt; Welt verlassen bzw. Spiel aus der Welt heraus schließen → JSON aktuell;
+      `.chest-index clear` direkt nach einem Save → Datei bleibt gelöscht
 - [ ] `save-to-xaero` mit Xaero's Minimap 26.2: Stash bekommt einen goldenen `S`-Waypoint im
       aktuellen Set, er übersteht einen Neustart, die World Map zeigt ihn nach dem Öffnen;
       „Stash Updated“ verschiebt ihn; ohne Xaero kein Fehler im Log
@@ -133,19 +169,31 @@ Chunks:
       Dimensionen „neu“, schon besuchte „alt“; Nether/End sind nicht mehr komplett alt. Auf einem
       Paper-Server mit Anti-Xray gegenprüfen.
 - [ ] End-Detektor: Hauptinsel nie alt, frische äußere Inseln nicht alt, äußere `the_end`-Inseln alt
-- [ ] `old-chunk-notifier`: erste Meldung nach Dimensionswechsel kommt, kein Portal-Spam
+- [ ] `old-chunk-notifier`: erste Meldung nach Dimensionswechsel kommt, kein Portal-Spam, im End
+      keine Falschtreffer mehr
+- [ ] NewerNewChunks und `activated-spawner-detector` gleichzeitig an: beide erkennen weiter
+      (neue/alte Chunks, aktivierte Spawner/Trial-Spawner), keine doppelt tickenden Spawner/Truhen
+- [ ] NewerNewChunks mit großen Datendateien: Aktivieren lädt einmal (kein doppelter Hänger),
+      Rendern bleibt flüssig
 - [ ] NewChunks-Daten wurden in den Meteor-Ordner umgezogen
 - [ ] `activated-spawner-detector`: in Kategorie „Stash-Hunter“, an/aus; Dungeon/Mineshaft/
       Trial-Chamber mit aktiviertem Spawner werden gemeldet und gerendert
 - [ ] `structure-waypoints`: großer Mineshaft bekommt nur einen Waypoint, zwei nahe Dungeons zwei
 - [ ] Slime-Chunk-Overlay
+- [ ] `cave-disturbance-detector`: in einem Mineshaft ein paar Spinnweben/Schienen abbauen,
+      neu einloggen bzw. Chunks neu laden → Meldung + orange Boxen. Nether: Gang in eine
+      Carver-Höhle graben → Meldung. Unberührte Mineshafts, die eine Noise-Höhle kreuzen, und
+      Overworld-Höhlen ab 1.18 bleiben still (Falschtreffer zählen, ggf. `max-pocket-size`/
+      `min-air-blocks` anpassen). Kein Ruckeln beim schnellen Flug über alte 1.13–1.17-Chunks
 
 Flug:
 - [ ] Mit NewerNewChunks an und langsamem Server: kein Ausweichen mehr bei ungeladenen Chunks
       voraus, kein übersprungener Waypoint (100); Trail-Following bei neuen Chunks geht weiter
+      (`dynamic-trail-detection`, mit Baritone neuer Pfad nur alle ~25 Blöcke)
 - [ ] `.stashhunter stop` / Dimensionswechsel / AltitudeLoss-Recovery beendet den Baritone-
       Elytra-Flug wirklich (kein Re-Path)
-- [ ] `land-after-completion` mit Baritone; festsitzende Landung bricht nach 2 min ab
+- [ ] `land-after-completion` mit Baritone; festsitzende Landung bricht nach 2 min ab („Landing
+      timed out“), danach arbeiten AltitudeLossDetector und AutoFirework wieder
 - [ ] `auto-firework` (feuert nicht während Baritone-Flug und nicht während einer Elytra-Reparatur,
       ignoriert Sternraketen)
 - [ ] `.stashhunter spiral` inkl. pause/resume; Start-Text mit Flugstrecke, `status` mit Fortschritt
@@ -161,6 +209,13 @@ Sonstige Module:
 - [ ] `stacked-minecarts`: gestapelte Chest-Minecarts werden einmal gemeldet und gerendert,
       `storage-only` ignoriert normale Minecarts, nach Dimensionswechsel wird neu gemeldet
 - [ ] Config-Änderung kurz vor dem Beenden bleibt erhalten
+- [ ] Trips (96): Pausieren/Landen/Reparatur ohne Ruckler; `stashhunter_trips.json` ist danach
+      aktuell; `.sh pause` und sofort das Spiel schließen → `.sh resume` nach dem Neustart geht;
+      Pause → Resume → Pause ergibt einen Eintrag, `.sh list` zeigt höchstens 20 unbenannte
+- [ ] Benannte Trips (55-Rest): `.sh name nord` während des Flugs, Pause, `.sh resume nord`
+      (auch per Tab-Vervollständigung); Name bleibt nach erneuter Pause; mehr als 20 neue Trips
+      → „nord“ bleibt; `.sh list` zeigt Name, Waypoint, %, km, Zeit; `.sh delete nord`; zu Ende
+      geflogener Trip steht als „complete“ und `.sh resume` verweigert ihn
 - [ ] Config bei geöffneter `stash-hunter.properties` (z. B. im Editor) ändern: Änderung landet
       in der Datei, keine `.tmp`-Reste in `meteor-client/`
 
@@ -213,24 +268,20 @@ Wegen der `26.2`-Pins (`minecraft_version`, `meteor-client: ~26.2-`, Meteor/Bari
 
 ### Stash-Auswertung
 
-- **53-Rest ChestIndex-Ausbau** (nur bei Bedarf): Waypoint/ESP für Treffer von `search`, Suche
-  nach Shulker-Namen, Hinlaufen zu Containern außer Reichweite (Baritone, Überschneidung mit 63).
-- **63 StorageLooter:** Container automatisch looten und sortieren. PathSeeker ✅.
+- **63 StorageLooter:** Container automatisch looten und sortieren. PathSeeker ✅. Hinlaufen und
+  Öffnen gibt es schon (`open-after-walk`, 53).
 - **73 ChestTracker mit GUI:** live gepflegtes Container-Verzeichnis (erweitert 53). BepHax ⚠️.
 - **74 ShulkerOverview:** Shulker-Inhalt im Tooltip, ohne Platzieren. BepHax ⚠️.
 
 ### Erkennung
 
 - **56 PortalPatternFinder:** entfernte/kaputte Nether-Portale als Base-Signal. Trouser-Streak ⛔.
-- **57 CaveDisturbanceDetector:** einzelne Luft-Blöcke in Cave-Air als Spuren. Trouser-Streak ⛔.
 - **59 Base Finder:** Base-Erkennung über Spieleraktivität. PathSeeker ✅.
 - **62 ESP-Suite:** PotESP, MobGearESP, DroppedItemESP, EntityClusterESP, Hole/Tunnel/Stair-ESP.
   Nur die von PathSeeker selbst geschriebenen ✅ übernehmen, Rest clean-room.
 
 ### Flug und Komfort
 
-- **55-Rest benannte Pfade:** Suchgebiete unter einem Namen speichern und fortsetzen (Spiral-Modus
-  ist erledigt, siehe 69). jeff mod ⛔.
 - **61 ElytraFlyPlusPlus:** Bounce, Hindernisse auf Highways. jeff mod ⛔. Y-Boost/Fake-Fly sind
   auf 2b2t gepatcht.
 - **64 AutoPortal / ElytraSwap / GrimEfly:** AutoPortal/ElytraSwap PathSeeker (`xqyet`) ✅,
@@ -319,6 +370,21 @@ Wegen der `26.2`-Pins (`minecraft_version`, `meteor-client: ~26.2-`, Meteor/Bari
 - **53** ChestIndex (2026-10-31, clean-room): Modul `chest-index` + Befehl `.chest-index`
   (`search`, `clear`), Logik in `utils/ChestIndex` (+ Test), JSON pro Server unter
   `StashHunter/chest-index/`. Server-Schlüssel nach `utils/ServerKey` ausgelagert.
+- **96, 53-Rest, 57** (2026-11-09): Trip-Save im Hintergrund (`BackgroundSaver`); `.chest-index`
+  mit Treffer-ESP, klickbaren Koordinaten (`RunnableClickEvent` → `BaritoneBridge.startGetToBlock`,
+  `GoalGetToBlock`) und `shulker <name>`; `cave-disturbance-detector` (clean-room, Logik in
+  `utils/CaveAirPockets` + Test). Im Bytecode 26.2 geprüft: `cave_air` erzeugen nur der
+  Nether-Carver (ab Y 32), Mineshaft-/Stronghold-Teile, Dungeons und Seen. Overworld-Carver und
+  Noise-Höhlen holen ihren Block vom Aquifer (`Blocks.AIR`), also findet das Modul in Overworld-
+  Höhlen ab 1.18 nichts; in Chunks aus 1.13–1.17 schon. Details in
+  [CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md).
+- **53-Rest, 55-Rest** (2026-11-09): `.chest-index`-Treffer mit `[+waypoint]` (Meteor-Waypoint,
+  ohne Duplikat, nur auf dem Server der Suche); `open-after-walk` (opt-in) öffnet die Kiste, sobald
+  Baritone angekommen ist (`BaritoneBridge.isGoalActive`, im Bytecode geprüft); `ChestIndex`
+  speichert über einen eigenen `BackgroundSaver` (`close()` beim Verlassen, Retry nach Fehler).
+  Benannte Trips: `TripData.name`, `.sh name`/`resume <name>`/`delete`, benannte Trips fallen nicht
+  unter das 20er-Limit, `.sh list` mit Fortschritt, fertige Flüge werden als „complete“ gespeichert.
+  Clean-room (jeff mod nicht angesehen).
 - **54** Xaero-Waypoints (2026-10-31): Setting `save-to-xaero` (opt-in). `xaero/XaeroBridge` +
   `XaeroImpl` analog zu Baritone; `compileOnly` gegen `maven.modrinth:xaeros-minimap:fabric-26.2-26.6.2`
   (Modrinth-Maven, `xaero_minimap_version` in `gradle.properties`), `suggests` in `fabric.mod.json`.
