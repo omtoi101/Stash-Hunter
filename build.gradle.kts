@@ -5,7 +5,7 @@ plugins {
     // Pinned release instead of 1.17-SNAPSHOT. Loom 1.18+ needs Gradle itself to run on JDK 25
     // (and 1.19 Gradle >= 9.8), which would break builds started from a JDK 21 shell.
     id("net.fabricmc.fabric-loom") version "1.17.21"
-    id("com.diffplug.spotless") version "7.0.2"
+    id("com.diffplug.spotless") version "8.11.0"
 }
 
 val archivesBaseName = providers.gradleProperty("archives_base_name").get()
