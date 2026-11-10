@@ -1,14 +1,17 @@
 # Stash-Hunter — Plan
 
-## Stand (2026-11-09)
+## Stand (2026-11-10)
 
-- Branch `code-revision`. Version **26.2.2** ist fertig (101–103, CHANGELOG `[v26.2.2]`).
-- Neu (2026-11-09, nicht committet, CHANGELOG `[Unreleased]`): **96** Trip-Save im Hintergrund,
-  **53-Rest** für `.chest-index` komplett (Treffer-ESP, klickbare Koordinaten, Shulker-Namenssuche,
-  `[+waypoint]`-Link, `open-after-walk`, Index-Save im Hintergrund), **55-Rest** benannte Trips
-  (`.sh name`/`resume <name>`/`delete`, `.sh list` mit Fortschritt), **57** Modul
-  `cave-disturbance-detector` (clean-room).
-- `./gradlew build` mit JDK 25 ist grün: Compile, Spotless, **157 Unit-Tests in 28 Suites**.
+- Branch `code-revision`. Version **26.2.2** ist release-fertig (CHANGELOG `[v26.2.2] - 2026-11-10`):
+  101–103 plus **96** Trip-Save im Hintergrund, **53-Rest** für `.chest-index` komplett
+  (Treffer-ESP, klickbare Koordinaten, Shulker-Namenssuche, `[+waypoint]`-Link, `open-after-walk`,
+  Index-Save im Hintergrund), **55-Rest** benannte Trips (`.sh name`/`resume <name>`/`delete`,
+  `.sh list` mit Fortschritt), **57** Modul `cave-disturbance-detector` (clean-room).
+- `./gradlew clean build` mit JDK 25 ist grün: Compile, Spotless, **157 Unit-Tests in 28 Suites**,
+  Jar `build/libs/stash-hunter-26.2.2.jar`. CI-Actions auf aktuelle Major-Versionen gehoben.
+- Release (von Hand): Ziel-Branch `code-revision` (bzw. `main` nach dem Merge) wählen, nicht den
+  alten `main`-Stand. Das Tag `v26.2.2-pre1` zeigt deshalb auf `3ec56f2` ohne den 26.2.2-Code.
+  Beim Merge nach `main` gibt es einen Konflikt in den README-Credits (`3ec56f2`).
 - Abschnitt 0 ist komplett erledigt, alle angefangenen Punkte aus Abschnitt 3 auch.
 - **Nichts davon ist in-game getestet.** Das ist der nächste Schritt (Checkliste in Abschnitt 1,
   enthält jetzt auch alle offenen Punkte aus den beiden Handoffs).

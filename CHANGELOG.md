@@ -4,9 +4,17 @@ All notable changes to Stash-Hunter. Newest version first, format based on [Keep
 
 One line per change. How a feature works and what each setting does is in the [README](README.md); the full reasoning behind a change is in the commit history. Build, test and code changes that don't affect players are listed under **Development**.
 
-## [Unreleased]
+## [v26.2.2] - 2026-11-10
 
-Builds and passes all unit tests; not yet tested in-game.
+Builds and passes all unit tests; in-game testing is still pending.
+
+**Highlights**
+
+- Elytra repair lands on safe ground first and pauses instead of disconnecting when a repair stalls or is impossible.
+- Shorter spiral search with progress in percent and km.
+- New module `cave-disturbance-detector`.
+- `.chest-index` finds are highlighted in the world, clickable (Baritone walks there) and can become waypoints.
+- Named trips, and saving trips or the chest index no longer stutters.
 
 ### Added
 
@@ -19,6 +27,22 @@ Builds and passes all unit tests; not yet tested in-game.
 - **Named trips:** `.sh name <name>` names the current or latest trip, `.sh resume <name>` continues it, `.sh delete <name|timestamp>` removes a trip. Named trips are not dropped by the 20-trip limit.
 
 ### Changed
+
+#### Elytra repair
+
+- **Elytra repair lands first.** `auto-elytra-repair` sinks to safe ground with ElytraFly, repairs there with XP bottles and then resumes the flight. Scaffold blocks are no longer needed.
+- **Unsafe ground is skipped.** Over water, lava, fire, magma, cactus, powder snow or the End's void the bot glides on until the ground is safe.
+- **A stalled repair pauses instead of disconnecting.** The flight stays saved on the ground; restock and `.sh resume`.
+- **No disconnect when a repair is impossible without Baritone.** Without XP bottles or Mending the bot now lands on safe ground and pauses the flight there.
+- **`altitude-loss-detector` ignores the repair descent.**
+
+#### Spiral search
+
+- **Shorter spirals.** `.sh spiral` stops at the last ring the scan needs (e.g. 24 km less flight at radius 3000).
+- **The spiral gap follows `scan-radius`** (default: twice the radius). A wider gap shows how much is left unscanned.
+- **Progress in km.** `.sh spiral` shows the path length, `.sh status` the progress in percent and km.
+
+#### Trips and chest index
 
 - **Saving a trip no longer stutters.** Trips are written on a background thread; pausing, landing or starting a flight only copies the waypoints.
 - **The chest index is saved in the background too**, so a big index doesn't stutter every minute.
@@ -34,21 +58,8 @@ Builds and passes all unit tests; not yet tested in-game.
 - `ChestIndex.searchShulkerNames` (+ test); `BaritoneBridge.startGetToBlock` (Baritone `GoalGetToBlock`) and `isGoalActive`.
 - `ChestIndex` writes through its own `BackgroundSaver` (`close()` on leaving the server, failed writes are retried, `clear()` deletes in order) (+ tests).
 - `TripData.name`, `TripHistory.find`/`nameProblem`/`renamed`/`without`/`progress` (+ tests); `ElytraController.resume` returns whether a flight started.
+- CI actions updated to their current major versions (`checkout` v7, `setup-java` v6, `setup-gradle` v5, `upload-artifact` v7, `action-gh-release` v3; Node 24 runtime).
 
-## [v26.2.2] - 2026-11-02
-
-First release of 26.2.2. Builds and passes all unit tests; in-game testing is still pending.
-
-### Changed
-
-- **Elytra repair lands first.** `auto-elytra-repair` sinks to safe ground with ElytraFly, repairs there with XP bottles and then resumes the flight. Scaffold blocks are no longer needed.
-- **Unsafe ground is skipped.** Over water, lava, fire, magma, cactus, powder snow or the End's void the bot glides on until the ground is safe.
-- **A stalled repair pauses instead of disconnecting.** The flight stays saved on the ground; restock and `.sh resume`.
-- **No disconnect when a repair is impossible without Baritone.** Without XP bottles or Mending the bot now lands on safe ground and pauses the flight there.
-- **`altitude-loss-detector` ignores the repair descent.**
-- **Shorter spirals.** `.sh spiral` stops at the last ring the scan needs (e.g. 24 km less flight at radius 3000).
-- **The spiral gap follows `scan-radius`** (default: twice the radius). A wider gap shows how much is left unscanned.
-- **Progress in km.** `.sh spiral` shows the path length, `.sh status` the progress in percent and km.
 
 ## [v26.2.2-pre1] - 2026-10-31
 

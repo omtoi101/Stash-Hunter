@@ -2,10 +2,10 @@
 
 **Projekt:** Stash-Hunter (Meteor-Client-Addon, Fabric, Minecraft 26.2, Java 25, Mojang-Mappings)
 
-**Stand 2026-11-09:** Alles bis Version 26.2.2 ist committet (`27d6bb5`). Neu und noch nicht
-committet: Trip-Save im Hintergrund (PLAN 96), ChestIndex-Ausbau (53-Rest, jetzt komplett),
-benannte Trips (55-Rest) und `cave-disturbance-detector` (57), siehe die ersten beiden Abschnitte
-unter „Erledigte Änderungen“. `gradlew build` läuft mit JDK 25 grün (inkl. Spotless + 157
+**Stand 2026-11-10:** Version 26.2.2 ist release-fertig und enthält jetzt auch Trip-Save im
+Hintergrund (PLAN 96), den ChestIndex-Ausbau (53-Rest, komplett), benannte Trips (55-Rest) und
+`cave-disturbance-detector` (57), siehe die ersten beiden Abschnitte unter „Erledigte
+Änderungen“. Alles ist committet. `gradlew build` läuft mit JDK 25 grün (inkl. Spotless + 157
 Unit-Tests in 28 Suites). **Offen ist nur noch der In-game-Test** (Checkliste in
 [PLAN.md](PLAN.md), Abschnitt 1; sie enthält jetzt auch alle Punkte der Liste unten).
 
@@ -169,7 +169,7 @@ ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL e
 
 ## Erledigte Änderungen
 
-### ChestIndex fertig, benannte Trips (2026-11-09, nicht committet)
+### ChestIndex fertig, benannte Trips (2026-11-09, `0236e2d`)
 
 **PLAN 53-Rest – Waypoints, Öffnen nach dem Hinlaufen, Save im Hintergrund:**
 
@@ -213,7 +213,7 @@ ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL e
   der laufende Flug), `list` mit Name, Waypoint, %, km und Zeit. Benutzertexte gehen als
   Format-Argument an `info`/`error` (ein `%` im Namen würde sonst `String.format` sprengen).
 
-### Trip-Save im Hintergrund, ChestIndex-Ausbau, CaveDisturbanceDetector (2026-11-09, nicht committet)
+### Trip-Save im Hintergrund, ChestIndex-Ausbau, CaveDisturbanceDetector (2026-11-09, `0236e2d`)
 
 **PLAN 96 – Trip-Save:**
 
@@ -271,7 +271,7 @@ ersten Speichern die Rechte `0600` (von der Temp-Datei); wegen der Webhook-URL e
   kreuzen; fallender Kies; Creeper-Explosionen in Mineshafts (sind aber auch Spieleraktivität).
   Aufwand pro Chunk in alten 1.13–1.17-Gebieten (dort hat fast jede Section `cave_air`).
 
-### AutoElytraRepair: Reparatur am Boden statt in der Luft, PLAN-Punkt 102 (nicht committet)
+### AutoElytraRepair: Reparatur am Boden statt in der Luft, PLAN-Punkt 102 (`aeec164`)
 
 `modules/AutoElytraRepair.java` neu aufgebaut. Zustände nur noch `MONITORING`, `LANDING`,
 `REPAIRING`, `TAKING_OFF`, `EMERGENCY_DISCONNECT`. Scaffold, Schweben, Stopp-Warten,
@@ -307,7 +307,7 @@ Abbremsen und Positionieren sind weg (samt `readBool`/`writeBool` für Scaffold-
 - `cannotRepair` (keine XP/kein Mending) unverändert: Baritone-Landung, ohne Baritone seit 2026-11-02 die
   eigene Landung (`landOnly`): Sinkflug wie bei der Reparatur, am Boden pausiert statt Disconnect.
 
-### Zuverlässigeres Stash-Hunting, PLAN-Punkte 97–100 (nicht committet)
+### Zuverlässigeres Stash-Hunting, PLAN-Punkte 97–100 (`7b42e85`)
 
 - 97: `StashHunterModule.onBlockUpdate` kehrt bei `event.oldState == null` zurück. Meteors
   `LevelChunkMixin` postet `BlockUpdateEvent` am `TAIL` von `LevelChunk.setBlockState` mit dem
