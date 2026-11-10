@@ -11,7 +11,8 @@
   Jar `build/libs/stash-hunter-26.2.2.jar`. CI-Actions auf aktuelle Major-Versionen gehoben.
 - Release (von Hand): Ziel-Branch `code-revision` (bzw. `main` nach dem Merge) wählen, nicht den
   alten `main`-Stand. Das Tag `v26.2.2-pre1` zeigt deshalb auf `3ec56f2` ohne den 26.2.2-Code.
-  Beim Merge nach `main` gibt es einen Konflikt in den README-Credits (`3ec56f2`).
+  Beim Merge nach `main` gibt es einen Konflikt in den README-Credits (`3ec56f2`): die
+  `code-revision`-Seite nehmen (`papxx` ohne Backslash, wie in `fabric.mod.json`).
 - Abschnitt 0 ist komplett erledigt, alle angefangenen Punkte aus Abschnitt 3 auch.
 - **Nichts davon ist in-game getestet.** Das ist der nächste Schritt (Checkliste in Abschnitt 1,
   enthält jetzt auch alle offenen Punkte aus den beiden Handoffs).
