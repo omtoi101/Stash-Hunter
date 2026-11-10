@@ -514,5 +514,5 @@ Licensed under the **Apache License 2.0**. See [LICENSE](LICENSE).
 ## Credits
 
 - **omtoi**: original author and maintainer.
-- **\_og3**: port to Minecraft 26.2 and the current Meteor Client.
+- **papxx**: port to Minecraft 26.2 and the current Meteor Client.
 - **PathSeeker** (FaxHack / dev.journey, Apache-2.0): original `ActivatedSpawnerDetector` and `StackedMinecartsDetector`, ported and adapted.
