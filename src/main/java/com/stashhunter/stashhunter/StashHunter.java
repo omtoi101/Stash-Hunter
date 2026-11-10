@@ -1,18 +1,30 @@
 package com.stashhunter.stashhunter;
 
+import com.stashhunter.stashhunter.utils.ChunkPacketDecoder;
 import com.stashhunter.stashhunter.utils.Config;
+import com.stashhunter.stashhunter.utils.DiscordWebhook;
+import com.stashhunter.stashhunter.utils.TripManager;
 import com.stashhunter.stashhunter.commands.StashHunterCommand;
 import com.stashhunter.stashhunter.commands.ClearStashesCommand;
 import com.stashhunter.stashhunter.commands.ClearPlayersCommand;
-import com.stashhunter.stashhunter.events.PlayerDisconnectEvent;
+import com.stashhunter.stashhunter.commands.ChestIndexCommand;
+import com.stashhunter.stashhunter.modules.ChestIndexer;
 import com.stashhunter.stashhunter.hud.StashHunterHud;
 import com.stashhunter.stashhunter.modules.AltitudeLossDetector;
 import com.stashhunter.stashhunter.modules.NewerNewChunks;
+import com.stashhunter.stashhunter.modules.StackedMinecartDetector;
 import com.stashhunter.stashhunter.modules.StashHunterModule;
 import com.stashhunter.stashhunter.modules.StuckDetector;
 import com.stashhunter.stashhunter.modules.AutoElytraRepair;
+import com.stashhunter.stashhunter.modules.SlimeChunkOverlay;
+import com.stashhunter.stashhunter.modules.OldChunkNotifier;
+import com.stashhunter.stashhunter.modules.ActivatedSpawnerDetector;
+import com.stashhunter.stashhunter.modules.CaveDisturbanceDetector;
+import com.stashhunter.stashhunter.modules.AutoFirework;
+import com.stashhunter.stashhunter.modules.OnlinePlayerActivityDetector;
+import com.stashhunter.stashhunter.modules.PlayerAlarms;
+import com.stashhunter.stashhunter.modules.AutoLogout;
 import com.mojang.logging.LogUtils;
-import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.addons.GithubRepo;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
 import meteordevelopment.meteorclient.commands.Commands;
@@ -20,7 +32,6 @@ import meteordevelopment.meteorclient.systems.hud.Hud;
 import meteordevelopment.meteorclient.systems.hud.HudGroup;
 import meteordevelopment.meteorclient.systems.modules.Category;
 import meteordevelopment.meteorclient.systems.modules.Modules;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import org.slf4j.Logger;
 
 public class StashHunter extends MeteorAddon {
@@ -34,6 +45,18 @@ public class StashHunter extends MeteorAddon {
         LOG.info("Initializing Stash-Hunter");
 
         Config.load();
+        Config.validate();
+
+        // No Fabric API lifecycle events available; a JVM hook flushes the debounced config save,
+        // a trip save still queued and the queued webhooks. Local files first: they're fast,
+        // Discord may block ~3 s.
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            Config.shutdown();
+            TripManager.shutdown();
+            DiscordWebhook.shutdown();
+        }, "StashHunter-Shutdown"));
+
+        ChunkPacketDecoder.init();
 
         // Modules
         Modules.get().add(new StashHunterModule());
@@ -41,19 +64,25 @@ public class StashHunter extends MeteorAddon {
         Modules.get().add(new AltitudeLossDetector());
         Modules.get().add(new NewerNewChunks());
         Modules.get().add(new AutoElytraRepair());
+        Modules.get().add(new SlimeChunkOverlay());
+        Modules.get().add(new OldChunkNotifier());
+        Modules.get().add(new ActivatedSpawnerDetector());
+        Modules.get().add(new AutoFirework());
+        Modules.get().add(new OnlinePlayerActivityDetector());
+        Modules.get().add(new PlayerAlarms());
+        Modules.get().add(new AutoLogout());
+        Modules.get().add(new StackedMinecartDetector());
+        Modules.get().add(new ChestIndexer());
+        Modules.get().add(new CaveDisturbanceDetector());
 
         // Commands
         Commands.add(new StashHunterCommand());
         Commands.add(new ClearStashesCommand());
         Commands.add(new ClearPlayersCommand());
+        Commands.add(new ChestIndexCommand());
 
         // HUD
         Hud.get().register(StashHunterHud.INFO);
-
-        // Events
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
-            MeteorClient.EVENT_BUS.post(PlayerDisconnectEvent.get());
-        });
     }
 
     @Override

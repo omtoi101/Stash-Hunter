@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # Gradle plugins and libraries (Loom, Spotless, JUnit). The Meteor/Baritone 26.2-SNAPSHOTs and
+  # the Minecraft/Fabric versions in gradle.properties move with each Minecraft port and are
+  # bumped by hand.
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

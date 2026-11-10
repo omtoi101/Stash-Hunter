@@ -6,12 +6,12 @@
   "description": "A Meteor client addon for finding stashes on anarchy servers.",
   "authors": [
     "omtoi",
-    "_og3"
+    "papxx"
   ],
   "contact": {
     "sources": "https://github.com/omtoi101/Stash-Hunter"
   },
-  "icon": "assets/template/icon.png",
+  "icon": "assets/stash-hunter/icon.png",
   "environment": "client",
   "license": "Apache-2.0",
   "entrypoints": {
@@ -19,20 +19,18 @@
       "com.stashhunter.stashhunter.StashHunter"
     ]
   },
-  "mixins": [
-    "addon-template.mixins.json"
-  ],
   "custom": {
     "meteor-client:color": "225,25,25"
   },
   "depends": {
     "java": ">=25",
     "minecraft": "${mc_version}",
-    "meteor-client": "*",
-    "fabric-networking-api-v1": "*",
-    "fabric-api-base": "*"
+    "meteor-client": "~26.2-"
   },
   "recommends": {
-    "baritone-meteor": "*"
+    "baritone-meteor": "~26.2-"
+  },
+  "suggests": {
+    "xaerominimap": "*"
   }
 }

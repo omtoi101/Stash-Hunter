@@ -57,6 +57,34 @@ public final class BaritoneBridge {
         }
     }
 
+    /**
+     * Walks next to the target block (Baritone's GoalGetToBlock), e.g. to a chest. Unlike
+     * {@link #startGroundPath} the player doesn't have to stand in the block, so a container
+     * isn't mined to get there. Returns false if unavailable.
+     */
+    public static boolean startGetToBlock(BlockPos target) {
+        if (!isModLoaded()) return false;
+        try {
+            BaritoneImpl.pathNextTo(target);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * True while a goal set by {@link #startGetToBlock} or {@link #startGroundPath} is still being
+     * walked to. Turns false once Baritone arrived, gave up or was stopped (#stop).
+     */
+    public static boolean isGoalActive() {
+        if (!isModLoaded()) return false;
+        try {
+            return BaritoneImpl.isCustomGoalActive();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public static void cancel() {
         if (!isModLoaded()) return;
         try {
@@ -66,21 +94,35 @@ public final class BaritoneBridge {
         }
     }
 
-    public static boolean isPathing() {
+    /**
+     * True while Baritone's elytra process is driving the player. This asks the elytra process
+     * itself, not the generic pathing behavior, which stays idle during elytra flight.
+     */
+    public static boolean isElytraActive() {
         if (!isModLoaded()) return false;
         try {
-            return BaritoneImpl.isPathing();
+            return BaritoneImpl.isElytraActive();
         } catch (Throwable t) {
             return false;
         }
     }
 
-    public static boolean hasPath() {
+    /** Baritone's elytraAutoJump must be on for its elytra process to take off from flat ground. */
+    public static boolean getElytraAutoJump() {
         if (!isModLoaded()) return false;
         try {
-            return BaritoneImpl.hasPath();
+            return BaritoneImpl.getElytraAutoJump();
         } catch (Throwable t) {
             return false;
+        }
+    }
+
+    public static void setElytraAutoJump(boolean value) {
+        if (!isModLoaded()) return;
+        try {
+            BaritoneImpl.setElytraAutoJump(value);
+        } catch (Throwable t) {
+            // Baritone's settings can't be touched - ignore.
         }
     }
 }

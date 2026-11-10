@@ -1,16 +1,36 @@
 package com.stashhunter.stashhunter.commands;
 
+import com.stashhunter.stashhunter.modules.StashHunterModule;
 import com.stashhunter.stashhunter.modules.AutoElytraRepair;
+import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.ElytraController;
+import com.stashhunter.stashhunter.utils.GridWaypoints;
+import com.stashhunter.stashhunter.utils.SpiralWaypoints;
+import com.stashhunter.stashhunter.utils.TripHistory;
+import com.stashhunter.stashhunter.utils.TripManager;
+import com.stashhunter.stashhunter.utils.TripManager.TripData;
+import com.stashhunter.stashhunter.utils.WaypointPath;
 import meteordevelopment.meteorclient.systems.modules.Modules;
-import com.mojang.brigadier.arguments.LongArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import meteordevelopment.meteorclient.commands.Command;
 import meteordevelopment.meteorclient.MeteorClient;
 import net.minecraft.client.multiplayer.ClientSuggestionProvider;
+import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.world.phys.Vec3;
+
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 
 public class StashHunterCommand extends Command {
+    private static final DateTimeFormatter SAVED_AT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT)
+        .withZone(ZoneId.systemDefault());
+
     public StashHunterCommand() {
         super("stashhunter", "Controls the stash finding flight system.", "sh");
     }
@@ -57,12 +77,54 @@ public class StashHunterCommand extends Command {
             )
         );
 
+        // Spiral outward from a center: nearest ground first, for searching around spawn or a portal
+        builder.then(literal("spiral")
+            .then(argument("args", StringArgumentType.greedyString())
+                .executes(context -> {
+                    String[] parts = StringArgumentType.getString(context, "args").trim().split("\\s+");
+
+                    // 1-2 args: centered on the player; 3-4 args: explicit center first
+                    if (parts.length < 1 || parts.length > 4) {
+                        error("Invalid arguments. Usage: spiral [<x> <z>] <radius> [gap]");
+                        return SINGLE_SUCCESS;
+                    }
+
+                    try {
+                        boolean explicitCenter = parts.length >= 3;
+                        int centerX = parseCoordinate(explicitCenter ? parts[0] : "~", true);
+                        int centerZ = parseCoordinate(explicitCenter ? parts[1] : "~", false);
+                        int offset = explicitCenter ? 2 : 0;
+                        int radius = Integer.parseInt(parts[offset]);
+
+                        // Neighbouring rings' scans just meet; 128 with the default scan-radius of 64.
+                        int gap = Math.clamp(2L * Config.scanRadius, 50, 500);
+                        if (parts.length > offset + 1) {
+                            gap = Integer.parseInt(parts[offset + 1]);
+                            if (gap < 50 || gap > 500) {
+                                error("Gap must be between 50 and 500.");
+                                return SINGLE_SUCCESS;
+                            }
+                        }
+
+                        return startSpiral(centerX, centerZ, radius, gap);
+
+                    } catch (NumberFormatException e) {
+                        error("Invalid coordinate, radius or gap format. Use numbers, ~, or ~<offset>.");
+                        return SINGLE_SUCCESS;
+                    }
+                })
+            )
+        );
+
         // Stop scanning
         builder.then(literal("stop")
             .executes(context -> {
-                if (ElytraController.isActive()) {
+                // A post-completion Baritone landing runs with active=false; stop must still cancel it.
+                if (ElytraController.isActive() || ElytraController.isLandingAfterCompletion()) {
                     ElytraController.stop();
                     info("Stash hunter flight stopped.");
+                } else if (keepPausedAfterRepair()) {
+                    info("Elytra repair in progress - it finishes, then the flight stays stopped.");
                 } else {
                     error("Stash hunter is not currently active.");
                 }
@@ -76,6 +138,8 @@ public class StashHunterCommand extends Command {
                 if (ElytraController.isActive()) {
                     ElytraController.pause();
                     info("Stash hunter flight paused.");
+                } else if (keepPausedAfterRepair()) {
+                    info("Elytra repair in progress - the flight is saved and stays paused afterwards.");
                 } else {
                     error("Stash hunter is not currently active.");
                 }
@@ -83,25 +147,50 @@ public class StashHunterCommand extends Command {
             })
         );
 
-        // Resume scanning
+        // Resume scanning: the latest trip, or one given by name or timestamp
         builder.then(literal("resume")
-            .executes(context -> {
-                if (ElytraController.isActive()) {
-                    error("Stash hunter is already active.");
-                } else {
-                    ElytraController.resume();
-                    info("Stash hunter flight resumed.");
-                }
-                return SINGLE_SUCCESS;
-            })
-            .then(argument("timestamp", LongArgumentType.longArg())
+            .executes(context -> resumeTrip(TripManager.getLatestTrip(), "No saved trip to resume."))
+            .then(argument("trip", StringArgumentType.greedyString())
+                .suggests((context, suggestions) -> SharedSuggestionProvider.suggest(tripNames(), suggestions))
                 .executes(context -> {
-                    if (ElytraController.isActive()) {
-                        error("Stash hunter is already active.");
+                    String key = StringArgumentType.getString(context, "trip");
+                    return resumeTrip(TripManager.findTrip(key), "No saved trip called \"" + key.trim() + "\" (see .stashhunter list).");
+                })
+            )
+        );
+
+        // Name the running flight's trip (or the latest one), so it can be resumed by name and isn't dropped
+        builder.then(literal("name")
+            .then(argument("name", StringArgumentType.greedyString())
+                .executes(context -> {
+                    TripData trip = runningOrLatestTrip();
+                    if (trip == null) {
+                        error("No saved trip to name. Start a flight first.");
+                        return SINGLE_SUCCESS;
+                    }
+                    String name = StringArgumentType.getString(context, "name").trim();
+                    String problem = TripManager.renameTrip(trip.timestamp, name);
+                    if (problem != null) error("%s", problem);
+                    else info("Trip %d is now called \"%s\". Resume it with .stashhunter resume %s", trip.timestamp, name, name);
+                    return SINGLE_SUCCESS;
+                })
+            )
+        );
+
+        // Delete a saved trip (named trips are only removed this way)
+        builder.then(literal("delete")
+            .then(argument("trip", StringArgumentType.greedyString())
+                .suggests((context, suggestions) -> SharedSuggestionProvider.suggest(tripNames(), suggestions))
+                .executes(context -> {
+                    String key = StringArgumentType.getString(context, "trip");
+                    TripData trip = TripManager.findTrip(key);
+                    if (trip == null) {
+                        error("No saved trip called \"%s\" (see .stashhunter list).", key.trim());
+                    } else if (ElytraController.isActive() && trip.timestamp == ElytraController.getTripTimestamp()) {
+                        error("That is the running flight. Stop it first (.stashhunter stop).");
                     } else {
-                        long timestamp = LongArgumentType.getLong(context, "timestamp");
-                        ElytraController.resume(timestamp);
-                        info("Stash hunter flight resumed.");
+                        TripManager.deleteTrip(trip.timestamp);
+                        info("Deleted trip %s.", describe(trip));
                     }
                     return SINGLE_SUCCESS;
                 })
@@ -111,9 +200,18 @@ public class StashHunterCommand extends Command {
         // List trips
         builder.then(literal("list")
             .executes(context -> {
-                info("Saved trips:");
-                for (com.stashhunter.stashhunter.utils.TripManager.TripData trip : com.stashhunter.stashhunter.utils.TripManager.getTrips()) {
-                    info("  " + trip.timestamp);
+                List<TripData> trips = TripManager.getTrips();
+                if (trips.isEmpty()) {
+                    info("No saved trips.");
+                    return SINGLE_SUCCESS;
+                }
+                info("Saved trips (newest first):");
+                for (TripData trip : trips) {
+                    String progress = TripHistory.isComplete(trip) ? "complete"
+                        : String.format(Locale.ROOT, "waypoint %d/%d, %d%%", trip.currentWaypoint + 1, trip.waypoints.size(),
+                            Math.round(100 * TripHistory.progress(trip)));
+                    info("  §f%s §7- %s, %s km, saved %s", describe(trip), progress, km(WaypointPath.length(trip.waypoints)),
+                        SAVED_AT.format(Instant.ofEpochMilli(trip.timestamp)));
                 }
                 return SINGLE_SUCCESS;
             })
@@ -128,6 +226,12 @@ public class StashHunterCommand extends Command {
                 if (ElytraController.isActive()) {
                     info("Current waypoint: " + (ElytraController.getCurrentWaypoint() + 1) +
                         "/" + ElytraController.getTotalWaypoints());
+                    // By distance: a spiral's later legs are much longer, so the waypoint count runs ahead.
+                    double length = ElytraController.getPathLength();
+                    if (length > 0) {
+                        double flown = ElytraController.getDistanceFlown();
+                        info("Progress: %d%% (%s of %s km)", Math.round(100 * flown / length), km(flown), km(length));
+                    }
 
                     if (ElytraController.getCurrentTarget() != null) {
                         var target = ElytraController.getCurrentTarget();
@@ -138,24 +242,49 @@ public class StashHunterCommand extends Command {
             })
         );
 
+        // Flight altitude command
+        builder.then(literal("altitude")
+            .executes(context -> {
+                info("Flight altitude: §fY=" + Config.flightAltitude + " §7(100-400)");
+                return SINGLE_SUCCESS;
+            })
+            .then(argument("y", IntegerArgumentType.integer(100, 400))
+                .executes(context -> {
+                    StashHunterModule module = Modules.get().get(StashHunterModule.class);
+                    if (module == null) {
+                        error("Stash-Hunter module not found.");
+                        return SINGLE_SUCCESS;
+                    }
+                    int altitude = module.setFlightAltitude(IntegerArgumentType.getInteger(context, "y"));
+                    info("Flight altitude set to §fY=" + altitude + (ElytraController.isActive() ? " §7- the current flight follows." : "."));
+                    return SINGLE_SUCCESS;
+                })
+            )
+        );
+
         // Help command
         builder.then(literal("help")
             .executes(context -> {
                 info("Stash-Hunter Commands:");
-                info("§7/stashhunter start <x1> <z1> <x2> <z2> [stripWidth] §f- Start scanning an area");
-                info("§7/stashhunter stop §f- Stop the current scanning operation");
-                info("§7/stashhunter pause §f- Pause the current scanning operation");
-                info("§7/stashhunter resume [timestamp] §f- Resume the latest or a specific trip");
-                info("§7/stashhunter list §f- List all saved trips");
-                info("§7/stashhunter status §f- Show current status and progress");
-                info("§7/stashhunter repair §f- Show elytra repair status");
-                info("§7/stashhunter repair toggle §f- Toggle auto elytra repair");
-                info("§7/stashhunter help §f- Show this help message");
+                info("§7.stashhunter start <x1> <z1> <x2> <z2> [stripWidth] §f- Start scanning an area");
+                info("§7.stashhunter spiral [<x> <z>] <radius> [gap] §f- Scan in a square spiral (centered on you without x/z)");
+                info("§7.stashhunter stop §f- Stop the current scanning operation");
+                info("§7.stashhunter pause §f- Pause the current scanning operation");
+                info("§7.stashhunter resume [name|timestamp] §f- Resume the latest or a specific trip");
+                info("§7.stashhunter name <name> §f- Name the current (or latest) trip; named trips are kept until deleted");
+                info("§7.stashhunter delete <name|timestamp> §f- Delete a saved trip");
+                info("§7.stashhunter list §f- List all saved trips with their progress");
+                info("§7.stashhunter status §f- Show current status and progress");
+                info("§7.stashhunter altitude [y] §f- Show or set the flight altitude (100-400, applies to the current flight)");
+                info("§7.stashhunter repair §f- Show elytra repair status");
+                info("§7.stashhunter repair toggle §f- Toggle auto elytra repair");
+                info("§7.stashhunter help §f- Show this help message");
                 info("");
                 info("§eCoordinate Examples:");
-                info("§f/stashhunter start 1000 1000 5000 5000 150 §7- Absolute coordinates");
-                info("§f/stashhunter start ~ ~ ~4000 ~4000 150 §7- Relative to current position");
-                info("§f/stashhunter start ~-2000 ~-2000 ~2000 ~2000 120 §7- Relative with offsets");
+                info("§f.stashhunter start 1000 1000 5000 5000 150 §7- Absolute coordinates");
+                info("§f.stashhunter start ~ ~ ~4000 ~4000 150 §7- Relative to current position");
+                info("§f.stashhunter start ~-2000 ~-2000 ~2000 ~2000 120 §7- Relative with offsets");
+                info("§f.stashhunter spiral 3000 §7- Spiral out to 3000 blocks around you");
                 info("");
                 info("§7Use §f~§7 for relative coordinates (current position)");
                 info("§7Use §f~<number>§7 for relative coordinates with offset");
@@ -211,7 +340,7 @@ public class StashHunterCommand extends Command {
 
         // Default help when no arguments
         builder.executes(context -> {
-            info("Use §7/stashhunter help §ffor command usage.");
+            info("Use §7.stashhunter help §ffor command usage.");
             return SINGLE_SUCCESS;
         });
     }
@@ -243,9 +372,17 @@ public class StashHunterCommand extends Command {
         }
     }
 
+    // A running elytra repair has paused the flight itself; tell it not to resume afterwards.
+    private static boolean keepPausedAfterRepair() {
+        AutoElytraRepair repair = Modules.get().get(AutoElytraRepair.class);
+        if (repair == null || !repair.isActive() || !repair.isRepairing()) return false;
+        repair.keepFlightPaused();
+        return true;
+    }
+
     private int startScanning(int x1, int z1, int x2, int z2, int stripWidth) {
         if (ElytraController.isActive()) {
-            error("Stash hunter is already active! Use '/stashhunter stop' first.");
+            error("Stash hunter is already active! Use '.stashhunter stop' first.");
             return SINGLE_SUCCESS;
         }
 
@@ -262,7 +399,7 @@ public class StashHunterCommand extends Command {
 
         // Calculate area and estimated time
         long area = Math.abs((long)(x2 - x1) * (z2 - z1));
-        long estimatedWaypoints = (Math.abs(x2 - x1) / stripWidth) * 2;
+        long estimatedWaypoints = GridWaypoints.count(x1, x2, stripWidth);
 
         info("Starting stash finding process:");
         info("§7Area: §f" + area + " blocks²");
@@ -271,7 +408,91 @@ public class StashHunterCommand extends Command {
         info("§7Estimated waypoints: §f" + estimatedWaypoints);
         info("§7Make sure you have an Elytra equipped and are at flight altitude!");
 
+        ensureModuleActive();
         ElytraController.start(x1, z1, x2, z2, stripWidth);
         return SINGLE_SUCCESS;
+    }
+
+    private int startSpiral(int centerX, int centerZ, int radius, int gap) {
+        if (ElytraController.isActive()) {
+            error("Stash hunter is already active! Use '.stashhunter stop' first.");
+            return SINGLE_SUCCESS;
+        }
+
+        // Same bounds as the rectangle mode: 50..25000 radius = 100..50000 blocks across.
+        if (radius < 50) {
+            error("Spiral radius too small! Minimum is 50 blocks.");
+            return SINGLE_SUCCESS;
+        }
+        if (radius > 25000) {
+            error("Spiral radius too large! Maximum is 25000 blocks.");
+            return SINGLE_SUCCESS;
+        }
+
+        List<Vec3> path = SpiralWaypoints.generate(centerX, centerZ, radius, gap, Config.flightAltitude);
+
+        info("Starting spiral search:");
+        info("§7Center: §f(" + centerX + ", " + centerZ + ")");
+        info("§7Radius: §f" + radius + " blocks");
+        info("§7Gap: §f" + gap + " blocks");
+        info("§7Waypoints: §f" + path.size());
+        info("§7Flight path: §f" + km(WaypointPath.length(path)) + " km");
+        // Each pass only scans scan-radius to either side, so a wider gap leaves bands between the rings.
+        int covered = 2 * Config.scanRadius;
+        if (gap > covered) {
+            warning("Gap %d is wider than twice the scan-radius (%d): bands of %d blocks between the rings stay unscanned.",
+                gap, Config.scanRadius, gap - covered);
+        }
+        info("§7Make sure you have an Elytra equipped and are at flight altitude!");
+
+        ensureModuleActive();
+        ElytraController.start(path);
+        return SINGLE_SUCCESS;
+    }
+
+    private static String km(double blocks) {
+        return String.format(Locale.ROOT, "%.1f", blocks / 1000);
+    }
+
+    private int resumeTrip(TripData trip, String missing) {
+        if (ElytraController.isActive()) {
+            error("Stash hunter is already active.");
+        } else if (trip == null) {
+            error("%s", missing);
+        } else if (TripHistory.isComplete(trip)) {
+            error("Trip %s is already complete.", describe(trip));
+        } else {
+            ensureModuleActive();
+            if (ElytraController.resume(trip)) info("Resumed trip %s at waypoint %d/%d.", describe(trip), trip.currentWaypoint + 1, trip.waypoints.size());
+            else error("Could not resume trip %s.", describe(trip));
+        }
+        return SINGLE_SUCCESS;
+    }
+
+    // The trip the running flight saves to; otherwise the latest saved one.
+    private static TripData runningOrLatestTrip() {
+        if (ElytraController.isActive()) {
+            TripData running = TripManager.getTrip(ElytraController.getTripTimestamp());
+            if (running != null) return running;
+        }
+        return TripManager.getLatestTrip();
+    }
+
+    private static List<String> tripNames() {
+        return TripManager.getTrips().stream().map(trip -> trip.name).filter(Objects::nonNull).toList();
+    }
+
+    // "\"north\" (1731150000000)" or just the timestamp.
+    private static String describe(TripData trip) {
+        return trip.name != null ? "\"" + trip.name + "\" (" + trip.timestamp + ")" : String.valueOf(trip.timestamp);
+    }
+
+    // ElytraController is only ticked by StashHunterModule; without it a started flight never moves.
+    private void ensureModuleActive() {
+        StashHunterModule module = Modules.get().get(StashHunterModule.class);
+        if (module != null && !module.isActive()) {
+            module.toggle();
+            info("Enabled the stash-hunter module, which drives the flight.");
+        }
     }
 }

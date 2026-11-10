@@ -13,6 +13,8 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import meteordevelopment.orbit.EventHandler;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 public class StuckDetector extends Module {
@@ -24,7 +26,7 @@ public class StuckDetector extends Module {
         .defaultValue(Config.stuckDetectorWebhookUrl)
         .onChanged(v -> {
             Config.stuckDetectorWebhookUrl = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -37,7 +39,7 @@ public class StuckDetector extends Module {
         .sliderMax(10)
         .onChanged(v -> {
             Config.stuckDetectorThreshold = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -48,7 +50,7 @@ public class StuckDetector extends Module {
         .defaultValue(Config.stuckDetectorAutoFix)
         .onChanged(v -> {
             Config.stuckDetectorAutoFix = v;
-            Config.save();
+            Config.saveLater();
         })
         .build()
     );
@@ -83,6 +85,25 @@ public class StuckDetector extends Module {
         fixStage = FixStage.NONE;
     }
 
+    @Override
+    public void onDeactivate() {
+        // If we toggled ElytraFly off as part of an auto-fix and haven't re-enabled it yet,
+        // restore it so the player isn't left falling out of the sky (the tick-driven re-enable
+        // below would otherwise be the only thing that turns it back on).
+        if (fixInProgress && fixStage == FixStage.REENABLE_ELYTRA_FLY) {
+            ElytraFly elytraFly = Modules.get().get(ElytraFly.class);
+            if (elytraFly != null && !elytraFly.isActive()) elytraFly.toggle();
+        }
+
+        KeyHold.cancel(this);
+        lastPosition = null;
+        stationaryTicks = 0;
+        fixInProgress = false;
+        fixCooldown = 0;
+        fixStage = FixStage.NONE;
+        fixTicks = 0;
+    }
+
     @EventHandler
     private void onTick(TickEvent.Post event) {
         if (mc.player == null || mc.level == null) {
@@ -99,13 +120,23 @@ public class StuckDetector extends Module {
             return;
         }
 
+        // Auto repair sinks straight down on purpose; the stuck fix would drop the player out of the glide.
+        AutoElytraRepair repair = Modules.get().get(AutoElytraRepair.class);
+        if (repair != null && repair.isActive() && repair.isRepairing()) {
+            lastPosition = null;
+            stationaryTicks = 0;
+            return;
+        }
+
         // Additional trigger: if Baritone is driving navigation but unexpectedly dropped its
         // path well short of the target, treat that the same as being stuck. This doesn't
         // reimplement any of Baritone's own path-repair logic - it only asks "did Baritone give
         // up on its goal?" and reuses the existing recovery below if so.
-        if (BaritoneBridge.isModLoaded() && ElytraController.isActive()) {
+        // On the ground Baritone simply landed; ElytraController restarts it, which is no rubber-banding.
+        if (Config.useBaritonePathing && BaritoneBridge.isElytraPathingReady() && ElytraController.isActive()
+            && !mc.player.onGround()) {
             Vec3 target = ElytraController.getCurrentTarget();
-            if (target != null && !BaritoneBridge.isPathing() && !BaritoneBridge.hasPath()
+            if (target != null && !BaritoneBridge.isElytraActive()
                 && mc.player.position().distanceTo(target) > 5.0) {
                 handleStuck();
                 return;
@@ -161,12 +192,27 @@ public class StuckDetector extends Module {
             elytraFly.toggle();
             fixStage = FixStage.REENABLE_ELYTRA_FLY;
             fixTicks = 20; // 1 second
-        } else {
+        } else if (isNearGround()) {
             // ElytraFly not active, go straight to stopping flight
             info("ElytraFly not active. Attempting to get unstuck by stopping flight...");
             mc.player.stopFallFlying();
             finishFix();
+        } else {
+            info("ElytraFly not active and too high to stop the flight safely - leaving it to the flight controller.");
+            finishFix();
         }
+    }
+
+    // Closing the elytra is client-side only and drops the player: only worth it close to the ground.
+    private static final int NEAR_GROUND_BLOCKS = 4;
+
+    private boolean isNearGround() {
+        BlockPos feet = mc.player.blockPosition();
+        for (int dy = 0; dy <= NEAR_GROUND_BLOCKS; dy++) {
+            BlockState state = mc.level.getBlockState(feet.below(dy));
+            if (!state.isAir() || !state.getFluidState().isEmpty()) return true;
+        }
+        return false;
     }
 
     private void tickFix() {
@@ -181,13 +227,16 @@ public class StuckDetector extends Module {
                 fixTicks = 40; // Wait 2 seconds to see if we start moving
             }
             case CHECK_RECOVERY -> {
-                if (mc.player.position().distanceTo(positionWhenStuck) < 1.0) {
+                if (mc.player.position().distanceTo(positionWhenStuck) < 1.0 && !isNearGround()) {
+                    info("Fix 1 seems to have failed. Too high to stop the flight safely - no further action.");
+                    finishFix();
+                } else if (mc.player.position().distanceTo(positionWhenStuck) < 1.0) {
                     info("Fix 1 seems to have failed. Attempting Fix 2: Stopping vanilla flight...");
                     mc.player.stopFallFlying();
 
                     info("Attempting Fix 3: Holding jump...");
                     fixStage = FixStage.HOLDING_JUMP;
-                    KeyHold.hold(mc.options.keyJump, 5, () -> {
+                    KeyHold.hold(this, mc.options.keyJump, 5, () -> {
                         info("Jump complete.");
                         finishFix();
                     });

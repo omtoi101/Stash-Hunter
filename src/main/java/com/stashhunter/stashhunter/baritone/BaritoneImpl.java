@@ -3,6 +3,7 @@ package com.stashhunter.stashhunter.baritone;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.pathing.goals.GoalBlock;
+import baritone.api.pathing.goals.GoalGetToBlock;
 import net.minecraft.core.BlockPos;
 
 /**
@@ -33,17 +34,35 @@ final class BaritoneImpl {
         primary().getCustomGoalProcess().setGoalAndPath(new GoalBlock(target.getX(), target.getY(), target.getZ()));
     }
 
+    static void pathNextTo(BlockPos target) {
+        primary().getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(target));
+    }
+
+    /** The custom goal process gives up control (state NONE) when the goal is reached, the path fails or on cancel. */
+    static boolean isCustomGoalActive() {
+        return primary().getCustomGoalProcess().isActive();
+    }
+
     static void cancel() {
-        IBaritone baritone = primary();
-        baritone.getElytraProcess().resetState();
-        baritone.getPathingBehavior().cancelEverything();
+        // cancelEverything() stops the pathing behavior and every process that controls it, which
+        // makes the elytra process lose control; its onLostControl() tears down the native
+        // nether-pathfinder context and the flight behavior (the actual "stop flying" teardown).
+        // resetState() must not be used here: it keeps the current destination and re-paths
+        // ("will maintain the same destination and will try to keep flying"), i.e. it re-arms the
+        // flight instead of stopping it.
+        primary().getPathingBehavior().cancelEverything();
     }
 
-    static boolean isPathing() {
-        return primary().getPathingBehavior().isPathing();
+    /** True while the elytra process owns movement (it has a live behavior for a destination). */
+    static boolean isElytraActive() {
+        return primary().getElytraProcess().isActive();
     }
 
-    static boolean hasPath() {
-        return primary().getPathingBehavior().hasPath();
+    static boolean getElytraAutoJump() {
+        return BaritoneAPI.getSettings().elytraAutoJump.value;
+    }
+
+    static void setElytraAutoJump(boolean value) {
+        BaritoneAPI.getSettings().elytraAutoJump.value = value;
     }
 }

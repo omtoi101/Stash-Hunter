@@ -1,5 +1,6 @@
 package com.stashhunter.stashhunter.modules;
 
+import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.events.game.OpenScreenEvent;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
@@ -19,975 +20,1048 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.client.gui.screens.DisconnectedScreen;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.gui.screens.LevelLoadingScreen;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.network.protocol.game.ServerboundChunkBatchReceivedPacket;
-import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.*;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.core.Direction;
-import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.Level;
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.utils.AppendFiles;
+import com.stashhunter.stashhunter.utils.ChunkDataFormat;
+import com.stashhunter.stashhunter.utils.ChunkPacketDecoder;
+import com.stashhunter.stashhunter.utils.PaletteOrder;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.util.*;
-import java.util.concurrent.*;
 
 /*
     Ported from: https://github.com/BleachDrinker420/BleachHack/blob/master/BleachHack-Fabric-1.16/src/main/java/bleach/hack/module/mods/NewChunks.java
     updated by etianl :D
 */
 public class NewerNewChunks extends Module {
-	public enum DetectMode {
-		Normal,
-		IgnoreBlockExploit,
-		BlockExploitMode
-	}
-	private final SettingGroup specialGroup = settings.createGroup("Detection Settings");
-	private final SettingGroup specialGroup2 = settings.createGroup("Detection for chunks that were generated in old versions.");
-	private final SettingGroup sgGeneral = settings.getDefaultGroup();
-	private final SettingGroup sgCdata = settings.createGroup("Saved Chunk Data");
-	private final SettingGroup sgcacheCdata = settings.createGroup("Cached Chunk Data");
-	private final SettingGroup sgRender = settings.createGroup("Render");
+    public enum DetectMode {
+        Normal,
+        IgnoreBlockExploit,
+        BlockExploitMode
+    }
+    private final SettingGroup specialGroup = settings.createGroup("Detection Settings");
+    private final SettingGroup specialGroup2 = settings.createGroup("Detection for chunks that were generated in old versions.");
+    private final SettingGroup sgGeneral = settings.getDefaultGroup();
+    private final SettingGroup sgCdata = settings.createGroup("Saved Chunk Data");
+    private final SettingGroup sgcacheCdata = settings.createGroup("Cached Chunk Data");
+    private final SettingGroup sgRender = settings.createGroup("Render");
 
-	private final Setting<Boolean> PaletteExploit = specialGroup.add(new BoolSetting.Builder()
-			.name("PaletteExploit")
-			.description("Detects new chunks by scanning the order of chunk section palettes. Highlights chunks being updated from an old version. Only works for server versions >= 1.18!")
-			.defaultValue(true)
-			.build()
-	);
-	private final Setting<Boolean> beingUpdatedDetector = specialGroup.add(new BoolSetting.Builder()
-			.name("Detection for chunks that haven't been explored since <=1.17")
-			.description("Marks chunks as their own color if they are currently being updated from old version. Requires PaletteExploit and server version >= 1.18!")
-			.defaultValue(true)
-			.visible(() -> PaletteExploit.get())
-			.build()
-	);
-	private final Setting<Boolean> overworldOldChunksDetector = specialGroup2.add(new BoolSetting.Builder()
-			.name("Pre 1.17 Overworld OldChunk Detector")
-			.description("Marks chunks as generated in an old version if they have specific blocks above Y 0 and are in the overworld.")
-			.defaultValue(true)
-			.build()
-	);
-	private final Setting<Boolean> netherOldChunksDetector = specialGroup2.add(new BoolSetting.Builder()
-			.name("Pre 1.16 Nether OldChunk Detector")
-			.description("Marks chunks as generated in an old version if they are missing blocks found in the new Nether.")
-			.defaultValue(true)
-			.build()
-	);
-	private final Setting<Boolean> endOldChunksDetector = specialGroup2.add(new BoolSetting.Builder()
-			.name("Pre 1.13 End OldChunk Detector")
-			.description("Marks chunks as generated in an old version if they have the biome of minecraft:the_end.")
-			.defaultValue(true)
-			.build()
-	);
-	public final Setting<DetectMode> detectmode = sgGeneral.add(new EnumSetting.Builder<DetectMode>()
-			.name("Chunk Detection Mode")
-			.description("Anything other than normal is for old servers where build limits are being increased due to updates.")
-			.defaultValue(DetectMode.Normal)
-			.build()
-	);
+    private final Setting<Boolean> PaletteExploit = specialGroup.add(new BoolSetting.Builder()
+            .name("PaletteExploit")
+            .description("Detects new chunks from the order of the chunk section palettes: freshly generated sections still list air first. Highlights chunks being updated from an old version. Only works for server versions >= 1.18!")
+            .defaultValue(true)
+            .build()
+    );
+    private final Setting<Boolean> beingUpdatedDetector = specialGroup.add(new BoolSetting.Builder()
+            .name("Detection for chunks that haven't been explored since <=1.17")
+            .description("Marks chunks as their own color if they are currently being updated from old version. Requires PaletteExploit and server version >= 1.18!")
+            .defaultValue(true)
+            .visible(() -> PaletteExploit.get())
+            .build()
+    );
+    private final Setting<Boolean> overworldOldChunksDetector = specialGroup2.add(new BoolSetting.Builder()
+            .name("Pre 1.17 Overworld OldChunk Detector")
+            .description("Marks chunks as generated in an old version if they have specific blocks above Y 0 and are in the overworld.")
+            .defaultValue(true)
+            .build()
+    );
+    private final Setting<Boolean> netherOldChunksDetector = specialGroup2.add(new BoolSetting.Builder()
+            .name("Pre 1.16 Nether OldChunk Detector")
+            .description("Marks chunks as generated in an old version if they are missing blocks found in the new Nether.")
+            .defaultValue(true)
+            .build()
+    );
+    private final Setting<Boolean> endOldChunksDetector = specialGroup2.add(new BoolSetting.Builder()
+            .name("Pre 1.13 End OldChunk Detector")
+            .description("Marks chunks outside the main End island as generated in an old version (pre 1.13) if they have the biome minecraft:the_end.")
+            .defaultValue(true)
+            .build()
+    );
+    public final Setting<DetectMode> detectmode = sgGeneral.add(new EnumSetting.Builder<DetectMode>()
+            .name("Chunk Detection Mode")
+            .description("Anything other than normal is for old servers where build limits are being increased due to updates.")
+            .defaultValue(DetectMode.Normal)
+            .build()
+    );
     public final Setting<Boolean> dynamicTrailDetection = sgGeneral.add(new BoolSetting.Builder()
         .name("dynamic-trail-detection")
         .description("Enables dynamic following of new chunk trails.")
         .defaultValue(true)
         .build()
     );
-	private final Setting<Boolean> liquidexploit = sgGeneral.add(new BoolSetting.Builder()
-			.name("LiquidExploit")
-			.description("Estimates newchunks based on flowing liquids.")
-			.defaultValue(false)
-			.build()
-	);
-	private final Setting<Boolean> blockupdateexploit = sgGeneral.add(new BoolSetting.Builder()
-			.name("BlockUpdateExploit")
-			.description("Estimates newchunks based on block updates. THESE MAY POSSIBLY BE OLD. BlockExploitMode needed to help determine false positives.")
-			.defaultValue(false)
-			.build()
-	);
-	private final Setting<Boolean> remove = sgcacheCdata.add(new BoolSetting.Builder()
-			.name("RemoveOnModuleDisabled")
-			.description("Removes the cached chunks when disabling the module.")
-			.defaultValue(true)
-			.build()
-	);
-	private final Setting<Boolean> worldleaveremove = sgcacheCdata.add(new BoolSetting.Builder()
-			.name("RemoveOnLeaveWorldOrChangeDimensions")
-			.description("Removes the cached chunks when leaving the world or changing dimensions.")
-			.defaultValue(true)
-			.build()
-	);
-	private final Setting<Boolean> removerenderdist = sgcacheCdata.add(new BoolSetting.Builder()
-			.name("RemoveOutsideRenderDistance")
-			.description("Removes the cached chunks when they leave the defined render distance.")
-			.defaultValue(false)
-			.build()
-	);
+    private final Setting<Boolean> liquidexploit = sgGeneral.add(new BoolSetting.Builder()
+            .name("LiquidExploit")
+            .description("Estimates newchunks based on flowing liquids.")
+            .defaultValue(false)
+            .build()
+    );
+    private final Setting<Boolean> blockupdateexploit = sgGeneral.add(new BoolSetting.Builder()
+            .name("BlockUpdateExploit")
+            .description("Estimates newchunks based on block updates. THESE MAY POSSIBLY BE OLD. BlockExploitMode needed to help determine false positives.")
+            .defaultValue(false)
+            .build()
+    );
+    private final Setting<Boolean> remove = sgcacheCdata.add(new BoolSetting.Builder()
+            .name("RemoveOnModuleDisabled")
+            .description("Removes the cached chunks when disabling the module.")
+            .defaultValue(true)
+            .build()
+    );
+    private final Setting<Boolean> worldleaveremove = sgcacheCdata.add(new BoolSetting.Builder()
+            .name("RemoveOnLeaveWorldOrChangeDimensions")
+            .description("Removes the cached chunks when leaving the world or changing dimensions.")
+            .defaultValue(true)
+            .build()
+    );
+    private final Setting<Boolean> removerenderdist = sgcacheCdata.add(new BoolSetting.Builder()
+            .name("RemoveOutsideRenderDistance")
+            .description("Removes the cached chunks when they leave the defined render distance.")
+            .defaultValue(false)
+            .build()
+    );
 
-	private final Setting<Boolean> save = sgCdata.add(new BoolSetting.Builder()
-			.name("SaveChunkData")
-			.description("Saves the cached chunks to a file.")
-			.defaultValue(true)
-			.build()
-	);
-	private final Setting<Boolean> load = sgCdata.add(new BoolSetting.Builder()
-			.name("LoadChunkData")
-			.description("Loads the saved chunks from the file.")
-			.defaultValue(true)
-			.build()
-	);
-	private final Setting<Boolean> autoreload = sgCdata.add(new BoolSetting.Builder()
-			.name("AutoReloadChunks")
-			.description("Reloads the chunks automatically from your savefiles on a delay.")
-			.defaultValue(false)
-			.visible(load::get)
-			.build()
-	);
-	private final Setting<Integer> removedelay = sgCdata.add(new IntSetting.Builder()
-			.name("AutoReloadDelayInSeconds")
-			.description("Reloads the chunks automatically from your savefiles on a delay.")
-			.sliderRange(1,300)
-			.defaultValue(60)
-			.visible(() -> autoreload.get() && load.get())
-			.build()
-	);
+    private final Setting<Boolean> save = sgCdata.add(new BoolSetting.Builder()
+            .name("SaveChunkData")
+            .description("Saves the cached chunks to a file.")
+            .defaultValue(true)
+            .build()
+    );
+    private final Setting<Boolean> load = sgCdata.add(new BoolSetting.Builder()
+            .name("LoadChunkData")
+            .description("Loads the saved chunks from the file.")
+            .defaultValue(true)
+            .build()
+    );
+    private final Setting<Boolean> autoreload = sgCdata.add(new BoolSetting.Builder()
+            .name("AutoReloadChunks")
+            .description("Reloads the chunks automatically from your savefiles on a delay.")
+            .defaultValue(false)
+            .visible(load::get)
+            .build()
+    );
+    private final Setting<Integer> removedelay = sgCdata.add(new IntSetting.Builder()
+            .name("AutoReloadDelayInSeconds")
+            .description("Reloads the chunks automatically from your savefiles on a delay.")
+            .sliderRange(1,300)
+            .defaultValue(60)
+            .visible(() -> autoreload.get() && load.get())
+            .build()
+    );
 
-	@Override
-	public WWidget getWidget(GuiTheme theme) {
-		WTable table = theme.table();
-		WButton deletedata = table.add(theme.button("**DELETE CHUNK DATA**")).expandX().minWidth(100).widget();
-		deletedata.action = () -> {
-			if (deletewarning==0) error("PRESS AGAIN WITHIN 5s TO DELETE ALL CHUNK DATA FOR THIS DIMENSION.");
-			deletewarningTicks=0;
-			deletewarning++;
-		};
-		table.row();
-		return table;
-	}
-	public final Setting<Integer> renderDistance = sgRender.add(new IntSetting.Builder()
-			.name("Render-Distance(Chunks)")
-			.description("How many chunks from the character to render the detected chunks.")
-			.defaultValue(64)
-			.min(6)
-			.sliderRange(6,1024)
-			.build()
-	);
-	public final Setting<Integer> renderHeight = sgRender.add(new IntSetting.Builder()
-			.name("render-height")
-			.description("The height at which new chunks will be rendered")
-			.defaultValue(0)
-			.sliderRange(-112,319)
-			.build()
-	);
+    @Override
+    public WWidget getWidget(GuiTheme theme) {
+        WTable table = theme.table();
+        WButton deletedata = table.add(theme.button("**DELETE CHUNK DATA**")).expandX().minWidth(100).widget();
+        deletedata.action = () -> {
+            if (deletewarning==0) error("PRESS AGAIN WITHIN 5s TO DELETE ALL CHUNK DATA FOR THIS DIMENSION.");
+            deletewarningTicks=0;
+            deletewarning++;
+        };
+        table.row();
+        return table;
+    }
+    public final Setting<Integer> renderDistance = sgRender.add(new IntSetting.Builder()
+            .name("Render-Distance(Chunks)")
+            .description("How many chunks from the character to render the detected chunks.")
+            .defaultValue(64)
+            .min(6)
+            .sliderRange(6,1024)
+            .build()
+    );
+    public final Setting<Integer> renderHeight = sgRender.add(new IntSetting.Builder()
+            .name("render-height")
+            .description("The height at which new chunks will be rendered")
+            .defaultValue(0)
+            .sliderRange(-112,319)
+            .build()
+    );
 
-	private final Setting<ShapeMode> shapeMode = sgRender.add(new EnumSetting.Builder<ShapeMode>()
-			.name("shape-mode")
-			.description("How the shapes are rendered.")
-			.defaultValue(ShapeMode.Both)
-			.build()
-	);
+    private final Setting<ShapeMode> shapeMode = sgRender.add(new EnumSetting.Builder<ShapeMode>()
+            .name("shape-mode")
+            .description("How the shapes are rendered.")
+            .defaultValue(ShapeMode.Both)
+            .build()
+    );
 
-	private final Setting<SettingColor> newChunksSideColor = sgRender.add(new ColorSetting.Builder()
-			.name("new-chunks-side-color")
-			.description("Color of the chunks that are completely new.")
-			.defaultValue(new SettingColor(255, 0, 0, 95))
-			.visible(() -> (shapeMode.get() == ShapeMode.Sides || shapeMode.get() == ShapeMode.Both))
-			.build()
-	);
-	private final Setting<SettingColor> tickexploitChunksSideColor = sgRender.add(new ColorSetting.Builder()
-			.name("BlockExploitChunks-side-color")
-			.description("MAY POSSIBLY BE OLD. Color of the chunks that have been triggered via block ticking packets")
-			.defaultValue(new SettingColor(0, 0, 255, 75))
-			.visible(() -> (shapeMode.get() == ShapeMode.Sides || shapeMode.get() == ShapeMode.Both) && detectmode.get()== DetectMode.BlockExploitMode)
-			.build()
-	);
+    private final Setting<SettingColor> newChunksSideColor = sgRender.add(new ColorSetting.Builder()
+            .name("new-chunks-side-color")
+            .description("Color of the chunks that are completely new.")
+            .defaultValue(new SettingColor(255, 0, 0, 95))
+            .visible(() -> (shapeMode.get() == ShapeMode.Sides || shapeMode.get() == ShapeMode.Both))
+            .build()
+    );
+    private final Setting<SettingColor> tickexploitChunksSideColor = sgRender.add(new ColorSetting.Builder()
+            .name("BlockExploitChunks-side-color")
+            .description("MAY POSSIBLY BE OLD. Color of the chunks that have been triggered via block ticking packets")
+            .defaultValue(new SettingColor(0, 0, 255, 75))
+            .visible(() -> (shapeMode.get() == ShapeMode.Sides || shapeMode.get() == ShapeMode.Both) && detectmode.get()== DetectMode.BlockExploitMode)
+            .build()
+    );
 
-	private final Setting<SettingColor> oldChunksSideColor = sgRender.add(new ColorSetting.Builder()
-			.name("old-chunks-side-color")
-			.description("Color of the chunks that have been loaded before.")
-			.defaultValue(new SettingColor(0, 255, 0, 40))
-			.visible(() -> shapeMode.get() == ShapeMode.Sides || shapeMode.get() == ShapeMode.Both)
-			.build()
-	);
-	private final Setting<SettingColor> beingUpdatedOldChunksSideColor = sgRender.add(new ColorSetting.Builder()
-			.name("being-updated-chunks-side-color")
-			.description("Color of the chunks that haven't been explored since versions <=1.17.")
-			.defaultValue(new SettingColor(255, 210, 0, 60))
-			.visible(() -> shapeMode.get() == ShapeMode.Sides || shapeMode.get() == ShapeMode.Both)
-			.build()
-	);
-	private final Setting<SettingColor> OldGenerationOldChunksSideColor = sgRender.add(new ColorSetting.Builder()
-			.name("old-version-chunks-side-color")
-			.description("Color of the chunks that have been loaded before in old versions.")
-			.defaultValue(new SettingColor(190, 255, 0, 40))
-			.visible(() -> shapeMode.get() == ShapeMode.Sides || shapeMode.get() == ShapeMode.Both)
-			.build()
-	);
+    private final Setting<SettingColor> oldChunksSideColor = sgRender.add(new ColorSetting.Builder()
+            .name("old-chunks-side-color")
+            .description("Color of the chunks that have been loaded before.")
+            .defaultValue(new SettingColor(0, 255, 0, 40))
+            .visible(() -> shapeMode.get() == ShapeMode.Sides || shapeMode.get() == ShapeMode.Both)
+            .build()
+    );
+    private final Setting<SettingColor> beingUpdatedOldChunksSideColor = sgRender.add(new ColorSetting.Builder()
+            .name("being-updated-chunks-side-color")
+            .description("Color of the chunks that haven't been explored since versions <=1.17.")
+            .defaultValue(new SettingColor(255, 210, 0, 60))
+            .visible(() -> shapeMode.get() == ShapeMode.Sides || shapeMode.get() == ShapeMode.Both)
+            .build()
+    );
+    private final Setting<SettingColor> OldGenerationOldChunksSideColor = sgRender.add(new ColorSetting.Builder()
+            .name("old-version-chunks-side-color")
+            .description("Color of the chunks that have been loaded before in old versions.")
+            .defaultValue(new SettingColor(190, 255, 0, 40))
+            .visible(() -> shapeMode.get() == ShapeMode.Sides || shapeMode.get() == ShapeMode.Both)
+            .build()
+    );
 
-	private final Setting<SettingColor> newChunksLineColor = sgRender.add(new ColorSetting.Builder()
-			.name("new-chunks-line-color")
-			.description("Color of the chunks that are completely new.")
-			.defaultValue(new SettingColor(255, 0, 0, 205))
-			.visible(() -> (shapeMode.get() == ShapeMode.Lines || shapeMode.get() == ShapeMode.Both))
-			.build()
-	);
-	private final Setting<SettingColor> tickexploitChunksLineColor = sgRender.add(new ColorSetting.Builder()
-			.name("BlockExploitChunks-line-color")
-			.description("MAY POSSIBLY BE OLD. Color of the chunks that have been triggered via block ticking packets")
-			.defaultValue(new SettingColor(0, 0, 255, 170))
-			.visible(() -> (shapeMode.get() == ShapeMode.Lines || shapeMode.get() == ShapeMode.Both) && detectmode.get()== DetectMode.BlockExploitMode)
-			.build()
-	);
+    private final Setting<SettingColor> newChunksLineColor = sgRender.add(new ColorSetting.Builder()
+            .name("new-chunks-line-color")
+            .description("Color of the chunks that are completely new.")
+            .defaultValue(new SettingColor(255, 0, 0, 205))
+            .visible(() -> (shapeMode.get() == ShapeMode.Lines || shapeMode.get() == ShapeMode.Both))
+            .build()
+    );
+    private final Setting<SettingColor> tickexploitChunksLineColor = sgRender.add(new ColorSetting.Builder()
+            .name("BlockExploitChunks-line-color")
+            .description("MAY POSSIBLY BE OLD. Color of the chunks that have been triggered via block ticking packets")
+            .defaultValue(new SettingColor(0, 0, 255, 170))
+            .visible(() -> (shapeMode.get() == ShapeMode.Lines || shapeMode.get() == ShapeMode.Both) && detectmode.get()== DetectMode.BlockExploitMode)
+            .build()
+    );
 
-	private final Setting<SettingColor> oldChunksLineColor = sgRender.add(new ColorSetting.Builder()
-			.name("old-chunks-line-color")
-			.description("Color of the chunks that have been loaded before.")
-			.defaultValue(new SettingColor(0, 255, 0, 80))
-			.visible(() -> shapeMode.get() == ShapeMode.Lines || shapeMode.get() == ShapeMode.Both)
-			.build()
-	);
-	private final Setting<SettingColor> beingUpdatedOldChunksLineColor = sgRender.add(new ColorSetting.Builder()
-			.name("being-updated-chunks-line-color")
-			.description("Color of the chunks that haven't been explored since versions <=1.17.")
-			.defaultValue(new SettingColor(255, 220, 0, 100))
-			.visible(() -> shapeMode.get() == ShapeMode.Lines || shapeMode.get() == ShapeMode.Both)
-			.build()
-	);
-	private final Setting<SettingColor> OldGenerationOldChunksLineColor = sgRender.add(new ColorSetting.Builder()
-			.name("old-version-chunks-line-color")
-			.description("Color of the chunks that have been loaded before in old versions.")
-			.defaultValue(new SettingColor(190, 255, 0, 80))
-			.visible(() -> shapeMode.get() == ShapeMode.Lines || shapeMode.get() == ShapeMode.Both)
-			.build()
-	);
-	private static final ExecutorService taskExecutor = Executors.newCachedThreadPool();
-	private int deletewarningTicks=666;
-	private int deletewarning=0;
-	private String serverip;
-	private String world;
-	private final Set<ChunkPos> newChunks = Collections.synchronizedSet(new HashSet<>());
-	private final Set<ChunkPos> oldChunks = Collections.synchronizedSet(new HashSet<>());
-	private final Set<ChunkPos> beingUpdatedOldChunks = Collections.synchronizedSet(new HashSet<>());
-	private final Set<ChunkPos> OldGenerationOldChunks = Collections.synchronizedSet(new HashSet<>());
-	private final Set<ChunkPos> tickexploitChunks = Collections.synchronizedSet(new HashSet<>());
-	private static final Direction[] searchDirs = new Direction[] { Direction.EAST, Direction.NORTH, Direction.WEST, Direction.SOUTH, Direction.UP };
-	private int errticks=0;
-	private int autoreloadticks=0;
-	private int loadingticks=0;
-	private boolean worldchange=false;
-	private int justenabledsavedata=0;
-	private boolean saveDataWasOn = false;
-	private static final Set<Block> ORE_BLOCKS = new HashSet<>();
-	static {
-		ORE_BLOCKS.add(Blocks.COAL_ORE);
-		ORE_BLOCKS.add(Blocks.DEEPSLATE_COAL_ORE);
-		ORE_BLOCKS.add(Blocks.COPPER_ORE);
-		ORE_BLOCKS.add(Blocks.DEEPSLATE_COPPER_ORE);
-		ORE_BLOCKS.add(Blocks.IRON_ORE);
-		ORE_BLOCKS.add(Blocks.DEEPSLATE_IRON_ORE);
-		ORE_BLOCKS.add(Blocks.GOLD_ORE);
-		ORE_BLOCKS.add(Blocks.DEEPSLATE_GOLD_ORE);
-		ORE_BLOCKS.add(Blocks.LAPIS_ORE);
-		ORE_BLOCKS.add(Blocks.DEEPSLATE_LAPIS_ORE);
-		ORE_BLOCKS.add(Blocks.DIAMOND_ORE);
-		ORE_BLOCKS.add(Blocks.DEEPSLATE_DIAMOND_ORE);
-		ORE_BLOCKS.add(Blocks.REDSTONE_ORE);
-		ORE_BLOCKS.add(Blocks.DEEPSLATE_REDSTONE_ORE);
-		ORE_BLOCKS.add(Blocks.EMERALD_ORE);
-		ORE_BLOCKS.add(Blocks.DEEPSLATE_EMERALD_ORE);
-	}
-	private static final Set<Block> DEEPSLATE_BLOCKS = new HashSet<>();
-	static {
-		DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE);
-		DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_COPPER_ORE);
-		DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_IRON_ORE);
-		DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_COAL_ORE);
-		DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_REDSTONE_ORE);
-		DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_EMERALD_ORE);
-		DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_GOLD_ORE);
-		DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_LAPIS_ORE);
-		DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_DIAMOND_ORE);
-	}
-	private static final Set<Block> NEW_OVERWORLD_BLOCKS = new HashSet<>();
-	static {
-		NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.AMETHYST_BLOCK);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.BUDDING_AMETHYST);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.AZALEA);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.FLOWERING_AZALEA);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.BIG_DRIPLEAF);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.BIG_DRIPLEAF_STEM);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.SMALL_DRIPLEAF);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.CAVE_VINES);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.CAVE_VINES_PLANT);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.SPORE_BLOSSOM);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.COPPER_ORE);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_COPPER_ORE);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_IRON_ORE);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_COAL_ORE);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_REDSTONE_ORE);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_EMERALD_ORE);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_GOLD_ORE);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_LAPIS_ORE);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_DIAMOND_ORE);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.GLOW_LICHEN);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.RAW_COPPER_BLOCK);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.RAW_IRON_BLOCK);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.DRIPSTONE_BLOCK);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.MOSS_BLOCK);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.MOSS_CARPET);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.POINTED_DRIPSTONE);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.SMOOTH_BASALT);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.TUFF);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.CALCITE);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.HANGING_ROOTS);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.ROOTED_DIRT);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.AZALEA_LEAVES);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.FLOWERING_AZALEA_LEAVES);
-		NEW_OVERWORLD_BLOCKS.add(Blocks.POWDER_SNOW);
-	}
-	private static final Set<Block> NEW_NETHER_BLOCKS = new HashSet<>();
-	static {
-		NEW_NETHER_BLOCKS.add(Blocks.ANCIENT_DEBRIS);
-		NEW_NETHER_BLOCKS.add(Blocks.BASALT);
-		NEW_NETHER_BLOCKS.add(Blocks.BLACKSTONE);
-		NEW_NETHER_BLOCKS.add(Blocks.GILDED_BLACKSTONE);
-		NEW_NETHER_BLOCKS.add(Blocks.POLISHED_BLACKSTONE_BRICKS);
-		NEW_NETHER_BLOCKS.add(Blocks.CRIMSON_STEM);
-		NEW_NETHER_BLOCKS.add(Blocks.CRIMSON_NYLIUM);
-		NEW_NETHER_BLOCKS.add(Blocks.NETHER_GOLD_ORE);
-		NEW_NETHER_BLOCKS.add(Blocks.WARPED_NYLIUM);
-		NEW_NETHER_BLOCKS.add(Blocks.WARPED_STEM);
-		NEW_NETHER_BLOCKS.add(Blocks.TWISTING_VINES);
-		NEW_NETHER_BLOCKS.add(Blocks.WEEPING_VINES);
-		NEW_NETHER_BLOCKS.add(Blocks.BONE_BLOCK);
-		NEW_NETHER_BLOCKS.add(Blocks.IRON_CHAIN);
-		NEW_NETHER_BLOCKS.add(Blocks.OBSIDIAN);
-		NEW_NETHER_BLOCKS.add(Blocks.CRYING_OBSIDIAN);
-		NEW_NETHER_BLOCKS.add(Blocks.SOUL_SOIL);
-		NEW_NETHER_BLOCKS.add(Blocks.SOUL_FIRE);
-	}
-	Set<Path> FILE_PATHS = new HashSet<>(Set.of(
-			Paths.get("OldChunkData.txt"),
-			Paths.get("BeingUpdatedChunkData.txt"),
-			Paths.get("OldGenerationChunkData.txt"),
-			Paths.get("NewChunkData.txt"),
-			Paths.get("BlockExploitChunkData.txt")
-	));
-	public NewerNewChunks() {
-		super(StashHunter.CATEGORY,"NewerNewChunks", "Detects new chunks by scanning chunk section palettes (1.18+ only), liquid flow, and block ticking packets.");
-	}
-	public List<ChunkPos> getNewChunks() {
-		return new ArrayList<>(newChunks);
-	}
-	private void clearChunkData() {
-		newChunks.clear();
-		oldChunks.clear();
-		beingUpdatedOldChunks.clear();
-		OldGenerationOldChunks.clear();
-		tickexploitChunks.clear();
-	}
-	@Override
-	public void onActivate() {
-		if (save.get())saveDataWasOn = true;
-		else if (!save.get())saveDataWasOn = false;
-		if (autoreload.get()) {
-			clearChunkData();
-		}
-		autoreloadticks=0;
-		loadingticks=0;
-		worldchange=false;
-		justenabledsavedata=0;
-		if (mc.level == null) return;
+    private final Setting<SettingColor> oldChunksLineColor = sgRender.add(new ColorSetting.Builder()
+            .name("old-chunks-line-color")
+            .description("Color of the chunks that have been loaded before.")
+            .defaultValue(new SettingColor(0, 255, 0, 80))
+            .visible(() -> shapeMode.get() == ShapeMode.Lines || shapeMode.get() == ShapeMode.Both)
+            .build()
+    );
+    private final Setting<SettingColor> beingUpdatedOldChunksLineColor = sgRender.add(new ColorSetting.Builder()
+            .name("being-updated-chunks-line-color")
+            .description("Color of the chunks that haven't been explored since versions <=1.17.")
+            .defaultValue(new SettingColor(255, 220, 0, 100))
+            .visible(() -> shapeMode.get() == ShapeMode.Lines || shapeMode.get() == ShapeMode.Both)
+            .build()
+    );
+    private final Setting<SettingColor> OldGenerationOldChunksLineColor = sgRender.add(new ColorSetting.Builder()
+            .name("old-version-chunks-line-color")
+            .description("Color of the chunks that have been loaded before in old versions.")
+            .defaultValue(new SettingColor(190, 255, 0, 80))
+            .visible(() -> shapeMode.get() == ShapeMode.Lines || shapeMode.get() == ShapeMode.Both)
+            .build()
+    );
+    private int deletewarningTicks=666;
+    private int deletewarning=0;
+    // Under the Meteor folder like Config and TripManager. The old relative path resolved against the
+    // JVM working directory, which launchers like MultiMC/Prism set to something else.
+    private static final Path DATA_ROOT = MeteorClient.FOLDER.toPath().resolve("StashHunter").resolve("NewChunks");
+    private static final Path LEGACY_DATA_ROOT = Paths.get("StashHunter", "NewChunks");
+    private static boolean legacyDataChecked;
+    private String serverip;
+    private String world;
+    private ResourceKey<Level> worldKey;
+    private String worldName;
+    // Client thread only: the packet handler passes every set access through mc.execute(...).
+    private final Set<ChunkPos> newChunks = new HashSet<>();
+    private final Set<ChunkPos> oldChunks = new HashSet<>();
+    private final Set<ChunkPos> beingUpdatedOldChunks = new HashSet<>();
+    private final Set<ChunkPos> OldGenerationOldChunks = new HashSet<>();
+    private final Set<ChunkPos> tickexploitChunks = new HashSet<>();
+    private static final Direction[] searchDirs = new Direction[] { Direction.EAST, Direction.NORTH, Direction.WEST, Direction.SOUTH, Direction.UP };
+    private int errticks=0;
+    private int autoreloadticks=0;
+    private int loadingticks=0;
+    private boolean worldchange=false;
+    private boolean saveDataWasOn = false;
+    // Detections waiting to be appended to their data file, keyed by the file's full path. The path is
+    // resolved when the chunk is detected, so a later dimension change can't misroute it.
+    private final Map<Path, List<ChunkPos>> pendingWrites = new LinkedHashMap<>();
+    private static final int FLUSH_INTERVAL_TICKS = 100;
+    private int flushTicks = 0;
+    private enum ChunkKind {
+        NEW("NewChunkData.txt"),
+        OLD("OldChunkData.txt"),
+        BEING_UPDATED("BeingUpdatedChunkData.txt"),
+        OLD_GENERATION("OldGenerationChunkData.txt"),
+        BLOCK_EXPLOIT("BlockExploitChunkData.txt");
+        final Path file;
+        ChunkKind(String file) { this.file = Paths.get(file); }
+    }
+    // Vanilla TheEndBiomeSource: chunks with x² + z² <= 4096 belong to the main island, which is
+    // minecraft:the_end in every version. Only outside of it does the_end mean pre-1.13 terrain.
+    private static final long END_MAIN_ISLAND_CHUNK_RADIUS_SQ = 4096L;
+    private static final Set<Block> ORE_BLOCKS = new HashSet<>();
+    static {
+        ORE_BLOCKS.add(Blocks.COAL_ORE);
+        ORE_BLOCKS.add(Blocks.DEEPSLATE_COAL_ORE);
+        ORE_BLOCKS.add(Blocks.COPPER_ORE);
+        ORE_BLOCKS.add(Blocks.DEEPSLATE_COPPER_ORE);
+        ORE_BLOCKS.add(Blocks.IRON_ORE);
+        ORE_BLOCKS.add(Blocks.DEEPSLATE_IRON_ORE);
+        ORE_BLOCKS.add(Blocks.GOLD_ORE);
+        ORE_BLOCKS.add(Blocks.DEEPSLATE_GOLD_ORE);
+        ORE_BLOCKS.add(Blocks.LAPIS_ORE);
+        ORE_BLOCKS.add(Blocks.DEEPSLATE_LAPIS_ORE);
+        ORE_BLOCKS.add(Blocks.DIAMOND_ORE);
+        ORE_BLOCKS.add(Blocks.DEEPSLATE_DIAMOND_ORE);
+        ORE_BLOCKS.add(Blocks.REDSTONE_ORE);
+        ORE_BLOCKS.add(Blocks.DEEPSLATE_REDSTONE_ORE);
+        ORE_BLOCKS.add(Blocks.EMERALD_ORE);
+        ORE_BLOCKS.add(Blocks.DEEPSLATE_EMERALD_ORE);
+    }
+    private static final Set<Block> DEEPSLATE_BLOCKS = new HashSet<>();
+    static {
+        DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE);
+        DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_COPPER_ORE);
+        DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_IRON_ORE);
+        DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_COAL_ORE);
+        DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_REDSTONE_ORE);
+        DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_EMERALD_ORE);
+        DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_GOLD_ORE);
+        DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_LAPIS_ORE);
+        DEEPSLATE_BLOCKS.add(Blocks.DEEPSLATE_DIAMOND_ORE);
+    }
+    private static final Set<Block> NEW_OVERWORLD_BLOCKS = new HashSet<>();
+    static {
+        NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.AMETHYST_BLOCK);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.BUDDING_AMETHYST);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.AZALEA);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.FLOWERING_AZALEA);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.BIG_DRIPLEAF);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.BIG_DRIPLEAF_STEM);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.SMALL_DRIPLEAF);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.CAVE_VINES);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.CAVE_VINES_PLANT);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.SPORE_BLOSSOM);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.COPPER_ORE);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_COPPER_ORE);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_IRON_ORE);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_COAL_ORE);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_REDSTONE_ORE);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_EMERALD_ORE);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_GOLD_ORE);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_LAPIS_ORE);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.DEEPSLATE_DIAMOND_ORE);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.GLOW_LICHEN);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.RAW_COPPER_BLOCK);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.RAW_IRON_BLOCK);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.DRIPSTONE_BLOCK);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.MOSS_BLOCK);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.MOSS_CARPET);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.POINTED_DRIPSTONE);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.SMOOTH_BASALT);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.TUFF);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.CALCITE);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.HANGING_ROOTS);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.ROOTED_DIRT);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.AZALEA_LEAVES);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.FLOWERING_AZALEA_LEAVES);
+        NEW_OVERWORLD_BLOCKS.add(Blocks.POWDER_SNOW);
+    }
+    private static final Set<Block> NEW_NETHER_BLOCKS = new HashSet<>();
+    static {
+        NEW_NETHER_BLOCKS.add(Blocks.ANCIENT_DEBRIS);
+        NEW_NETHER_BLOCKS.add(Blocks.BASALT);
+        NEW_NETHER_BLOCKS.add(Blocks.BLACKSTONE);
+        NEW_NETHER_BLOCKS.add(Blocks.GILDED_BLACKSTONE);
+        NEW_NETHER_BLOCKS.add(Blocks.POLISHED_BLACKSTONE_BRICKS);
+        NEW_NETHER_BLOCKS.add(Blocks.CRIMSON_STEM);
+        NEW_NETHER_BLOCKS.add(Blocks.CRIMSON_NYLIUM);
+        NEW_NETHER_BLOCKS.add(Blocks.NETHER_GOLD_ORE);
+        NEW_NETHER_BLOCKS.add(Blocks.WARPED_NYLIUM);
+        NEW_NETHER_BLOCKS.add(Blocks.WARPED_STEM);
+        NEW_NETHER_BLOCKS.add(Blocks.TWISTING_VINES);
+        NEW_NETHER_BLOCKS.add(Blocks.WEEPING_VINES);
+        NEW_NETHER_BLOCKS.add(Blocks.BONE_BLOCK);
+        NEW_NETHER_BLOCKS.add(Blocks.IRON_CHAIN);
+        NEW_NETHER_BLOCKS.add(Blocks.OBSIDIAN);
+        NEW_NETHER_BLOCKS.add(Blocks.CRYING_OBSIDIAN);
+        NEW_NETHER_BLOCKS.add(Blocks.SOUL_SOIL);
+        NEW_NETHER_BLOCKS.add(Blocks.SOUL_FIRE);
+    }
+    Set<Path> FILE_PATHS = new HashSet<>(Set.of(
+            Paths.get("OldChunkData.txt"),
+            Paths.get("BeingUpdatedChunkData.txt"),
+            Paths.get("OldGenerationChunkData.txt"),
+            Paths.get("NewChunkData.txt"),
+            Paths.get("BlockExploitChunkData.txt")
+    ));
+    public NewerNewChunks() {
+        super(StashHunter.CATEGORY,"NewerNewChunks", "Detects new chunks by scanning chunk section palettes (1.18+ only), liquid flow, and block ticking packets.");
+    }
+    public boolean isNewChunk(ChunkPos pos) {
+        return newChunks.contains(pos);
+    }
+    // Client thread only, like the sets themselves.
+    public boolean isOldChunk(ChunkPos pos) {
+        return oldChunks.contains(pos);
+    }
+    public boolean isOldGenerationChunk(ChunkPos pos) {
+        return OldGenerationOldChunks.contains(pos);
+    }
+    public boolean isBeingUpdatedChunk(ChunkPos pos) {
+        return beingUpdatedOldChunks.contains(pos);
+    }
+    private void clearChunkData() {
+        newChunks.clear();
+        oldChunks.clear();
+        beingUpdatedOldChunks.clear();
+        OldGenerationOldChunks.clear();
+        tickexploitChunks.clear();
+    }
+    @Override
+    public void onActivate() {
+        saveDataWasOn = save.get();
+        if (autoreload.get()) {
+            clearChunkData();
+        }
+        autoreloadticks=0;
+        loadingticks=0;
+        worldchange=false;
+        if (mc.level == null) return;
 
-		if (save.get() || load.get()) {
-			world= mc.level.dimension().identifier().toString().replace(':', '_');
-			updateServerIp();
-		}
-		if (save.get()){
-			try {
-				Files.createDirectories(Paths.get("StashHunter", "NewChunks", serverip, world));
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-		}
+        if (save.get() || load.get()) {
+            world= mc.level.dimension().identifier().toString().replace(':', '_');
+            updateServerIp();
+        }
+        if (save.get()){
+            try {
+                Files.createDirectories(dataDir());
+            } catch (IOException e) {
+                StashHunter.LOG.warn("Could not create the chunk data folder", e);
+            }
+        }
 
-		// Check server version and warn if PaletteExploit is enabled for older servers
-		if (PaletteExploit.get()) {
-			// You can add version detection logic here if needed
-			// For now, just show a warning in the info
-			info("PaletteExploit enabled - make sure your server is version 1.18 or higher!");
-		}
-		if (save.get() || load.get()) {
-			Path baseDir = Paths.get("StashHunter", "NewChunks", serverip, world);
+        // Check server version and warn if PaletteExploit is enabled for older servers
+        if (PaletteExploit.get()) {
+            // You can add version detection logic here if needed
+            // For now, just show a warning in the info
+            info("PaletteExploit enabled - make sure your server is version 1.18 or higher!");
+        }
+        if (save.get() || load.get()) {
+            Path baseDir = dataDir();
 
-			for (Path fileName : FILE_PATHS) {
-				Path fullPath = baseDir.resolve(fileName);
-				try {
-					Files.createDirectories(fullPath.getParent());
-					if (Files.notExists(fullPath)) {
-						Files.createFile(fullPath);
-					}
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-			}
-		}
-		if (load.get()){
-			loadData();
-		}
-	}
-	private void updateServerIp() {
-		if (mc.hasSingleplayerServer()){
-			String[] array = mc.getSingleplayerServer().getWorldPath(LevelResource.ROOT).toString().replace(':', '_').split("/|\\\\");
-			serverip=array[array.length-2];
-		} else {
-			serverip = mc.getCurrentServer().ip.replace(':', '_');
-		}
-	}
-	@Override
-	public void onDeactivate() {
-		autoreloadticks=0;
-		loadingticks=0;
-		worldchange=false;
-		justenabledsavedata=0;
-		if (remove.get()|autoreload.get()) {
-			clearChunkData();
-		}
-		super.onDeactivate();
-	}
-	@EventHandler
-	private void onScreenOpen(OpenScreenEvent event) {
-		if (event.screen instanceof DisconnectedScreen) {
-			if (worldleaveremove.get()) {
-				clearChunkData();
-			}
-		}
-		if (event.screen instanceof LevelLoadingScreen) {
-			worldchange=true;
-		}
-	}
-	@EventHandler
-	private void onGameLeft(GameLeftEvent event) {
-		serverip = null; // re-resolved on the next world join
-		if (worldleaveremove.get()) {
-			clearChunkData();
-		}
-	}
-	@EventHandler
-	private void onPreTick(TickEvent.Pre event) {
-		if (mc.level == null) return;
-		world= mc.level.dimension().identifier().toString().replace(':', '_');
-		if (serverip == null) updateServerIp();
+            for (Path fileName : FILE_PATHS) {
+                Path fullPath = baseDir.resolve(fileName);
+                try {
+                    Files.createDirectories(fullPath.getParent());
+                    if (Files.notExists(fullPath)) {
+                        Files.createFile(fullPath);
+                    }
+                } catch (IOException e) {
+                    StashHunter.LOG.warn("Could not create chunk data file {}", fullPath, e);
+                }
+            }
+        }
+        if (load.get()){
+            loadData();
+            loadingticks=1; // loaded already, onPreTick must not read all files a second time
+        }
+    }
+    private Path dataDir() {
+        migrateLegacyData();
+        return DATA_ROOT.resolve(serverip).resolve(world);
+    }
+    // One-time move of data saved by older versions under <working dir>/StashHunter/NewChunks.
+    private static void migrateLegacyData() {
+        if (legacyDataChecked) return;
+        legacyDataChecked = true;
+        Path legacy = LEGACY_DATA_ROOT.toAbsolutePath().normalize();
+        if (!Files.isDirectory(legacy) || Files.exists(DATA_ROOT) || legacy.equals(DATA_ROOT.toAbsolutePath().normalize())) return;
+        try {
+            Files.createDirectories(DATA_ROOT.getParent());
+            Files.move(legacy, DATA_ROOT);
+            StashHunter.LOG.info("Moved chunk data from {} to {}", legacy, DATA_ROOT);
+        } catch (IOException e) {
+            StashHunter.LOG.warn("Could not move old chunk data from {} to {} - move it by hand to keep it", legacy, DATA_ROOT, e);
+        }
+    }
+    private void updateServerIp() {
+        if (mc.hasSingleplayerServer()){
+            String[] array = mc.getSingleplayerServer().getWorldPath(LevelResource.ROOT).toString().replace(':', '_').split("/|\\\\");
+            serverip=array[array.length-2];
+        } else {
+            serverip = mc.getCurrentServer().ip.replace(':', '_');
+        }
+    }
+    @Override
+    public void onDeactivate() {
+        autoreloadticks=0;
+        loadingticks=0;
+        worldchange=false;
+        flushPendingWrites();
+        if (remove.get()|autoreload.get()) {
+            clearChunkData();
+        }
+        super.onDeactivate();
+    }
+    @EventHandler
+    private void onScreenOpen(OpenScreenEvent event) {
+        if (event.screen instanceof DisconnectedScreen) {
+            if (worldleaveremove.get()) {
+                clearChunkData();
+            }
+        }
+        if (event.screen instanceof LevelLoadingScreen) {
+            worldchange=true;
+        }
+    }
+    @EventHandler
+    private void onGameLeft(GameLeftEvent event) {
+        flushPendingWrites();
+        serverip = null; // re-resolved on the next world join
+        if (worldleaveremove.get()) {
+            clearChunkData();
+        }
+    }
+    @EventHandler
+    private void onPreTick(TickEvent.Pre event) {
+        if (mc.level == null) return;
+        // The folder name only changes with the dimension, so it isn't rebuilt every tick.
+        ResourceKey<Level> dimension = mc.level.dimension();
+        if (dimension != worldKey) {
+            worldKey = dimension;
+            worldName = dimension.identifier().toString().replace(':', '_');
+        }
+        String currentWorld = worldName;
+        if (!currentWorld.equals(world) || ++flushTicks >= FLUSH_INTERVAL_TICKS) {
+            flushPendingWrites();
+            flushTicks = 0;
+        }
+        world = currentWorld;
+        if (serverip == null) updateServerIp();
 
-		if (deletewarningTicks<=100) deletewarningTicks++;
-		else deletewarning=0;
-		if (deletewarning>=2){
-			updateServerIp();
-			clearChunkData();
-			try {
-				Files.deleteIfExists(Paths.get("StashHunter", "NewChunks", serverip, world, "NewChunkData.txt"));
-				Files.deleteIfExists(Paths.get("StashHunter", "NewChunks", serverip, world, "OldChunkData.txt"));
-				Files.deleteIfExists(Paths.get("StashHunter", "NewChunks", serverip, world, "BeingUpdatedChunkData.txt"));
-				Files.deleteIfExists(Paths.get("StashHunter", "NewChunks", serverip, world, "OldGenerationChunkData.txt"));
-				Files.deleteIfExists(Paths.get("StashHunter", "NewChunks", serverip, world, "BlockExploitChunkData.txt"));
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-			error("Chunk Data deleted for this Dimension.");
-			deletewarning=0;
-		}
+        if (deletewarningTicks<=100) deletewarningTicks++;
+        else deletewarning=0;
+        if (deletewarning>=2){
+            updateServerIp();
+            clearChunkData();
+            Path dataDir = dataDir();
+            pendingWrites.keySet().removeIf(path -> path.startsWith(dataDir));
+            try {
+                Files.deleteIfExists(dataDir.resolve("NewChunkData.txt"));
+                Files.deleteIfExists(dataDir.resolve("OldChunkData.txt"));
+                Files.deleteIfExists(dataDir.resolve("BeingUpdatedChunkData.txt"));
+                Files.deleteIfExists(dataDir.resolve("OldGenerationChunkData.txt"));
+                Files.deleteIfExists(dataDir.resolve("BlockExploitChunkData.txt"));
+            } catch (IOException e) {
+                StashHunter.LOG.warn("Could not delete the chunk data of this dimension", e);
+            }
+            error("Chunk Data deleted for this Dimension.");
+            deletewarning=0;
+        }
 
-		if (detectmode.get()== DetectMode.Normal && blockupdateexploit.get()){
-			if (errticks<6){
-				errticks++;}
-			if (errticks==5){
-				error("BlockExploitMode RECOMMENDED. Required to determine false positives from the Block Exploit from the OldChunks.");
-			}
-		} else errticks=0;
+        if (detectmode.get()== DetectMode.Normal && blockupdateexploit.get()){
+            if (errticks<6){
+                errticks++;}
+            if (errticks==5){
+                error("BlockExploitMode RECOMMENDED. Required to determine false positives from the Block Exploit from the OldChunks.");
+            }
+        } else errticks=0;
 
-		// Additional warning for PaletteExploit on older servers
-		if (PaletteExploit.get()) {
-			// Add any server version checks here if you have access to server info
-			// For example, you could check protocol version or other indicators
-		}
+        // Additional warning for PaletteExploit on older servers
+        if (PaletteExploit.get()) {
+            // Add any server version checks here if you have access to server info
+            // For example, you could check protocol version or other indicators
+        }
 
-		if (load.get()){
-			if (loadingticks<1){
-				loadData();
-				loadingticks++;
-			}
-		} else if (!load.get()){
-			loadingticks=0;
-		}
+        if (load.get()){
+            if (loadingticks<1){
+                loadData();
+                loadingticks++;
+            }
+        } else if (!load.get()){
+            loadingticks=0;
+        }
 
-		if (autoreload.get()) {
-			autoreloadticks++;
-			if (autoreloadticks==removedelay.get()*20){
-				clearChunkData();
-				if (load.get()){
-					loadData();
-				}
-			} else if (autoreloadticks>=removedelay.get()*20){
-				autoreloadticks=0;
-			}
-		}
+        if (autoreload.get()) {
+            autoreloadticks++;
+            if (autoreloadticks==removedelay.get()*20){
+                clearChunkData();
+                if (load.get()){
+                    loadData();
+                }
+            } else if (autoreloadticks>=removedelay.get()*20){
+                autoreloadticks=0;
+            }
+        }
 
-		if (load.get() && worldchange){		//autoreload when entering different dimensions
-			if (worldleaveremove.get()){
-				clearChunkData();
-			}
-			loadData();
-			worldchange=false;
-		}
+        if (load.get() && worldchange){ //autoreload when entering different dimensions
+            if (worldleaveremove.get()){
+                clearChunkData();
+            }
+            loadData();
+            worldchange=false;
+        }
 
-		if (!save.get())saveDataWasOn = false;
-		if (save.get() && justenabledsavedata<=2 && !saveDataWasOn){
-			justenabledsavedata++;
-			if (justenabledsavedata == 1){
-				synchronized (newChunks) {
-					for (ChunkPos chunk : newChunks){
-						saveData(Paths.get("NewChunkData.txt"), chunk);
-					}
-				}
-				synchronized (OldGenerationOldChunks) {
-					for (ChunkPos chunk : OldGenerationOldChunks){
-						saveData(Paths.get("OldGenerationChunkData.txt"), chunk);
-					}
-				}
-				synchronized (beingUpdatedOldChunks) {
-					for (ChunkPos chunk : beingUpdatedOldChunks){
-						saveData(Paths.get("BeingUpdatedChunkData.txt"), chunk);
-					}
-				}
-				synchronized (oldChunks) {
-					for (ChunkPos chunk : oldChunks){
-						saveData(Paths.get("OldChunkData.txt"), chunk);
-					}
-				}
-				synchronized (tickexploitChunks) {
-					for (ChunkPos chunk : tickexploitChunks){
-						saveData(Paths.get("BlockExploitChunkData.txt"), chunk);
-					}
-				}
-			}
-		}
+        // SaveChunkData switched on while the module is running: dump the chunks detected so far once.
+        if (save.get() && !saveDataWasOn){
+            for (ChunkPos chunk : newChunks){
+                saveData(Paths.get("NewChunkData.txt"), chunk);
+            }
+            for (ChunkPos chunk : OldGenerationOldChunks){
+                saveData(Paths.get("OldGenerationChunkData.txt"), chunk);
+            }
+            for (ChunkPos chunk : beingUpdatedOldChunks){
+                saveData(Paths.get("BeingUpdatedChunkData.txt"), chunk);
+            }
+            for (ChunkPos chunk : oldChunks){
+                saveData(Paths.get("OldChunkData.txt"), chunk);
+            }
+            for (ChunkPos chunk : tickexploitChunks){
+                saveData(Paths.get("BlockExploitChunkData.txt"), chunk);
+            }
+        }
+        saveDataWasOn = save.get();
 
-		if (removerenderdist.get())removeChunksOutsideRenderDistance();
-	}
-	@EventHandler
-	private void onRender(Render3DEvent event) {
-		if (mc.level == null || mc.player == null) return;
-		if (event.renderer == null) return;
-		BlockPos playerPos = new BlockPos(mc.player.getBlockX(), renderHeight.get(), mc.player.getBlockZ());
-		if (newChunksLineColor.get().a > 5 || newChunksSideColor.get().a > 5) {
-			synchronized (newChunks) {
-				for (ChunkPos c : newChunks) {
-					if (c != null && playerPos.closerThan(new BlockPos(c.getMiddleBlockX(), renderHeight.get(), c.getMiddleBlockZ()), renderDistance.get()*16)) {
-						render(new AABB(new Vec3(c.getWorldPosition().getX(), c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()), new Vec3(c.getWorldPosition().getX()+16, c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()+16)), newChunksSideColor.get(), newChunksLineColor.get(), shapeMode.get(), event);
-					}
-				}
-			}
-		}
-		if (tickexploitChunksLineColor.get().a > 5 || tickexploitChunksSideColor.get().a > 5) {
-			synchronized (tickexploitChunks) {
-				for (ChunkPos c : tickexploitChunks) {
-					if (c != null && playerPos.closerThan(new BlockPos(c.getMiddleBlockX(), renderHeight.get(), c.getMiddleBlockZ()), renderDistance.get()*16)) {
-						if (detectmode.get()== DetectMode.BlockExploitMode && blockupdateexploit.get()) {
-							render(new AABB(new Vec3(c.getWorldPosition().getX(), c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()), new Vec3(c.getWorldPosition().getX()+16, c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()+16)), tickexploitChunksSideColor.get(), tickexploitChunksLineColor.get(), shapeMode.get(), event);
-						} else if ((detectmode.get()== DetectMode.Normal) && blockupdateexploit.get()) {
-							render(new AABB(new Vec3(c.getWorldPosition().getX(), c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()), new Vec3(c.getWorldPosition().getX()+16, c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()+16)), newChunksSideColor.get(), newChunksLineColor.get(), shapeMode.get(), event);
-						} else if ((detectmode.get()== DetectMode.IgnoreBlockExploit) && blockupdateexploit.get()) {
-							render(new AABB(new Vec3(c.getWorldPosition().getX(), c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()), new Vec3(c.getWorldPosition().getX()+16, c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()+16)), oldChunksSideColor.get(), oldChunksLineColor.get(), shapeMode.get(), event);
-						} else if ((detectmode.get()== DetectMode.BlockExploitMode | detectmode.get()== DetectMode.Normal | detectmode.get()== DetectMode.IgnoreBlockExploit) && !blockupdateexploit.get()) {
-							render(new AABB(new Vec3(c.getWorldPosition().getX(), c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()), new Vec3(c.getWorldPosition().getX()+16, c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()+16)), oldChunksSideColor.get(), oldChunksLineColor.get(), shapeMode.get(), event);
-						}
-					}
-				}
-			}
-		}
-		if (oldChunksLineColor.get().a > 5 || oldChunksSideColor.get().a > 5){
-			synchronized (oldChunks) {
-				for (ChunkPos c : oldChunks) {
-					if (c != null && playerPos.closerThan(new BlockPos(c.getMiddleBlockX(), renderHeight.get(), c.getMiddleBlockZ()), renderDistance.get()*16)) {
-						render(new AABB(new Vec3(c.getWorldPosition().getX(), c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()), new Vec3(c.getWorldPosition().getX()+16, c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()+16)), oldChunksSideColor.get(), oldChunksLineColor.get(), shapeMode.get(), event);
-					}
-				}
-			}
-		}
-		if (beingUpdatedOldChunksLineColor.get().a > 5 || beingUpdatedOldChunksSideColor.get().a > 5){
-			synchronized (beingUpdatedOldChunks) {
-				for (ChunkPos c : beingUpdatedOldChunks) {
-					if (c != null && playerPos.closerThan(new BlockPos(c.getMiddleBlockX(), renderHeight.get(), c.getMiddleBlockZ()), renderDistance.get()*16)) {
-						render(new AABB(new Vec3(c.getWorldPosition().getX(), c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()), new Vec3(c.getWorldPosition().getX()+16, c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()+16)), beingUpdatedOldChunksSideColor.get(), beingUpdatedOldChunksLineColor.get(), shapeMode.get(), event);
-					}
-				}
-			}
-		}
-		if (OldGenerationOldChunksLineColor.get().a > 5 || OldGenerationOldChunksSideColor.get().a > 5){
-			synchronized (OldGenerationOldChunks) {
-				for (ChunkPos c : OldGenerationOldChunks) {
-					if (c != null && playerPos.closerThan(new BlockPos(c.getMiddleBlockX(), renderHeight.get(), c.getMiddleBlockZ()), renderDistance.get()*16)) {
-						render(new AABB(new Vec3(c.getWorldPosition().getX(), c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()), new Vec3(c.getWorldPosition().getX()+16, c.getWorldPosition().getY()+renderHeight.get(), c.getWorldPosition().getZ()+16)), OldGenerationOldChunksSideColor.get(), OldGenerationOldChunksLineColor.get(), shapeMode.get(), event);
-					}
-				}
-			}
-		}
-	}
+        if (removerenderdist.get())removeChunksOutsideRenderDistance();
+    }
+    @EventHandler
+    private void onRender(Render3DEvent event) {
+        if (mc.level == null || mc.player == null) return;
+        if (event.renderer == null) return;
+        int px = mc.player.getBlockX();
+        int pz = mc.player.getBlockZ();
+        double maxDistance = renderDistance.get() * 16.0;
+        double maxDistanceSq = maxDistance * maxDistance;
+        double y = renderHeight.get();
+        ShapeMode mode = shapeMode.get();
+        if (newChunksLineColor.get().a > 5 || newChunksSideColor.get().a > 5) {
+            renderChunks(newChunks, newChunksSideColor.get(), newChunksLineColor.get(), mode, event, px, pz, y, maxDistanceSq);
+        }
+        if (tickexploitChunksLineColor.get().a > 5 || tickexploitChunksSideColor.get().a > 5) {
+            Color sides = oldChunksSideColor.get();
+            Color lines = oldChunksLineColor.get();
+            if (blockupdateexploit.get() && detectmode.get() == DetectMode.BlockExploitMode) {
+                sides = tickexploitChunksSideColor.get();
+                lines = tickexploitChunksLineColor.get();
+            } else if (blockupdateexploit.get() && detectmode.get() == DetectMode.Normal) {
+                sides = newChunksSideColor.get();
+                lines = newChunksLineColor.get();
+            }
+            renderChunks(tickexploitChunks, sides, lines, mode, event, px, pz, y, maxDistanceSq);
+        }
+        if (oldChunksLineColor.get().a > 5 || oldChunksSideColor.get().a > 5){
+            renderChunks(oldChunks, oldChunksSideColor.get(), oldChunksLineColor.get(), mode, event, px, pz, y, maxDistanceSq);
+        }
+        if (beingUpdatedOldChunksLineColor.get().a > 5 || beingUpdatedOldChunksSideColor.get().a > 5){
+            renderChunks(beingUpdatedOldChunks, beingUpdatedOldChunksSideColor.get(), beingUpdatedOldChunksLineColor.get(), mode, event, px, pz, y, maxDistanceSq);
+        }
+        if (OldGenerationOldChunksLineColor.get().a > 5 || OldGenerationOldChunksSideColor.get().a > 5){
+            renderChunks(OldGenerationOldChunks, OldGenerationOldChunksSideColor.get(), OldGenerationOldChunksLineColor.get(), mode, event, px, pz, y, maxDistanceSq);
+        }
+    }
 
-	private void render(AABB box, Color sides, Color lines, ShapeMode shapeMode, Render3DEvent event) {
-		try {
-			event.renderer.box(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ, sides, lines, shapeMode, 0);
-		} catch (Exception e) {}
-	}
+    // Runs every frame: plain int/double math only, no per-chunk BlockPos/Vec3/AABB allocations.
+    // Loaded chunk data grows with every flight, so once a set holds more chunks than the render
+    // square around the player, that square is probed instead of walking the whole set.
+    private void renderChunks(Set<ChunkPos> chunks, Color sides, Color lines, ShapeMode mode, Render3DEvent event, int px, int pz, double y, double maxDistanceSq) {
+        int range = (int) Math.ceil(Math.sqrt(maxDistanceSq) / 16.0) + 1;
+        long squareSize = (2L * range + 1) * (2L * range + 1);
+        if (squareSize < chunks.size()) {
+            int pcx = px >> 4, pcz = pz >> 4;
+            for (int cx = pcx - range; cx <= pcx + range; cx++) {
+                for (int cz = pcz - range; cz <= pcz + range; cz++) {
+                    ChunkPos c = new ChunkPos(cx, cz);
+                    if (chunks.contains(c)) renderChunk(c, sides, lines, mode, event, px, pz, y, maxDistanceSq);
+                }
+            }
+            return;
+        }
+        for (ChunkPos c : chunks) {
+            if (c != null) renderChunk(c, sides, lines, mode, event, px, pz, y, maxDistanceSq);
+        }
+    }
 
-	@EventHandler
-	private void onReadPacket(PacketEvent.Receive event) {
-		if (event.packet instanceof ServerboundChunkBatchReceivedPacket )return; //for some reason this packet keeps getting cast to other packets
-		if (!(event.packet instanceof ServerboundChunkBatchReceivedPacket) && event.packet instanceof ClientboundSectionBlocksUpdatePacket packet && liquidexploit.get()) {
+    private static void renderChunk(ChunkPos c, Color sides, Color lines, ShapeMode mode, Render3DEvent event, int px, int pz, double y, double maxDistanceSq) {
+        double dx = c.getMiddleBlockX() - px;
+        double dz = c.getMiddleBlockZ() - pz;
+        if (dx * dx + dz * dz >= maxDistanceSq) return;
+        double minX = c.getMinBlockX();
+        double minZ = c.getMinBlockZ();
+        event.renderer.box(minX, y, minZ, minX + 16, y, minZ + 16, sides, lines, mode, 0);
+    }
 
-			packet.runUpdates((pos, state) -> {
-				ChunkPos chunkPos = new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4);
-				if (!state.getFluidState().isEmpty() && !state.getFluidState().isSource()) {
-					for (Direction dir: searchDirs) {
-						try {
-							if (mc.level != null && mc.level.getBlockState(pos.relative(dir)).getFluidState().isSource() && (!OldGenerationOldChunks.contains(chunkPos) && !beingUpdatedOldChunks.contains(chunkPos) && !newChunks.contains(chunkPos) && !oldChunks.contains(chunkPos))) {
-								tickexploitChunks.remove(chunkPos);
-								newChunks.add(chunkPos);
-								if (save.get()){
-									saveData(Paths.get("NewChunkData.txt"), chunkPos);
-								}
-								return;
-							}
-						} catch (Exception e) {}
-					}
-				}
-			});
-		}
-		else if (!(event.packet instanceof ServerboundChunkBatchReceivedPacket) && event.packet instanceof ClientboundBlockUpdatePacket packet) {
-			ChunkPos chunkPos = new ChunkPos(packet.getPos().getX() >> 4, packet.getPos().getZ() >> 4);
-			if (blockupdateexploit.get()){
-				try {
-					if (!OldGenerationOldChunks.contains(chunkPos) && !beingUpdatedOldChunks.contains(chunkPos) && !tickexploitChunks.contains(chunkPos) && !oldChunks.contains(chunkPos) && !newChunks.contains(chunkPos)){
-						tickexploitChunks.add(chunkPos);
-						if (save.get()){
-							saveData(Paths.get("BlockExploitChunkData.txt"), chunkPos);
-						}
-					}
-				}
-				catch (Exception e){}
-			}
-			if (!packet.getBlockState().getFluidState().isEmpty() && !packet.getBlockState().getFluidState().isSource() && liquidexploit.get()) {
-				for (Direction dir: searchDirs) {
-					try {
-						if (mc.level != null && mc.level.getBlockState(packet.getPos().relative(dir)).getFluidState().isSource() && (!OldGenerationOldChunks.contains(chunkPos) && !beingUpdatedOldChunks.contains(chunkPos) && !newChunks.contains(chunkPos) && !oldChunks.contains(chunkPos))) {
-							tickexploitChunks.remove(chunkPos);
-							newChunks.add(chunkPos);
-							if (save.get()){
-								saveData(Paths.get("NewChunkData.txt"), chunkPos);
-							}
-							return;
-						}
-					} catch (Exception e) {}
-				}
-			}
-		}
-		else if (!(event.packet instanceof ServerboundChunkBatchReceivedPacket) && !(event.packet instanceof ServerboundMovePlayerPacket) && event.packet instanceof ClientboundLevelChunkWithLightPacket packet && mc.level != null) {
-			ChunkPos oldpos = new ChunkPos(packet.getX(), packet.getZ());
+    // PacketEvent.Receive is posted on the Netty connection thread. Anything that reads mc.level or
+    // touches the chunk sets / data files is handed to the client thread via mc.execute(...). This
+    // handler runs before vanilla schedules its own handling of the packet, so the queued task still
+    // sees the world as it was before the packet was applied.
+    @EventHandler
+    private void onReadPacket(PacketEvent.Receive event) {
+        if (event.packet instanceof ServerboundChunkBatchReceivedPacket )return; //for some reason this packet keeps getting cast to other packets
+        ClientLevel level = mc.level;
+        if (level == null) return;
+        if (event.packet instanceof ClientboundSectionBlocksUpdatePacket packet && liquidexploit.get()) {
+            mc.execute(() -> {
+                if (mc.level != level) return;
+                packet.runUpdates((pos, state) -> {
+                    if (isFlowingNextToSource(level, pos, state)) promoteToNew(new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4));
+                });
+            });
+        }
+        else if (event.packet instanceof ClientboundBlockUpdatePacket packet) {
+            mc.execute(() -> {
+                if (mc.level != level) return;
+                ChunkPos chunkPos = new ChunkPos(packet.getPos().getX() >> 4, packet.getPos().getZ() >> 4);
+                if (blockupdateexploit.get()) markChunk(chunkPos, ChunkKind.BLOCK_EXPLOIT);
+                if (liquidexploit.get() && isFlowingNextToSource(level, packet.getPos(), packet.getBlockState())) promoteToNew(chunkPos);
+            });
+        }
+        else if (event.packet instanceof ClientboundLevelChunkWithLightPacket packet) {
+            if (level.getChunkSource().getChunk(packet.getX(), packet.getZ(), false) == null) { // null until vanilla has loaded the chunk, i.e. only on its first arrival
+                ChunkPos chunkPos = new ChunkPos(packet.getX(), packet.getZ());
+                // Decoding and analysis stay on the Netty thread: they only touch our own private
+                // LevelChunk copy, and getReadBuffer() wraps a fresh buffer for every caller.
+                ChunkKind kind = classifyChunk(level, packet, chunkPos);
+                if (kind != null) {
+                    mc.execute(() -> {
+                        if (mc.level == level) markChunk(chunkPos, kind);
+                    });
+                }
+            }
+        }
+    }
 
-			if (mc.level.getChunkSource().getChunk(packet.getX(), packet.getZ(), false) == null) { // getChunk(x, z) never returns null, only an empty chunk
-				LevelChunk chunk = new LevelChunk(mc.level, oldpos);
-				try {
-					Map<Heightmap.Types, long[]> heightmaps = packet.getChunkData().getHeightmaps();
+    private static boolean isFlowingNextToSource(ClientLevel level, BlockPos pos, BlockState state) {
+        FluidState fluid = state.getFluidState();
+        if (fluid.isEmpty() || fluid.isSource()) return false;
+        for (Direction dir : searchDirs) {
+            if (level.getBlockState(pos.relative(dir)).getFluidState().isSource()) return true;
+        }
+        return false;
+    }
 
-					CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-						chunk.replaceWithPacketData(packet.getChunkData().getReadBuffer(), heightmaps,
-								packet.getChunkData().getBlockEntitiesTagsConsumer(packet.getX(), packet.getZ()));
-					}, taskExecutor);
-					future.join();
-				} catch (CompletionException e) {}
+    private ChunkKind classifyChunk(ClientLevel level, ClientboundLevelChunkWithLightPacket packet, ChunkPos oldpos) {
+        // Shared with ActivatedSpawnerDetector; null if the packet couldn't be decoded.
+        LevelChunk chunk = ChunkPacketDecoder.decode(level, packet);
+        if (chunk == null) return null;
 
-				boolean isNewChunk = false;
-				boolean isOldGeneration = false;
-				boolean chunkIsBeingUpdated = false;
-				boolean foundAnyOre = false;
-				boolean isNewOverworldGeneration = false;
-				boolean isNewNetherGeneration = false;
-				LevelChunkSection[] sections = chunk.getSections();
+        boolean isNewChunk = false;
+        boolean isOldGeneration = false;
+        boolean chunkIsBeingUpdated = false;
+        boolean foundAnyOre = false;
+        boolean isNewOverworldGeneration = false;
+        boolean isNewNetherGeneration = false;
+        LevelChunkSection[] sections = chunk.getSections();
 
-				if (overworldOldChunksDetector.get() && mc.level.dimension() == Level.OVERWORLD && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
-					for (int i = 0; i < 17; i++) {
-						LevelChunkSection section = sections[i];
-						// Bug fix: was "!!section.hasOnlyAir()" (double negation cancels out), which
-						// only ever scanned sections that were pure air - the detectors below need
-						// sections that actually have content, i.e. NOT only air.
-						if (section != null && !section.hasOnlyAir()) {
-							for (int x = 0; x < 16; x++) {
-								for (int y = 0; y < 16; y++) {
-									for (int z = 0; z < 16; z++) {
-										if (!foundAnyOre && ORE_BLOCKS.contains(section.getBlockState(x, y, z).getBlock())) foundAnyOre = true; //prevent false flags in flat world
-										if (((y >= 5 && i == 4) || i > 4) && !isNewOverworldGeneration && (NEW_OVERWORLD_BLOCKS.contains(section.getBlockState(x, y, z).getBlock()) || DEEPSLATE_BLOCKS.contains(section.getBlockState(x, y, z).getBlock()))) {
-											isNewOverworldGeneration = true;
-											break;
-										}
-									}
-								}
-							}
-						}
-					}
-					if (foundAnyOre && !isOldGeneration && !isNewOverworldGeneration) isOldGeneration = true;
-				}
+        if (overworldOldChunksDetector.get() && level.dimension() == Level.OVERWORLD && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
+            // Vanilla layout (min Y -64): section 4 holds y=0..15, the scan covers y < 208.
+            int zeroSection = level.getSectionIndex(0);
+            int overworldEnd = Math.min(sections.length, level.getSectionIndex(208));
+            // Runs on the Netty thread (see onReadPacket), so keep it cheap: maybeHas() checks the
+            // section palette first, each block state is read once, and the scan stops as soon as
+            // new generation is found (that settles the result; the ore flag no longer matters).
+            overworldScan:
+            for (int i = 0; i < overworldEnd; i++) {
+                LevelChunkSection section = sections[i];
+                // Bug fix: was "!!section.hasOnlyAir()" (double negation cancels out), which
+                // only ever scanned sections that were pure air - the detectors below need
+                // sections that actually have content, i.e. NOT only air.
+                if (section == null || section.hasOnlyAir()) continue;
+                // maybeHas() can report stale palette entries, so hits are still confirmed per block.
+                boolean wantOre = !foundAnyOre && section.maybeHas(NewerNewChunks::isOre);
+                boolean wantNew = i >= zeroSection && section.maybeHas(NewerNewChunks::isNewOverworldBlock);
+                if (!wantOre && !wantNew) continue;
+                for (int y = 0; y < 16; y++) {
+                    // Unchanged rule: in the zero section new-generation blocks only count from y=5 up.
+                    boolean newAllowed = wantNew && (i > zeroSection || y >= 5);
+                    if (!wantOre && !newAllowed) continue;
+                    for (int z = 0; z < 16; z++) {
+                        for (int x = 0; x < 16; x++) {
+                            BlockState state = section.getBlockState(x, y, z);
+                            if (wantOre && isOre(state)) {
+                                foundAnyOre = true; //prevent false flags in flat world
+                                wantOre = false;
+                                if (!wantNew) continue overworldScan; // nothing left to look for in this section
+                            }
+                            if (newAllowed && isNewOverworldBlock(state)) {
+                                isNewOverworldGeneration = true;
+                                break overworldScan;
+                            }
+                        }
+                    }
+                }
+            }
+            if (foundAnyOre && !isOldGeneration && !isNewOverworldGeneration) isOldGeneration = true;
+        }
 
-				if (netherOldChunksDetector.get() && mc.level.dimension() == Level.NETHER && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
-					for (int i = 0; i < 8; i++) {
-						LevelChunkSection section = sections[i];
-						// See the double-negation fix note in the overworld detector above.
-						if (section != null && !section.hasOnlyAir()) {
-							for (int x = 0; x < 16; x++) {
-								for (int y = 0; y < 16; y++) {
-									for (int z = 0; z < 16; z++) {
-										if (!isNewNetherGeneration && NEW_NETHER_BLOCKS.contains(section.getBlockState(x, y, z).getBlock())) {
-											isNewNetherGeneration = true;
-											break;
-										}
-									}
-								}
-							}
-						}
-					}
-					if (!isOldGeneration && !isNewNetherGeneration) isOldGeneration = true;
-				}
+        if (netherOldChunksDetector.get() && level.dimension() == Level.NETHER && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
+            int netherEnd = Math.min(sections.length, level.getSectionIndex(128)); // below the bedrock roof
+            // Same Netty-thread budget as the overworld scan: palette prefilter, stop at the first hit.
+            netherScan:
+            for (int i = 0; i < netherEnd; i++) {
+                LevelChunkSection section = sections[i];
+                // See the double-negation fix note in the overworld detector above.
+                if (section == null || section.hasOnlyAir() || !section.maybeHas(NewerNewChunks::isNewNetherBlock)) continue;
+                for (int y = 0; y < 16; y++) {
+                    for (int z = 0; z < 16; z++) {
+                        for (int x = 0; x < 16; x++) {
+                            if (isNewNetherBlock(section.getBlockState(x, y, z))) {
+                                isNewNetherGeneration = true;
+                                break netherScan;
+                            }
+                        }
+                    }
+                }
+            }
+            if (!isOldGeneration && !isNewNetherGeneration) isOldGeneration = true;
+        }
 
-				if (endOldChunksDetector.get() && mc.level.dimension() == Level.END && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
-					// Heuristic, best-effort End chunk detection: checks for old generation
-					// patterns instead of biome palettes, which aren't reliably accessible here.
-					try {
-						// Look for old End generation patterns instead of biome palettes
-						boolean hasOldEndStructure = false;
-						for (int x = 0; x < 16 && !hasOldEndStructure; x++) {
-							for (int z = 0; z < 16 && !hasOldEndStructure; z++) {
-								// Check for typical old End generation (mostly end stone at surface)
-								BlockState surfaceBlock = chunk.getBlockState(new BlockPos(x, 64, z));
-								if (surfaceBlock.getBlock() == Blocks.END_STONE) {
-									hasOldEndStructure = true;
-								}
-							}
-						}
-						if (hasOldEndStructure) {
-							isOldGeneration = true;
-						}
-					} catch (Exception e) {
-						// Fallback: assume old generation if we can't detect properly
-						isOldGeneration = true;
-					}
-				}
+        if (endOldChunksDetector.get() && level.dimension() == Level.END && chunk.getPersistedStatus().isOrAfter(ChunkStatus.FULL) && !chunk.isEmpty()) {
+            // Before 1.13 the whole End was minecraft:the_end; since then only the main island is,
+            // the outer islands got their own biomes. The packet carries the biome palette (1.18+).
+            // This used to check for end stone at y=64, which flagged nearly every island chunk.
+            long cx = oldpos.x(), cz = oldpos.z();
+            if (cx * cx + cz * cz > END_MAIN_ISLAND_CHUNK_RADIUS_SQ) {
+                Set<Holder<Biome>> biomes = new HashSet<>();
+                chunk.collectBiomesInPalette(biomes);
+                for (Holder<Biome> biome : biomes) {
+                    if (biome.is(Biomes.THE_END)) {
+                        isOldGeneration = true;
+                        break;
+                    }
+                }
+            }
+        }
 
-				if (PaletteExploit.get()) {
-					// Heuristic, best-effort palette-based detection - avoids relying on direct
-					// palette-index access, which isn't a stable public API surface.
-					boolean firstchunkappearsnew = false;
-					int loops = 0;
-					int newChunkQuantifier = 0;
-					int oldChunkQuantifier = 0;
-					try {
-						for (LevelChunkSection section : sections) {
-							// See the double-negation fix note in the overworld detector above.
-							if (section != null && !section.hasOnlyAir()) {
-								var blockStatesContainer = section.getStates();
+        if (PaletteExploit.get()) {
+            boolean netherOrEnd = level.dimension() == Level.NETHER || level.dimension() == Level.END;
+            int freshSections = 0;
+            int savedSections = 0;
+            // The being-updated detection below is still a heuristic over sampled blocks.
+            int loops = 0;
+            int oldChunkQuantifier = 0;
+            try {
+                for (LevelChunkSection section : sections) {
+                    // See the double-negation fix note in the overworld detector above.
+                    if (section == null || section.hasOnlyAir()) continue;
+                    PalettedContainer<BlockState> states = section.getStates();
 
-								// Heuristic, best-effort detection based on block state container
-								// patterns rather than direct palette access.
-								int uniqueBlockTypes = 0;
-								Set<Block> blocksFound = new HashSet<>();
+                    // New vs. old from the palette order, see PaletteOrder. Only a linear palette is
+                    // read, the global one would iterate the whole block state registry.
+                    int bits = states.bitsPerEntry();
+                    boolean originIsAir = states.get(0, 0, 0) == AIR;
+                    boolean firstIsAir = bits == PaletteOrder.LINEAR_BITS && firstPaletteEntry(states) == AIR;
+                    switch (PaletteOrder.vote(bits, firstIsAir, originIsAir)) {
+                        case FRESH -> freshSections++;
+                        case SAVED -> savedSections++;
+                        case NONE -> { }
+                    }
 
-								// Sample some blocks to estimate diversity
-								for (int x = 0; x < 16; x += 4) {
-									for (int y = 0; y < 16; y += 4) {
-										for (int z = 0; z < 16; z += 4) {
-											Block block = blockStatesContainer.get(x, y, z).getBlock();
-											blocksFound.add(block);
-										}
-									}
-								}
-								uniqueBlockTypes = blocksFound.size();
+                    if (beingUpdatedDetector.get()) {
+                        Set<Block> blocksFound = new HashSet<>();
+                        // Sample some blocks to estimate diversity
+                        for (int x = 0; x < 16; x += 4) {
+                            for (int y = 0; y < 16; y += 4) {
+                                for (int z = 0; z < 16; z += 4) {
+                                    blocksFound.add(states.get(x, y, z).getBlock());
+                                }
+                            }
+                        }
+                        if (blocksFound.size() > 5) oldChunkQuantifier++;
+                        // Detect being updated chunks by looking for bedrock in upper sections
+                        if (loops == 4 && blocksFound.contains(Blocks.BEDROCK) && !netherOrEnd) chunkIsBeingUpdated = true;
+                    }
+                    loops++;
+                }
 
-								// New chunks typically have fewer unique block types in early sections
-								if (loops == 0 && blocksFound.contains(Blocks.AIR) && uniqueBlockTypes <= 3) {
-									firstchunkappearsnew = true;
-									newChunkQuantifier++;
-								} else if (uniqueBlockTypes > 5) {
-									oldChunkQuantifier++;
-								}
+                if (beingUpdatedDetector.get() && netherOrEnd && loops > 0) {
+                    double oldpercentage = ((double) oldChunkQuantifier / loops) * 100;
+                    if (oldpercentage >= 25) chunkIsBeingUpdated = true;
+                }
+            } catch (RuntimeException e) {
+                return null; // same as a failed decode: no result beats a wrong one
+            }
 
-								// Detect being updated chunks by looking for bedrock in upper sections
-								if (loops == 4 && blocksFound.contains(Blocks.BEDROCK) &&
-									mc.level.dimension() != Level.NETHER &&
-									mc.level.dimension() != Level.END) {
-									if (!chunkIsBeingUpdated && beingUpdatedDetector.get()) {
-										chunkIsBeingUpdated = true;
-									}
-								}
+            PaletteOrder.Verdict verdict = PaletteOrder.classify(freshSections, savedSections);
+            isNewChunk = verdict == PaletteOrder.Verdict.NEW;
+            if (isNewChunk && !chunkIsBeingUpdated && !isOldGeneration) return ChunkKind.NEW;
+            if (!isNewChunk && !chunkIsBeingUpdated && isOldGeneration) return ChunkKind.OLD_GENERATION;
+            if (chunkIsBeingUpdated) return ChunkKind.BEING_UPDATED;
+            // UNKNOWN (no section with a usable palette) is left unmarked instead of called old.
+            if (verdict == PaletteOrder.Verdict.OLD) return ChunkKind.OLD;
+        }
+        if (liquidexploit.get()) {
+            // Section-wise instead of chunk.getFluidState() over the full height: the fluid state
+            // derives from the block state, so maybeHas() rules out most sections via the palette.
+            for (LevelChunkSection section : sections) {
+                if (section == null || section.hasOnlyAir() || !section.maybeHas(NewerNewChunks::isFlowingFluid)) continue;
+                for (int y = 0; y < 16; y++) {
+                    for (int z = 0; z < 16; z++) {
+                        for (int x = 0; x < 16; x++) {
+                            if (isFlowingFluid(section.getBlockState(x, y, z))) return ChunkKind.OLD;
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
 
-								loops++;
-							}
-						}
+    private static final BlockState AIR = Blocks.AIR.defaultBlockState();
 
-						if (loops > 0) {
-							if (beingUpdatedDetector.get() && (mc.level.dimension() == Level.NETHER || mc.level.dimension() == Level.END)){
-								double oldpercentage = ((double) oldChunkQuantifier / loops) * 100;
-								if (oldpercentage >= 25) chunkIsBeingUpdated = true;
-							}
-							else if (mc.level.dimension() != Level.NETHER && mc.level.dimension() != Level.END){
-								double percentage = ((double) newChunkQuantifier / loops) * 100;
-								if (percentage >= 51 || firstchunkappearsnew) isNewChunk = true;
-							}
-						}
-					} catch (Exception e) {
-						// Fallback logic if palette detection fails
-						if (firstchunkappearsnew) isNewChunk = true;
-					}
+    private static BlockState firstPaletteEntry(PalettedContainer<BlockState> states) {
+        BlockState[] first = new BlockState[1];
+        states.forEachInPalette(state -> {
+            if (first[0] == null) first[0] = state;
+        });
+        return first[0];
+    }
 
-					boolean bewlian = (mc.level.dimension() == Level.END) ? isNewChunk : !isOldGeneration;
-					if (isNewChunk && !chunkIsBeingUpdated && bewlian) {
-						try {
-							if (!OldGenerationOldChunks.contains(oldpos) && !beingUpdatedOldChunks.contains(oldpos) && !tickexploitChunks.contains(oldpos) && !oldChunks.contains(oldpos) && !newChunks.contains(oldpos)) {
-								newChunks.add(oldpos);
-								if (save.get()) {
-									saveData(Paths.get("NewChunkData.txt"), oldpos);
-								}
-								return;
-							}
-						} catch (Exception e) {
-						}
-					}
-					else if (!isNewChunk && !chunkIsBeingUpdated && isOldGeneration) {
-						try {
-							if (!OldGenerationOldChunks.contains(oldpos) && !beingUpdatedOldChunks.contains(oldpos) && !oldChunks.contains(oldpos) && !tickexploitChunks.contains(oldpos) && !newChunks.contains(oldpos)) {
-								OldGenerationOldChunks.add(oldpos);
-								if (save.get()){
-									saveData(Paths.get("OldGenerationChunkData.txt"), oldpos);
-								}
-								return;
-							}
-						} catch (Exception e) {
-						}
-					}
-					else if (chunkIsBeingUpdated) {
-						try {
-							if (!OldGenerationOldChunks.contains(oldpos) && !beingUpdatedOldChunks.contains(oldpos) && !oldChunks.contains(oldpos) && !tickexploitChunks.contains(oldpos) && !newChunks.contains(oldpos)) {
-								beingUpdatedOldChunks.add(oldpos);
-								if (save.get()){
-									saveData(Paths.get("BeingUpdatedChunkData.txt"), oldpos);
-								}
-								return;
-							}
-						} catch (Exception e) {
-						}
-					}
-					else if (!isNewChunk) {
-						try {
-							if (!OldGenerationOldChunks.contains(oldpos) && !beingUpdatedOldChunks.contains(oldpos) && !tickexploitChunks.contains(oldpos) && !oldChunks.contains(oldpos) && !newChunks.contains(oldpos)) {
-								oldChunks.add(oldpos);
-								if (save.get()) {
-									saveData(Paths.get("OldChunkData.txt"), oldpos);
-								}
-								return;
-							}
-						} catch (Exception e) {
-						}
-					}
-				}
-				if (liquidexploit.get()) {
-					for (int x = 0; x < 16; x++) {
-						for (int y = mc.level.getMinY(); y < mc.level.getMaxY(); y++) {
-							for (int z = 0; z < 16; z++) {
-								FluidState fluid = chunk.getFluidState(x, y, z);
-								try {
-									if (!OldGenerationOldChunks.contains(oldpos) && !beingUpdatedOldChunks.contains(oldpos) && !oldChunks.contains(oldpos) && !tickexploitChunks.contains(oldpos) && !newChunks.contains(oldpos) && !fluid.isEmpty() && !fluid.isSource()) {
-										oldChunks.add(oldpos);
-										if (save.get()){
-											saveData(Paths.get("OldChunkData.txt"), oldpos);
-										}
-										return;
-									}
-								} catch (Exception e) {
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	private void loadData() {
-		loadChunkData(Paths.get("BlockExploitChunkData.txt"), tickexploitChunks);
-		loadChunkData(Paths.get("OldChunkData.txt"), oldChunks);
-		loadChunkData(Paths.get("NewChunkData.txt"), newChunks);
-		loadChunkData(Paths.get("BeingUpdatedChunkData.txt"), beingUpdatedOldChunks);
-		loadChunkData(Paths.get("OldGenerationChunkData.txt"), OldGenerationOldChunks);
-	}
-	private void loadChunkData(Path savedDataLocation, Set<ChunkPos> chunkSet) {
-		try {
-			Path filePath = Paths.get("StashHunter/NewChunks", serverip, world).resolve(savedDataLocation);
-			List<String> allLines = Files.readAllLines(filePath);
+    private static boolean isOre(BlockState state) {
+        return ORE_BLOCKS.contains(state.getBlock());
+    }
 
-			for (String line : allLines) {
-				if (line != null && !line.isEmpty()) {
-					String[] array = line.split(", ");
-					if (array.length == 2) {
-						int X = Integer.parseInt(array[0].replaceAll("\\[", "").replaceAll("\\]", ""));
-						int Z = Integer.parseInt(array[1].replaceAll("\\[", "").replaceAll("\\]", ""));
-						ChunkPos chunkPos = new ChunkPos(X, Z);
-						if (!OldGenerationOldChunks.contains(chunkPos) && !beingUpdatedOldChunks.contains(chunkPos) && !tickexploitChunks.contains(chunkPos) && !newChunks.contains(chunkPos) && !oldChunks.contains(chunkPos)) {
-							chunkSet.add(chunkPos);
-						}
-					}
-				}
-			}
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
-	private void saveData(Path savedDataLocation, ChunkPos chunkpos) {
-		try {
-			Path dirPath = Paths.get("StashHunter", "NewChunks", serverip, world);
-			Files.createDirectories(dirPath);
+    private static boolean isNewOverworldBlock(BlockState state) {
+        Block block = state.getBlock();
+        return NEW_OVERWORLD_BLOCKS.contains(block) || DEEPSLATE_BLOCKS.contains(block);
+    }
 
-			Path filePath = dirPath.resolve(savedDataLocation);
-			String data = chunkpos.toString() + System.lineSeparator();
+    private static boolean isNewNetherBlock(BlockState state) {
+        return NEW_NETHER_BLOCKS.contains(state.getBlock());
+    }
 
-			Files.write(filePath, data.getBytes(StandardCharsets.UTF_8),
-					StandardOpenOption.CREATE,
-					StandardOpenOption.APPEND);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
-	private void removeChunksOutsideRenderDistance() {
-		if (mc.player == null) return;
-		BlockPos playerPos = new BlockPos(mc.player.getBlockX(), renderHeight.get(), mc.player.getBlockZ());
-		double renderDistanceBlocks = renderDistance.get() * 16;
+    private static boolean isFlowingFluid(BlockState state) {
+        FluidState fluid = state.getFluidState();
+        return !fluid.isEmpty() && !fluid.isSource();
+    }
 
-		removeChunksOutsideRenderDistance(newChunks, playerPos, renderDistanceBlocks);
-		removeChunksOutsideRenderDistance(oldChunks, playerPos, renderDistanceBlocks);
-		removeChunksOutsideRenderDistance(beingUpdatedOldChunks, playerPos, renderDistanceBlocks);
-		removeChunksOutsideRenderDistance(OldGenerationOldChunks, playerPos, renderDistanceBlocks);
-		removeChunksOutsideRenderDistance(tickexploitChunks, playerPos, renderDistanceBlocks);
-	}
-	private void removeChunksOutsideRenderDistance(Set<ChunkPos> chunkSet, BlockPos playerPos, double renderDistanceBlocks) {
-		chunkSet.removeIf(c -> !playerPos.closerThan(new BlockPos(c.getMiddleBlockX(), renderHeight.get(), c.getMiddleBlockZ()), renderDistanceBlocks));
-	}
+    private boolean isKnownChunk(ChunkPos pos) {
+        return newChunks.contains(pos) || oldChunks.contains(pos) || beingUpdatedOldChunks.contains(pos)
+                || OldGenerationOldChunks.contains(pos) || tickexploitChunks.contains(pos);
+    }
+
+    // Client thread only. A chunk is classified once, by the first detector that reports it.
+    private void markChunk(ChunkPos pos, ChunkKind kind) {
+        if (isKnownChunk(pos)) return;
+        Set<ChunkPos> target = switch (kind) {
+            case NEW -> newChunks;
+            case OLD -> oldChunks;
+            case BEING_UPDATED -> beingUpdatedOldChunks;
+            case OLD_GENERATION -> OldGenerationOldChunks;
+            case BLOCK_EXPLOIT -> tickexploitChunks;
+        };
+        target.add(pos);
+        if (save.get()) saveData(kind.file, pos);
+    }
+
+    // Client thread only. Flowing liquid next to a source is fresh terrain, so it overrides a
+    // block-update-exploit flag, but not any of the palette/liquid classifications.
+    private void promoteToNew(ChunkPos pos) {
+        if (newChunks.contains(pos) || oldChunks.contains(pos) || beingUpdatedOldChunks.contains(pos) || OldGenerationOldChunks.contains(pos)) return;
+        if (tickexploitChunks.remove(pos)) unqueueData(ChunkKind.BLOCK_EXPLOIT.file, pos);
+        newChunks.add(pos);
+        if (save.get()) saveData(ChunkKind.NEW.file, pos);
+    }
+    private void loadData() {
+        flushPendingWrites();
+        loadChunkData(Paths.get("BlockExploitChunkData.txt"), tickexploitChunks);
+        loadChunkData(Paths.get("OldChunkData.txt"), oldChunks);
+        loadChunkData(Paths.get("NewChunkData.txt"), newChunks);
+        loadChunkData(Paths.get("BeingUpdatedChunkData.txt"), beingUpdatedOldChunks);
+        loadChunkData(Paths.get("OldGenerationChunkData.txt"), OldGenerationOldChunks);
+    }
+    private void loadChunkData(Path savedDataLocation, Set<ChunkPos> chunkSet) {
+        Path filePath = dataDir().resolve(savedDataLocation);
+        List<String> allLines;
+        try {
+            allLines = Files.readAllLines(filePath);
+        } catch (NoSuchFileException e) {
+            return; // no data saved for this kind yet - normal, not an error
+        } catch (IOException e) {
+            StashHunter.LOG.warn("Could not read chunk data file {}", filePath, e);
+            return;
+        }
+
+        int skipped = 0;
+        for (String line : allLines) {
+            ChunkPos chunkPos = ChunkDataFormat.parse(line);
+            if (chunkPos == null) {
+                if (!line.isBlank()) skipped++;
+                continue;
+            }
+            if (!isKnownChunk(chunkPos)) {
+                chunkSet.add(chunkPos);
+            }
+        }
+        // A broken line used to abort the whole load, which then retried every tick.
+        if (skipped > 0) warning("Skipped " + skipped + " unreadable line(s) in " + savedDataLocation);
+    }
+    // Only queues the line; flushPendingWrites() appends each file's batch in a single write.
+    private void saveData(Path savedDataLocation, ChunkPos chunkpos) {
+        if (serverip == null || world == null) return;
+        Path filePath = dataDir().resolve(savedDataLocation);
+        pendingWrites.computeIfAbsent(filePath, path -> new ArrayList<>()).add(chunkpos);
+    }
+    // Drops a queued line again. Lines already flushed stay in the file; loadData() reads
+    // BlockExploitChunkData.txt first, so such a chunk comes back as block-exploit, not new.
+    private void unqueueData(Path savedDataLocation, ChunkPos chunkpos) {
+        if (serverip == null || world == null) return;
+        List<ChunkPos> queued = pendingWrites.get(dataDir().resolve(savedDataLocation));
+        if (queued != null) queued.remove(chunkpos);
+    }
+    private void flushPendingWrites() {
+        if (pendingWrites.isEmpty()) return;
+        for (Map.Entry<Path, List<ChunkPos>> entry : pendingWrites.entrySet()) {
+            StringBuilder data = new StringBuilder();
+            for (ChunkPos chunkpos : entry.getValue()) {
+                data.append(ChunkDataFormat.format(chunkpos)).append(System.lineSeparator());
+            }
+            try {
+                AppendFiles.append(entry.getKey(), data.toString());
+            } catch (IOException e) {
+                StashHunter.LOG.warn("Could not write chunk data file {}", entry.getKey(), e);
+            }
+        }
+        pendingWrites.clear();
+    }
+    private void removeChunksOutsideRenderDistance() {
+        if (mc.player == null) return;
+        int px = mc.player.getBlockX();
+        int pz = mc.player.getBlockZ();
+        double maxDistance = renderDistance.get() * 16.0;
+        double maxDistanceSq = maxDistance * maxDistance;
+
+        removeChunksOutsideRenderDistance(newChunks, px, pz, maxDistanceSq);
+        removeChunksOutsideRenderDistance(oldChunks, px, pz, maxDistanceSq);
+        removeChunksOutsideRenderDistance(beingUpdatedOldChunks, px, pz, maxDistanceSq);
+        removeChunksOutsideRenderDistance(OldGenerationOldChunks, px, pz, maxDistanceSq);
+        removeChunksOutsideRenderDistance(tickexploitChunks, px, pz, maxDistanceSq);
+    }
+    private void removeChunksOutsideRenderDistance(Set<ChunkPos> chunkSet, int px, int pz, double maxDistanceSq) {
+        chunkSet.removeIf(c -> {
+            double dx = c.getMiddleBlockX() - px;
+            double dz = c.getMiddleBlockZ() - pz;
+            return dx * dx + dz * dz >= maxDistanceSq;
+        });
+    }
 }

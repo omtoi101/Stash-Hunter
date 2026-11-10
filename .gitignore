@@ -1,12 +1,15 @@
-# Build output
-*.class
+# ---- Build output (Gradle / Loom) ----
 build/
-bin/
-out/
-run/
 .gradle/
+out/
+bin/
+run/
+loom-cache/
+.kotlin/
+*.class
 
-# Package files
+# ---- Java / Gradle archives ----
+# Keep only the wrapper jar committed (regenerate via ./gradlew wrapper)
 *.jar
 *.war
 *.nar
@@ -14,32 +17,51 @@ run/
 *.zip
 *.tar.gz
 *.rar
-# Gradle wrapper must stay committed
 !gradle/wrapper/gradle-wrapper.jar
 
-# Logs & crash reports
+# ---- JVM crash, heap & debug artifacts ----
 *.log
+*.hprof
+*.heapdump
+*.pid
 hs_err_pid*
 replay_pid*
+.attach_pid*
+.jps/
 
-# IDE
+# ---- IDE ----
+# IntelliJ
 .idea/
 *.iml
 *.ipr
 *.iws
-.vscode/
+# Eclipse
 .settings/
 .project
 .classpath
 .factorypath
+.externalToolBuilders/
+*.launch
 *.ctxt
 .mtj.tmp/
+# VS Code
+.vscode/
+# Editor swap/backup files
+*.swp
+*~
 
-# OS
+# ---- OS ----
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Local tooling
+# ---- Minecraft dev client ----
+logs/
+.minecraft/
+.cache/
+
+# ---- Local tooling ----
 .claude/
 graphify-out/
+# Scratch previews
+icon_preview.png
