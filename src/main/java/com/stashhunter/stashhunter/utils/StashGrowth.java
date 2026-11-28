@@ -1,9 +1,12 @@
 package com.stashhunter.stashhunter.utils;
 
+import com.stashhunter.stashhunter.signals.Signal;
+import com.stashhunter.stashhunter.signals.TraceGroup;
 import net.minecraft.core.BlockPos;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -19,6 +22,16 @@ public final class StashGrowth {
     static final int MIN_GROWTH_PERCENT = 20;
 
     private StashGrowth() {
+    }
+
+    /** The count growth is measured with: distinct positions of the non-entity signals. */
+    public static int blocksOf(Collection<Signal> signals) {
+        // Moving entities would fake growth (or shrinking) between two scans.
+        Set<BlockPos> positions = new HashSet<>();
+        for (Signal s : signals) {
+            if (s.kind().group() != TraceGroup.ENTITIES) positions.add(s.pos());
+        }
+        return positions.size();
     }
 
     /** Indices of the known stashes that share at least one block with {@code cluster}. */

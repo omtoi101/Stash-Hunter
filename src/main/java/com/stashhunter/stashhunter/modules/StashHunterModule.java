@@ -5,6 +5,7 @@ import com.stashhunter.stashhunter.baritone.BaritoneBridge;
 import com.stashhunter.stashhunter.signals.Candidate;
 import com.stashhunter.stashhunter.signals.ClassicRule;
 import com.stashhunter.stashhunter.signals.ContainerFilter;
+import com.stashhunter.stashhunter.signals.FlightPeriods;
 import com.stashhunter.stashhunter.signals.DiagnosticsLog;
 import com.stashhunter.stashhunter.signals.EntitySignalIndex;
 import com.stashhunter.stashhunter.signals.Rejection;
@@ -619,7 +620,7 @@ public class StashHunterModule extends Module {
     private final Set<String> diagnosedCandidates = new HashSet<>();
     private static final int MAX_DIAGNOSED_CANDIDATES = 20_000;
     private static final DateTimeFormatter PERIOD_TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT);
-    private boolean wasFlying = false;
+    private FlightPeriods flightPeriods = new FlightPeriods(false);
     private int tickCounter = 0;
     private int ticksSinceScan = Integer.MAX_VALUE / 2; // large = scan on the first tick
     private double lastScanX, lastScanZ;
@@ -661,8 +662,9 @@ public class StashHunterModule extends Module {
         setHoldingJump(false);
 
         // Without a flight the period runs from now until the module is turned off.
-        wasFlying = ElytraController.isActive();
-        startDiagnosticsPeriod(wasFlying ? "flight from " : "standing since ");
+        boolean flying = ElytraController.isActive();
+        flightPeriods = new FlightPeriods(flying);
+        startDiagnosticsPeriod(flying ? "flight from " : "standing since ");
 
         if (useBaritonePathing.get() && !BaritoneBridge.isModLoaded()) {
             info("Baritone is not installed - falling back to the built-in flight controller. " +
@@ -673,7 +675,7 @@ public class StashHunterModule extends Module {
     @Override
     public void onDeactivate() {
         ElytraController.stop();
-        wasFlying = false;
+        flightPeriods = new FlightPeriods(false);
         setHoldingJump(false);
         reporter.clear();
         printDiagnosticsPeriod();
@@ -791,18 +793,20 @@ public class StashHunterModule extends Module {
 
     // Covers every way a flight starts (.stashhunter start/spiral/resume, resume after a repair) and
     // ends (stop, pause, completion, landing, death, dimension change).
+    // A pause for auto-elytra-repair and the resume after it stay in the same period (FlightPeriods).
     private void trackFlight() {
-        boolean flying = ElytraController.isActive();
-        if (flying && !wasFlying) {
+        AutoElytraRepair repair = autoElytraRepair();
+        FlightPeriods.Change change = flightPeriods.update(ElytraController.isActive(),
+            repair != null && repair.isActive() && repair.isRepairing());
+        if (change == FlightPeriods.Change.FLIGHT_STARTED) {
             // A standing period before the flight goes into the session total without a chat summary.
             diagnostics.endPeriod();
             startDiagnosticsPeriod("flight from ");
             ScanRadiusAdvice.advise(scanRadius.get(), mc.options.getEffectiveRenderDistance()).ifPresent(this::info);
-        } else if (!flying && wasFlying) {
+        } else if (change == FlightPeriods.Change.FLIGHT_ENDED) {
             printDiagnosticsPeriod();
             startDiagnosticsPeriod("standing since ");
         }
-        wasFlying = flying;
     }
 
     @EventHandler
@@ -1161,7 +1165,9 @@ public class StashHunterModule extends Module {
         for (Signal s : entityIndex.near(dimension, x, z, reach)) {
             if (isSignalEnabled(s.kind(), enabled, spawners)) signals.add(s);
         }
-        for (Signal s : SignalHub.near(dimension, x, z, reach)) {
+        // The entity scan already records the mobs mob-gear-esp publishes; counting both would double them.
+        Set<String> excluded = enabled.contains(TraceGroup.ENTITIES) ? MOB_GEAR_SOURCES : Set.of();
+        for (Signal s : SignalHub.near(dimension, x, z, reach, excluded)) {
             if (isSignalEnabled(s.kind(), enabled, spawners)) signals.add(s);
         }
 
@@ -1204,6 +1210,8 @@ public class StashHunterModule extends Module {
         }
     }
 
+    private static final Set<String> MOB_GEAR_SOURCES = Set.of("mob-gear-esp");
+
     private static boolean isSignalEnabled(SignalKind kind, Set<TraceGroup> enabled, boolean includeSpawners) {
         if (kind == SignalKind.SPAWNER) return includeSpawners;
         return kind.group() == TraceGroup.NONE || enabled.contains(kind.group());
@@ -1234,7 +1242,7 @@ public class StashHunterModule extends Module {
         // a stash reported this session is reported again once it grew well past its first report.
         boolean higher = verdict.tier().compareTo(known) > 0;
         boolean grew = !higher && verdict.tier() == Tier.STASH && known == Tier.STASH
-            && grewEnough(earlier, positions.size());
+            && grewEnough(earlier, StashGrowth.blocksOf(candidate.signals()));
         if (!higher && !grew) {
             diagnose(dim, center, candidate.signals(), Rejection.ALREADY_REPORTED);
             return;

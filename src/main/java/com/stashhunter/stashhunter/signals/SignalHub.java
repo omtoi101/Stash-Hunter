@@ -5,6 +5,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.minecraft.core.BlockPos;
 
 /**
@@ -53,9 +54,16 @@ public final class SignalHub {
 
     /** Signals in {@code dimension} whose horizontal (x/z) distance to (x, z) is at most {@code radius}. */
     public static List<Signal> near(String dimension, int x, int z, int radius) {
+        return near(dimension, x, z, radius, Set.of());
+    }
+
+    /** Like {@link #near(String, int, int, int)}, without the signals of {@code excludedSources}. */
+    public static List<Signal> near(String dimension, int x, int z, int radius, Set<String> excludedSources) {
         List<Signal> result = new ArrayList<>();
         long maxSq = (long) radius * radius;
-        for (LinkedHashMap<Key, Entry> entries : SOURCES.values()) {
+        for (Map.Entry<String, LinkedHashMap<Key, Entry>> source : SOURCES.entrySet()) {
+            if (excludedSources.contains(source.getKey())) continue;
+            LinkedHashMap<Key, Entry> entries = source.getValue();
             for (Entry entry : entries.values()) {
                 if (!entry.dimension().equals(dimension)) {
                     continue;

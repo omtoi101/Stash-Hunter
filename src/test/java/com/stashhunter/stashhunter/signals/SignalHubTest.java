@@ -75,4 +75,16 @@ class SignalHubTest {
         assertEquals(4096, near.size());
         assertTrue(near.stream().noneMatch(s -> s.pos().getX() == 0), "oldest entries must be evicted");
     }
+
+    @Test
+    void nearCanLeaveOutSources() {
+        SignalHub.put("mob-gear-esp", "d", new BlockPos(1, 60, 1), SignalKind.MOB_GEAR);
+        SignalHub.put("activated-spawner-detector", "d", new BlockPos(2, 60, 2), SignalKind.ACTIVATED_SPAWNER);
+
+        List<Signal> near = SignalHub.near("d", 0, 0, 10, java.util.Set.of("mob-gear-esp"));
+
+        assertEquals(1, near.size());
+        assertEquals(SignalKind.ACTIVATED_SPAWNER, near.get(0).kind());
+        assertEquals(2, SignalHub.near("d", 0, 0, 10).size());
+    }
 }

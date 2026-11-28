@@ -225,7 +225,8 @@ final class StashReporter {
         }
 
         Object xaero = waypoint != null && options.saveToXaero() ? XaeroBridge.addWaypoint(center, waypoint.name.get()) : null;
-        found.add(new FoundStash(dimension, center, positions, positions.size(), waypoint, xaero,
+        // Growth is compared without entity signals (StashGrowth.blocksOf), so the stored count leaves them out too.
+        found.add(new FoundStash(dimension, center, positions, StashGrowth.blocksOf(signals), waypoint, xaero,
             highlightOf(dimension, signals), Tier.STASH));
     }
 

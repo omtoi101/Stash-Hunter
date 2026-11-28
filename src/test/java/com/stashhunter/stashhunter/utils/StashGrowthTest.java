@@ -1,5 +1,7 @@
 package com.stashhunter.stashhunter.utils;
 
+import com.stashhunter.stashhunter.signals.Signal;
+import com.stashhunter.stashhunter.signals.SignalKind;
 import net.minecraft.core.BlockPos;
 import org.junit.jupiter.api.Test;
 
@@ -28,5 +30,18 @@ class StashGrowthTest {
         assertFalse(StashGrowth.grewEnough(100, 115), "large stash: needs 20 % more");
         assertTrue(StashGrowth.grewEnough(100, 120));
         assertFalse(StashGrowth.grewEnough(14, 10), "shrinking never re-reports");
+    }
+
+    @Test
+    void growthIgnoresEntitySignals() {
+        List<Signal> signals = List.of(
+            new Signal(new BlockPos(0, 64, 0), SignalKind.CHEST),
+            new Signal(new BlockPos(1, 64, 0), SignalKind.CHEST),
+            new Signal(new BlockPos(1, 64, 0), SignalKind.CHEST),
+            new Signal(new BlockPos(2, 64, 0), SignalKind.WRITTEN_SIGN),
+            new Signal(new BlockPos(5, 64, 5), SignalKind.NAMED_ENTITY),
+            new Signal(new BlockPos(6, 64, 5), SignalKind.MOB_GEAR),
+            new Signal(new BlockPos(7, 64, 5), SignalKind.ITEM_FRAME));
+        assertEquals(3, StashGrowth.blocksOf(signals));
     }
 }
