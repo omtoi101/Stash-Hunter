@@ -3,6 +3,7 @@ package com.stashhunter.stashhunter.modules;
 import com.stashhunter.stashhunter.StashHunter;
 import com.stashhunter.stashhunter.baritone.BaritoneBridge;
 import com.stashhunter.stashhunter.signals.Candidate;
+import com.stashhunter.stashhunter.signals.ClassicRule;
 import com.stashhunter.stashhunter.signals.ContainerFilter;
 import com.stashhunter.stashhunter.signals.DiagnosticsLog;
 import com.stashhunter.stashhunter.signals.EntitySignalIndex;
@@ -26,7 +27,6 @@ import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.DimensionIds;
 import com.stashhunter.stashhunter.utils.DiscordEmbed;
 import com.stashhunter.stashhunter.utils.DiscordWebhook;
-import com.stashhunter.stashhunter.utils.DungeonFilter;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.KeyHold;
 import com.stashhunter.stashhunter.utils.MissedChunks;
@@ -1291,31 +1291,25 @@ public class StashHunterModule extends Module {
         Map<BlockPos, SignalKind> found = signalIndex.near(dim.name(), x, z, range + maxClusterSize.get() + 16);
         Set<SignalKind> active = classicKinds();
         found.values().removeIf(kind -> !active.contains(kind)); // settings may have changed since
-        int threshold = blockDetectionThreshold.get();
-        if (found.size() < threshold) return;
-
-        // Group blocks into clusters to separate actual stashes from natural structures
-        int linkDistance = maxClusterDistance.get(), maxRadius = maxClusterSize.get() / 2;
-        for (List<BlockPos> cluster : StashClustering.cluster(new ArrayList<>(found.keySet()), linkDistance, maxRadius)) {
-            if (cluster.size() < threshold) continue;
-            // Too big or too sparse for a stash as a whole: a dense core inside it is still reported.
-            List<List<BlockPos>> parts = filterNaturalStructures.get()
-                ? StashClustering.tighten(cluster, linkDistance, maxRadius, threshold, this::hasStashShape)
-                : List.of(cluster);
-            for (List<BlockPos> part : parts) processClusterClassic(dim, part, found);
-        }
+        ClassicRule.Settings settings = classicSettings();
+        for (List<BlockPos> part : ClassicRule.parts(found, settings)) processClusterClassic(dim, part, found, settings);
     }
 
-    // The volume and density limits of filter-natural-structures: natural structures spread a few
-    // chests over a large space.
+    private ClassicRule.Settings classicSettings() {
+        return new ClassicRule.Settings(blockDetectionThreshold.get(), maxClusterDistance.get(),
+            maxClusterSize.get() / 2, filterNaturalStructures.get(), includeSpawners.get(), maxVolumeThreshold.get(),
+            minDensityThreshold.get());
+    }
+
+    // The volume and density limits of filter-natural-structures, also used by the signal clusterer.
     private boolean hasStashShape(List<BlockPos> cluster) {
-        double volume = StashClustering.boundingBoxVolume(cluster);
-        return volume <= maxVolumeThreshold.get() && cluster.size() / volume >= minDensityThreshold.get();
+        return ClassicRule.hasStashShape(cluster, classicSettings());
     }
 
     // Block kinds come from the scan, not from the level: members of a cluster may lie in chunks
     // that are no longer loaded and would read as air.
-    private void processClusterClassic(Dimension dim, List<BlockPos> cluster, Map<BlockPos, SignalKind> types) {
+    private void processClusterClassic(Dimension dim, List<BlockPos> cluster, Map<BlockPos, SignalKind> types,
+                                       ClassicRule.Settings settings) {
         BlockPos stashPos = StashClustering.center(cluster).orElse(null);
         if (stashPos == null) return;
         String dimension = dim.name();
@@ -1323,34 +1317,24 @@ public class StashHunterModule extends Module {
         // Stashes reported this session that are part of this cluster. If it has grown well past
         // what was reported (the first report only saw part of it), the report is corrected.
         List<StashReporter.FoundStash> earlier = reporter.earlierReportsOf(dim, cluster);
-        boolean update;
-        if (!earlier.isEmpty() && earlier.stream().anyMatch(s -> s.tier() == Tier.STASH)) {
-            if (!grewEnough(earlier, cluster.size())) return;
-            update = true;
-        } else {
-            // Already reported near this location (earlier session, or cleared)? Only a hint from
-            // another sensitivity is replaced, never a stash.
-            int dedupeRadius = reportDedupeRadius.get();
-            Tier known = StashReporter.max(reportedStashes().highestTierNear(dimension, stashPos, dedupeRadius),
-                StashReporter.knownTier(dim, stashPos, dedupeRadius, earlier));
-            if (known == Tier.STASH) {
-                diagnose(dim, stashPos, signalsOf(cluster, types), Rejection.ALREADY_REPORTED);
-                return;
+        boolean reportedAsStash = earlier.stream().anyMatch(s -> s.tier() == Tier.STASH);
+        int dedupeRadius = reportDedupeRadius.get();
+        ClassicRule.Outcome outcome = ClassicRule.decide(stashPos, cluster, types, reportedAsStash,
+            reportedAsStash && grewEnough(earlier, cluster.size()),
+            () -> StashReporter.max(reportedStashes().highestTierNear(dimension, stashPos, dedupeRadius),
+                StashReporter.knownTier(dim, stashPos, dedupeRadius, earlier)),
+            settings, this::isNearDetectedStructure);
+        switch (outcome.action()) {
+            case SKIP -> {
             }
-            update = known == Tier.HINT;
+            case REJECT -> diagnose(dim, stashPos, signalsOf(cluster, types), outcome.reason());
+            case REPORT, UPDATE -> {
+                reportedStashes().add(dimension, stashPos, Tier.STASH);
+                reporter.reportStashClassic(dim, stashPos, cluster, types, earlier,
+                    outcome.action() == ClassicRule.Action.UPDATE, storageOnlyMode.get(), reportOptions());
+                diagnostics.reported(Tier.STASH);
+            }
         }
-
-        // Enhanced filtering for natural structures. A grown cluster that now looks natural keeps
-        // its first report.
-        Rejection natural = naturalStructureReason(stashPos, cluster, types);
-        if (natural != null) {
-            diagnose(dim, stashPos, signalsOf(cluster, types), natural);
-            return;
-        }
-
-        reportedStashes().add(dimension, stashPos, Tier.STASH);
-        reporter.reportStashClassic(dim, stashPos, cluster, types, earlier, update, storageOnlyMode.get(), reportOptions());
-        diagnostics.reported(Tier.STASH);
     }
 
     private static List<Signal> signalsOf(List<BlockPos> cluster, Map<BlockPos, SignalKind> types) {
@@ -1362,54 +1346,12 @@ public class StashHunterModule extends Module {
         return signals;
     }
 
-    /**
-     * Enhanced natural structure detection (classic). Returns why the cluster looks natural, or null.
-     */
-    private Rejection naturalStructureReason(BlockPos center, List<BlockPos> blocks, Map<BlockPos, SignalKind> types) {
-        if (!filterNaturalStructures.get()) {
-            return null;
-        }
-
-        // Volume and density: natural structures are large and sparse. findStashes has already
-        // looked for a dense core, so this only rejects what is still left.
-        if (!hasStashShape(blocks)) {
-            return Rejection.STRUCTURE_SHAPE;
-        }
-
-        // A vanilla dungeon (spawner + up to two chests) is no base, however low the threshold is.
-        if (includeSpawners.get() && isDungeonOnly(blocks, types)) {
-            return Rejection.STRUCTURE_DUNGEON;
-        }
-
-        // Exact positions from the spawners activated-spawner-detector has seen (PLAN 67).
-        if (isNearDetectedStructure(center)) {
-            return Rejection.STRUCTURE_SPAWNER;
-        }
-
-        // No block-type checks here: the cluster only holds scanned stash blocks, so ratios of
-        // structure materials (the old Woodland Mansion check) were always 0 and never matched.
-        // Mineshaft loot sits in chest minecarts (entities) and never reaches the block scan.
-        // Structures without spawners need the world-seed structure locator (PLAN 44).
-        return null;
-    }
-
     private boolean isNearDetectedStructure(BlockPos center) {
         int radius = structureFilterRadius.get();
         if (radius <= 0) return false;
         ActivatedSpawnerDetector detector = Modules.get().get(ActivatedSpawnerDetector.class);
         return detector != null && detector.isActive()
             && detector.isNearNaturalStructure(PlayerUtils.getDimension(), center, radius);
-    }
-
-    private static boolean isDungeonOnly(List<BlockPos> blocks, Map<BlockPos, SignalKind> types) {
-        Set<BlockPos> spawners = new HashSet<>();
-        Set<BlockPos> chests = new HashSet<>();
-        for (BlockPos pos : blocks) {
-            SignalKind kind = types.get(pos);
-            if (kind == SignalKind.SPAWNER) spawners.add(pos);
-            else if (kind == SignalKind.CHEST) chests.add(pos);
-        }
-        return DungeonFilter.isDungeonOnly(blocks, spawners, chests);
     }
 
     // ----- render and cache invalidation -----
