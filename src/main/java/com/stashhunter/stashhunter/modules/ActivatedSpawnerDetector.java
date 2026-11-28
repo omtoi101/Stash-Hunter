@@ -1,8 +1,11 @@
 package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.signals.SignalHub;
+import com.stashhunter.stashhunter.signals.SignalKind;
 import com.stashhunter.stashhunter.utils.ChunkPacketDecoder;
 import com.stashhunter.stashhunter.utils.NaturalStructures;
+import com.stashhunter.stashhunter.utils.SpawnerTags;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
@@ -104,7 +107,7 @@ public class ActivatedSpawnerDetector extends Module {
             Blocks.CAMPFIRE, Blocks.SOUL_CAMPFIRE
     );
     // A vanilla spawner starts with Delay 20 and only changes it once a player has been in range.
-    private static final int UNTOUCHED_DELAY = 20;
+    private static final int UNTOUCHED_DELAY = SpawnerTags.UNTOUCHED_DELAY;
     // Entities (chest minecarts) arrive in their own packets after the chunk; give them a second.
     private static final int MIN_CANDIDATE_AGE = 20;
     // Checks run once the neighbouring chunks are loaded, or after this many ticks regardless.
@@ -406,6 +409,7 @@ public class ActivatedSpawnerDetector extends Module {
     }
 
     private void clearData() {
+        SignalHub.clear(name);
         detections.clear();
         checkedPositions.clear();
         pending.clear();
@@ -467,10 +471,9 @@ public class ActivatedSpawnerDetector extends Module {
         return candidates;
     }
 
+    // The packet may carry a spawner without a tag; SpawnerTags reads that as an empty tag.
     private static Candidate spawnerCandidate(BlockPos pos, CompoundTag tag) {
-        String mobId = tag.getCompoundOrEmpty("SpawnData").getCompoundOrEmpty("entity").getStringOr("id", "");
-        int delay = tag.getShortOr("Delay", (short) UNTOUCHED_DELAY);
-        return new Candidate(pos, BlockEntityTypes.MOB_SPAWNER, mobId, delay, null);
+        return new Candidate(pos, BlockEntityTypes.MOB_SPAWNER, SpawnerTags.mobIdOf(tag), SpawnerTags.delayOf(tag), null);
     }
 
     private static BlockPos findBuddingAmethyst(LevelChunk chunk) {
@@ -556,7 +559,7 @@ public class ActivatedSpawnerDetector extends Module {
             // Trial spawners only generate in trial chambers, triggered or not.
             structures.add(PlayerUtils.getDimension().name(), c.pos());
             if (!enableTrialChamber.get() || !isTriggered(c.trialState())) return;
-            report(level, c.pos(), Kind.TRIAL_CHAMBER, 14);
+            report(level, c.pos(), Kind.TRIAL_CHAMBER, 14, false);
             return;
         }
 
@@ -575,7 +578,9 @@ public class ActivatedSpawnerDetector extends Module {
             // Nether spawners sit at Delay 0 without a player ever being near; only the air check can tell.
             activated = c.delay() != UNTOUCHED_DELAY && !(level.dimension() == Level.NETHER && c.delay() == 0);
         }
-        if (activated) report(level, c.pos(), kind, 16);
+        // A placed spawner (OTHER) or a natural one with blocks changed around it (a farm) is a base
+        // trace for stash-hunter; untouched structure spawners are not.
+        if (activated) report(level, c.pos(), kind, 16, !kind.isNaturalStructure() || modified);
     }
 
     private static boolean isTriggered(TrialSpawnerState state) {
@@ -649,7 +654,7 @@ public class ActivatedSpawnerDetector extends Module {
         return false;
     }
 
-    private void report(Level level, BlockPos pos, Kind kind, int storageRadius) {
+    private void report(Level level, BlockPos pos, Kind kind, int storageRadius, boolean baseTrace) {
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
         boolean deactivated = false;
         if (kind != Kind.TRIAL_CHAMBER && deactivatedSpawner.get()) {
@@ -658,6 +663,7 @@ public class ActivatedSpawnerDetector extends Module {
         }
         boolean storage = hasStorageNearby(level, pos, m, storageRadius);
         detections.put(pos, new Detection(pos, kind, deactivated, storage));
+        if (baseTrace) SignalHub.put(name, PlayerUtils.getDimension().name(), pos.immutable(), SignalKind.ACTIVATED_SPAWNER);
         StashHunter.LOG.info("Activated {} spawner at {} (storage nearby: {})", kind.title, pos.toShortString(), storage);
         if (structureWaypoints.get() && kind.isNaturalStructure()) addStructureWaypoint(pos, kind);
 

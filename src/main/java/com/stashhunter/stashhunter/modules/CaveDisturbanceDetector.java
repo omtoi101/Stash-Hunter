@@ -1,6 +1,8 @@
 package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.signals.SignalHub;
+import com.stashhunter.stashhunter.signals.SignalKind;
 import com.stashhunter.stashhunter.utils.CaveAirPockets;
 import com.stashhunter.stashhunter.utils.ChunkPacketDecoder;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
@@ -15,6 +17,7 @@ import meteordevelopment.meteorclient.settings.IntSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.meteorclient.utils.render.RenderUtils;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.orbit.EventHandler;
@@ -177,6 +180,7 @@ public class CaveDisturbanceDetector extends Module {
     }
 
     private void clearData() {
+        SignalHub.clear(name);
         detections.clear();
         pending.clear();
         announced.clear();
@@ -324,6 +328,7 @@ public class CaveDisturbanceDetector extends Module {
             Detection detection = entry.getValue();
             if (detection.reported || detection.blocks.size() < threshold) continue;
             detection.reported = true;
+            SignalHub.put(name, PlayerUtils.getDimension().name(), detection.blocks.iterator().next(), SignalKind.CAVE_DISTURBANCE);
             if (announced.size() >= MAX_ANNOUNCED) announced.clear();
             if (!announced.add(entry.getKey())) continue; // seen before, chunk came back into range
             BlockPos pos = detection.blocks.iterator().next();

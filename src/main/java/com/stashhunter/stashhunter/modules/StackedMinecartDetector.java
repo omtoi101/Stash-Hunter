@@ -1,6 +1,8 @@
 package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.signals.SignalHub;
+import com.stashhunter.stashhunter.signals.SignalKind;
 import com.stashhunter.stashhunter.utils.DiscordEmbed;
 import com.stashhunter.stashhunter.utils.DiscordWebhook;
 import com.stashhunter.stashhunter.utils.MinecartStacks;
@@ -148,6 +150,7 @@ public class StackedMinecartDetector extends Module {
     }
 
     private void clearData() {
+        SignalHub.clear(name);
         stacks = List.of();
         announced.clear();
         lastLevel = null;
@@ -191,6 +194,7 @@ public class StackedMinecartDetector extends Module {
 
     private void announce(BlockPos pos, int count) {
         StashHunter.LOG.info("Stacked minecarts: {} at {}", count, pos.toShortString());
+        SignalHub.put(name, PlayerUtils.getDimension().name(), pos, SignalKind.MINECART_STACK);
         if (chatFeedback.get()) info("%d stacked minecarts at %s.", count, pos.toShortString());
         if (discord.get()) {
             String description = count + " minecarts at " + pos.toShortString() + " (" + PlayerUtils.getDimension().name() + ")";
