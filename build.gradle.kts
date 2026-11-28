@@ -70,8 +70,8 @@ dependencies {
     // No Fabric API: the only hook it provided (client disconnect) is covered by Meteor's GameLeftEvent.
     // Meteor bundles fabric-resource-loader-v1 (this exact version); its injected interfaces show up
     // in Minecraft's own class signatures, so javac needs the module to compile. Runtime comes from Meteor.
-    // Hard pin: when porting to a newer MC/Meteor, take the version from Meteor's bundled jars list.
-    compileOnly("net.fabricmc.fabric-api:fabric-resource-loader-v1:2.0.13+9edec1269e")
+    // Hard pin (26.3 / fabric-api 0.162.0+26.3): when porting to a newer MC/Meteor, take the version from Meteor's bundled jars list.
+    compileOnly("net.fabricmc.fabric-api:fabric-resource-loader-v1:3.0.4+ba0d6c0d5d")
 
     // Meteor
     implementation("meteordevelopment:meteor-client:${providers.gradleProperty("minecraft_version").get()}-SNAPSHOT")

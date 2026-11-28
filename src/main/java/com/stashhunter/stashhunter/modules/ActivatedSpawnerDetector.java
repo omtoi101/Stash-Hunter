@@ -434,7 +434,7 @@ public class ActivatedSpawnerDetector extends Module {
         List<Candidate> candidates = new ArrayList<>();
         List<BlockPos> trialSpawners = new ArrayList<>();
         try {
-            packet.getChunkData().getBlockEntitiesTagsConsumer(packet.getX(), packet.getZ()).accept((pos, type, tag) -> {
+            packet.chunkData().forEachBlockEntityTag(packet.x(), packet.z(), (pos, type, tag) -> {
                 if (type == BlockEntityTypes.MOB_SPAWNER) {
                     candidates.add(spawnerCandidate(pos.immutable(), tag));
                 } else if (type == BlockEntityTypes.TRIAL_SPAWNER) {
@@ -442,7 +442,7 @@ public class ActivatedSpawnerDetector extends Module {
                 }
             });
         } catch (RuntimeException e) {
-            StashHunter.LOG.debug("Could not read block entities of chunk {}, {}", packet.getX(), packet.getZ(), e);
+            StashHunter.LOG.debug("Could not read block entities of chunk {}, {}", packet.x(), packet.z(), e);
             return List.of();
         }
 

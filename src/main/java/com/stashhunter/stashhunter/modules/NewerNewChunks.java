@@ -737,8 +737,8 @@ public class NewerNewChunks extends Module {
             });
         }
         else if (event.packet instanceof ClientboundLevelChunkWithLightPacket packet) {
-            if (level.getChunkSource().getChunk(packet.getX(), packet.getZ(), false) == null) { // null until vanilla has loaded the chunk, i.e. only on its first arrival
-                ChunkPos chunkPos = new ChunkPos(packet.getX(), packet.getZ());
+            if (level.getChunkSource().getChunk(packet.x(), packet.z(), false) == null) { // null until vanilla has loaded the chunk, i.e. only on its first arrival
+                ChunkPos chunkPos = new ChunkPos(packet.x(), packet.z());
                 // Decoding and analysis stay on the Netty thread: they only touch our own private
                 // LevelChunk copy, and getReadBuffer() wraps a fresh buffer for every caller.
                 ChunkKind kind = classifyChunk(level, packet, chunkPos);

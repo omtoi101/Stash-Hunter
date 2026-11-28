@@ -6,9 +6,11 @@ import meteordevelopment.meteorclient.events.packets.PacketEvent;
 import meteordevelopment.orbit.EventHandler;
 import meteordevelopment.orbit.EventPriority;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 
 /**
  * Decodes a chunk packet into a private LevelChunk copy once and shares it between the modules that
@@ -39,9 +41,13 @@ public final class ChunkPacketDecoder {
     public static synchronized LevelChunk decode(ClientLevel level, ClientboundLevelChunkWithLightPacket packet) {
         if (packet == cachedPacket && level == cachedLevel) return cachedChunk;
 
-        LevelChunk chunk = new LevelChunk(level, new ChunkPos(packet.getX(), packet.getZ()));
+        LevelChunk chunk = new LevelChunk(level, new ChunkPos(packet.x(), packet.z()));
         try {
-            chunk.replaceWithPacketData(packet.getChunkData().getReadBuffer(), packet.getChunkData().getHeightmaps(), output -> {});
+            // Only the sections (block states and biomes): since 26.3, LevelChunk.replaceWithPacketData
+            // also creates the block entities, which no caller of this copy needs and which would run
+            // block entity loading on the netty thread.
+            FriendlyByteBuf buffer = packet.chunkData().getReadBuffer();
+            for (LevelChunkSection section : chunk.getSections()) section.read(buffer);
         } catch (RuntimeException e) {
             chunk = null;
         }

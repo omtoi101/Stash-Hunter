@@ -230,7 +230,7 @@ public class CaveDisturbanceDetector extends Module {
         try {
             pockets = CaveAirPockets.find(blocks, 0, minSeedY, 0, 15, maxSeedY, 15, maxSize);
         } catch (RuntimeException e) {
-            StashHunter.LOG.debug("Could not search chunk {}, {} for cave disturbances", packet.getX(), packet.getZ(), e);
+            StashHunter.LOG.debug("Could not search chunk {}, {} for cave disturbances", packet.x(), packet.z(), e);
             return null;
         }
         if (pockets.isEmpty()) return null;

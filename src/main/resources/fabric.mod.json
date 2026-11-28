@@ -25,10 +25,10 @@
   "depends": {
     "java": ">=25",
     "minecraft": "${mc_version}",
-    "meteor-client": "~26.2-"
+    "meteor-client": "~26.3-"
   },
   "recommends": {
-    "baritone-meteor": "~26.2-"
+    "baritone-meteor": "~26.3-"
   },
   "suggests": {
     "xaerominimap": "*"
