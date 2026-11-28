@@ -75,7 +75,11 @@ After each detour it returns to its strips. Chunks the server hasn't sent yet ar
 
 **Scanning.** Every `scan-interval` ticks the addon scans a cylinder of `scan-radius` blocks around the player over the **full world height**, so stashes far below the flight altitude are found too. Each chunk is read once when it loads and again only when a stash block in it changes or after a minute, so a large radius stays cheap. A chunk that was inside the radius before the server sent it is scanned as soon as it arrives, even if the bot has flown on by then. If chunks never arrive (the server is too slow for your flight speed, or its view distance is smaller than `scan-radius`), the chat warns you at most every 10 minutes, because those spots stay unscanned.
 
-**Signals and score.** The scan turns everything it sees into *signals*, each with a weight. A candidate (a group of signals close together) is rated by the sum of its weights:
+**Signals and score.** The scan turns everything it sees into *signals*, each with a weight. A candidate (a group of signals close together) is rated by a score:
+
+- Shulker boxes, ender chests and containers count **per block**.
+- Each kind of trace and weak trace counts **once per candidate**, however many blocks of it there are: a concrete wall, a beacon pyramid of diamond blocks or a 3×3 portal is one trace. The blocks of an open portal and its obsidian frame together are one portal trace.
+- Weak traces together add at most 4.
 
 | Kind | Signals | Weight |
 | --- | --- | --- |
@@ -84,9 +88,9 @@ After each detour it returns to its strips. Chunks the server hasn't sent yet ar
 | Container | hopper, dispenser, dropper, furnace (all kinds) | 1 |
 | Trace | written sign, unnatural block (concrete, some heads, mineral storage blocks such as diamond or netherite, ...), open portal, obsidian portal frame, build above Y 260 / on the Nether roof, decorated pot holding an item, item frame with an item, named entity, traded villager, animal with a chest, activated spawner, cave disturbance | 3 |
 | Trace | placed bedrock, stacked minecarts, beacon, conduit | 4 |
-| Weak trace | bed, crafting table, anvil, enchanting table, brewing stand, boat, chest minecart, mob with player gear, spawner (only with `include-spawners`) | 1 (together at most 4) |
+| Weak trace | bed, crafting table, anvil, enchanting table, brewing stand, boat, chest minecart, mob with player gear, spawner (only with `include-spawners`) | 1 (all weak traces together at most 4) |
 
-Natural look-alikes are ignored: skeleton and wither skeleton skulls, dragon heads and waxed copper (ancient cities, fortresses, End ships, trial chambers), natural bedrock, End gateways and item frames holding an elytra (End ships). Each group of traces can be switched off in the **Signals** settings group.
+Natural look-alikes are ignored: skeleton and wither skeleton skulls, dragon heads and waxed copper (ancient cities, fortresses, End ships, trial chambers), natural bedrock, End gateways and item frames holding an elytra (End ships). A solid obsidian wall or block is no portal frame. Each group of traces can be switched off in the **Signals** settings group.
 
 How many points a report needs depends on `sensitivity`:
 
@@ -96,8 +100,8 @@ How many points a report needs depends on `sensitivity`:
 | `normal` (default) | score 6 | score 25 | `block-detection-threshold`, at most 6 |
 | `sensitive` | score 4 | score 15 | `block-detection-threshold`, at most 4 |
 
-- **Hint:** a strong signal (even a single shulker box or ender chest), or at least two signals including a trace, with a score at or above the hint score. One trace alone never makes a hint, and containers or weak traces alone never do either, so villages and mineshafts stay quiet.
-- **Stash:** enough containers (shulker boxes and ender chests count as containers too) in a stash-shaped group, or a score at or above the stash score with at least one trace. Three shulker boxes are a hint; ten shulker boxes close together are a stash.
+- **Hint:** a strong signal (even a single shulker box or ender chest), or at least two **different** kinds of signals including a trace, with a score at or above the hint score. One kind of trace alone never makes a hint (a lone portal, an end portal, a concrete wall, a Nether roof highway), and containers or weak traces alone never do either, so villages and mineshafts stay quiet. A written sign next to a bed and a chest is a hint (3 + 1 + 2 = 6).
+- **Stash:** enough containers (shulker boxes and ender chests count as containers too) in a stash-shaped group, or a score at or above the stash score with at least one trace. Three shulker boxes are a hint; ten shulker boxes close together are a stash. Because each kind of trace counts once, a stash by score alone needs many different traces together (for example placed bedrock, a beacon, stacked minecarts, signs, an item frame, named mobs ...).
 - **Classic:** with `sensitivity` `classic` only `block-detection-threshold` decides, and `storage-only-mode` still switches between storage blocks only (default) and all base blocks (furnaces, brewing stands, enchanting tables, anvils, crafting tables, beacons, conduits, hoppers, dispensers, droppers, beds). In the other modes `storage-only-mode` has no effect.
 
 **Clustering and filtering.** The filters below apply to the containers of a candidate; shulker boxes, ender chests and traces are not filtered out by them.
@@ -207,7 +211,7 @@ Scans for stashes, drives the flight and sends the notifications. It must be ena
 
 #### Signals
 
-Settings group **Signals** of the same module. Chests, barrels, other containers, shulker boxes and ender chests always count; each group of traces can be switched off. All are on by default.
+Settings group **Signals** of the same module, hidden in `classic` sensitivity (classic only looks at containers). Chests, barrels, other containers, shulker boxes and ender chests always count; each group of traces can be switched off. All are on by default.
 
 | Setting | Traces it covers |
 | --- | --- |
@@ -246,7 +250,7 @@ Outlines chosen items lying on the ground, for example gear dropped at a death s
 
 ### Mob Gear ESP (`mob-gear-esp`)
 
-Outlines mobs that wear or hold gear that looks like a player's, a sign that a base or a death spot is nearby. Such mobs also count as weak traces for the score (group `entities`).
+Outlines mobs that wear or hold gear that looks like a player's, a sign that a base or a death spot is nearby. Such mobs also count as weak traces for the score, but through `stash-hunter`'s own entity scan (group `entities`), with or without this module, so a mob is never counted twice.
 
 | Setting | Description | Default |
 | --- | --- | --- |

@@ -10,6 +10,7 @@ One line per change. How a feature works and what each setting does is in the [R
 
 - **Signal score detection.** The scan now rates everything it finds by weight: containers, shulker boxes and ender chests, plus player traces (signs, unnatural blocks, portals, builds above Y 260 and on the Nether roof, placed bedrock, item frames, named and traded mobs, animals with chests, beds and other base blocks, and the findings of `activated-spawner-detector`, `stacked-minecarts` and `cave-disturbance-detector`). Natural look-alikes (skeleton and wither skeleton skulls, dragon heads, waxed copper, natural bedrock, End gateways, elytra in item frames) are ignored.
 - **Hints.** Small finds, such as a single shulker box or ender chest or a few traces together, are reported as a hint: chat, a waypoint named `Hint: <what> at <x, y, z>`, yellow Stash ESP outline, and Discord with `discord-hints`. A single trace never makes a hint.
+- **Each kind of trace counts once per candidate.** A portal (its blocks and its obsidian frame), a lit end portal, a concrete wall, map art or a Nether roof highway is one trace and never a hint or stash on its own; a hint without a shulker box or ender chest needs two different kinds of signals. Shulker boxes, ender chests and containers still count per block.
 - **`sensitivity`** (`classic`, `normal`, `sensitive`; default `normal`) and `discord-hints` settings; `classic` keeps the 26.2.2 container-only detection without hints.
 - **Signals settings group** with one switch per trace group (`signs`, `unnatural-blocks`, `portals`, `high-builds`, `bedrock`, `entities`, `other-modules`, `base-blocks`), and `hint-side-color` / `hint-line-color` in the Stash ESP group.
 - **Hint to stash:** a hint that grows into a stash reports **"Stash Updated"** (also on Discord) and replaces the hint waypoint, even across sessions.
@@ -26,11 +27,16 @@ One line per change. How a feature works and what each setting does is in the [R
 
 ### Fixed
 
+- A one-thick obsidian wall or a solid obsidian block no longer counts as many portal frames.
+- Pauses for `auto-elytra-repair` no longer print the diagnostics summary and the `scan-radius` advice each time; the flight period runs on through the repair.
+- Moving entities no longer make a reported stash look grown ("Stash Updated").
+- Mobs with player gear are no longer counted twice when `mob-gear-esp` is on.
+- With the `bedrock` group on, the scan no longer walks the natural bedrock layers block by block every scan.
 - `activated-spawner-detector` reads spawner tags null-safely: the 26.3 chunk packet can carry a spawner without a tag, which counts as an empty tag now.
 
 ### Development
 
-- New package `signals/` (`SignalKind` weights, `Sensitivity`, `SignalScoring`, `SignalClusterer`, `ContainerFilter`, `SignalHub`, `ReportGate`, `ScanDiagnostics`, `DiagnosticsLog`, `ScanRadiusAdvice`, `WaypointNames`, `NaturalBedrock`, `PortalFrames`, `EntitySignalIndex`) with unit tests; `StashReporter` reports hints and stashes, `StashHunterModule` feeds the scan into the score.
+- New package `signals/` (`SignalKind` weights, `Sensitivity`, `SignalScoring`, `SignalClusterer`, `ContainerFilter`, `SignalHub`, `ReportGate`, `ScanDiagnostics`, `DiagnosticsLog`, `ScanRadiusAdvice`, `WaypointNames`, `NaturalBedrock`, `PortalFrames`, `EntitySignalIndex`, `SignalCollapse` (one trace signal per kind and chunk section), `ClassicRule` (the classic decision, tested on 26.2.2 fixtures), `FlightPeriods`) with unit tests; `StashReporter` reports hints and stashes, `StashHunterModule` feeds the scan into the score.
 - `utils/SpawnerTags` (+ test) holds the spawner tag reading without Minecraft static initialisers, so it can be unit tested.
 - `utils/MobGear` (+ test) and tests for the dirty-chunk tracking and scan budget of `tunnel-esp`.
 - Pins: Minecraft 26.3, Baritone 26.3-SNAPSHOT, Xaero fabric-26.3-26.6.2, fabric-resource-loader-v1 3.0.4+ba0d6c0d5d; Loom stays at 1.17.21.

@@ -2,11 +2,13 @@
 
 ## Stand (2026-11-28)
 
-- Branch `port/26.3`: Port auf **MC 26.3** erledigt (Version `26.3.0-dev`, Build grün, 157 Tests).
+- Branch `port/26.3`: Port auf **MC 26.3** erledigt (Version `26.3.0-dev`, Build grün, 292 Tests in 50 Suites).
   Release 26.3.0 kommt in Etappen, Designs und Pläne unter `docs/superpowers/`. In-game-Test auf
   26.3 offen.
 - **Erkennung per Signal-Score** (59 Base Finder, 56 Portal-Finder, 62 ESP-Suite) ist fertig und
-  dokumentiert (README, CHANGELOG), Build grün. Nächster Schritt: Checkliste „Erkennung (Signal-Score)“
+  dokumentiert (README, CHANGELOG), Build grün. Final-Review-Fixes: jede Spurenart zählt einmal pro
+  Kandidat (Portal + Rahmen = eine Spur), Hinweis ohne starke Art braucht zwei verschiedene Arten,
+  Spuren pro Section zusammengefasst, Classic-Entscheidung in `ClassicRule` getestet. Nächster Schritt: Checkliste „Erkennung (Signal-Score)“
   und „Singleplayer-Testwelt Erkennung“ in Abschnitt 1 in-game abarbeiten.
 
 ### Stand 2026-11-10
@@ -168,6 +170,7 @@ Singleplayer-Testwelt Erkennung (Erwartung mit `sensitivity` `normal`, Standardw
 - [ ] 10 Kisten dicht beieinander → **Stash**
 - [ ] Dungeon (Spawner + 2 Kisten), unverändert → **nichts**
 - [ ] Dorf, unverändert → **nichts**
+- [ ] Ein Netherportal (an oder aus), ein Endportal, eine Betonwand, 1 Block dicke Obsidianwand → **nichts**
 - [ ] Shulker in einem Dungeon → **Hinweis**
 - [ ] Hinweis (z. B. 3 Shulker) später auf 10 Kisten erweitern → **Stash Updated**
 - [ ] Dieselben Lagen mit `classic` → nur der 10-Kisten-Stash, sonst nichts
