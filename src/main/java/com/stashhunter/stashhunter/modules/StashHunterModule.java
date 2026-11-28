@@ -5,6 +5,7 @@ import com.stashhunter.stashhunter.baritone.BaritoneBridge;
 import com.stashhunter.stashhunter.signals.Candidate;
 import com.stashhunter.stashhunter.signals.ContainerFilter;
 import com.stashhunter.stashhunter.signals.DiagnosticsLog;
+import com.stashhunter.stashhunter.signals.EntitySignalIndex;
 import com.stashhunter.stashhunter.signals.Rejection;
 import com.stashhunter.stashhunter.signals.ScanDiagnostics;
 import com.stashhunter.stashhunter.signals.ScanRadiusAdvice;
@@ -588,13 +589,13 @@ public class StashHunterModule extends Module {
     private DiagnosticsLog diagnosticsLog;
     // Signals of every scanned chunk, so clusters can span several scans/flight strips.
     private final StashBlockIndex<SignalKind> signalIndex = new StashBlockIndex<>(8192);
-    // Entity signals per chunk, replaced on every scan for the chunks around the player.
-    private final StashBlockIndex<SignalKind> entityIndex = new StashBlockIndex<>(8192);
+    // Entity signals per entity (one signal per entity, also when it walks on), updated on every scan.
+    private final EntitySignalIndex entityIndex = new EntitySignalIndex(16_384);
     // Every spawner seen (also when spawners are no signal), for the dungeon filter.
     private final StashBlockIndex<Boolean> spawnerIndex = new StashBlockIndex<>(8192);
     // Entities are only sent within the server's entity tracking range, which can be smaller than
-    // the scan radius. A chunk's entity signals are cleared only this close to the player, where its
-    // entities are surely loaded; farther out, a chunk only gets new entity signals when some are seen.
+    // the scan radius. An entity not seen this scan is forgotten only if its last chunk is this close
+    // to the player, where its entities are surely loaded; farther out it stays where it was seen.
     private static final int ENTITY_REPLACE_RADIUS = 48;
     // A chunk is only read again when it changed or after this long (catches missed updates).
     private static final int RESCAN_TICKS = 1200;
@@ -1028,8 +1029,10 @@ public class StashHunterModule extends Module {
         int chunkRadius = (radius >> 4) + 1;
         int playerChunkX = px >> 4, playerChunkZ = pz >> 4;
         // Classic is the 26.2.2 scan: no entities.
-        Map<Long, Map<BlockPos, SignalKind>> entities = classic ? Map.of()
-            : SignalEntities.collect(mc.level, playerPos, radius, enabled).byChunk();
+        List<EntitySignalIndex.Seen> entities = classic ? List.of()
+            : SignalEntities.collect(mc.level, playerPos, radius, enabled).seen();
+        Set<Long> entityClearedChunks = new HashSet<>();
+        Set<Long> scannedChunks = new HashSet<>();
 
         boolean scannedAny = false;
         for (int cx = playerChunkX - chunkRadius; cx <= playerChunkX + chunkRadius; cx++) {
@@ -1043,11 +1046,17 @@ public class StashHunterModule extends Module {
                     missedChunks.add(dimension, cx, cz, tickCounter);
                     continue;
                 }
-                boolean scanned = scanChunkIfDue(dim, cx, cz, classic, enabled);
-                if (scanned) scannedAny = true;
-                if (!classic) updateEntitySignals(dimension, cx, cz, px, pz, entities, scanned);
+                if (scanChunkIfDue(dim, cx, cz, classic, enabled)) {
+                    scannedAny = true;
+                    scannedChunks.add(ChunkPos.pack(cx, cz));
+                }
+                long ex = (cx << 4) + 8 - px, ez = (cz << 4) + 8 - pz;
+                if (ex * ex + ez * ez <= (long) ENTITY_REPLACE_RADIUS * ENTITY_REPLACE_RADIUS) {
+                    entityClearedChunks.add(ChunkPos.pack(cx, cz));
+                }
             }
         }
+        if (!classic) updateEntitySignals(dimension, entities, entityClearedChunks, scannedChunks);
 
         // Chunks that arrived after they were in range. Those far behind the player get their own
         // cluster check below: the one around the player doesn't reach them anymore.
@@ -1086,14 +1095,15 @@ public class StashHunterModule extends Module {
         return true;
     }
 
-    private void updateEntitySignals(String dimension, int cx, int cz, int px, int pz,
-                                     Map<Long, Map<BlockPos, SignalKind>> entities, boolean scanned) {
-        Map<BlockPos, SignalKind> found = entities.getOrDefault(ChunkPos.pack(cx, cz), Map.of());
-        long dx = (cx << 4) + 8 - px, dz = (cz << 4) + 8 - pz;
-        if (found.isEmpty() && dx * dx + dz * dz > (long) ENTITY_REPLACE_RADIUS * ENTITY_REPLACE_RADIUS) return;
-        entityIndex.update(dimension, cx, cz, found);
-        // Counted with the chunk's block scan, so a standing player doesn't count the same entities every scan.
-        if (scanned) countSignals(found.values());
+    private void updateEntitySignals(String dimension, List<EntitySignalIndex.Seen> entities,
+                                     Set<Long> clearedChunks, Set<Long> scannedChunks) {
+        entityIndex.update(dimension, entities, clearedChunks::contains);
+        // Counted with their chunk's block scan, so a standing player doesn't count the same entities every scan.
+        List<SignalKind> counted = new ArrayList<>();
+        for (EntitySignalIndex.Seen seen : entities) {
+            if (scannedChunks.contains(ChunkPos.pack(seen.pos()))) counted.add(seen.kind());
+        }
+        countSignals(counted);
     }
 
     private void countSignals(Collection<SignalKind> kinds) {
@@ -1148,9 +1158,9 @@ public class StashHunterModule extends Module {
         signalIndex.near(dimension, x, z, reach).forEach((pos, kind) -> {
             if (isSignalEnabled(kind, enabled, spawners)) signals.add(new Signal(pos, kind));
         });
-        entityIndex.near(dimension, x, z, reach).forEach((pos, kind) -> {
-            if (isSignalEnabled(kind, enabled, spawners)) signals.add(new Signal(pos, kind));
-        });
+        for (Signal s : entityIndex.near(dimension, x, z, reach)) {
+            if (isSignalEnabled(s.kind(), enabled, spawners)) signals.add(s);
+        }
         for (Signal s : SignalHub.near(dimension, x, z, reach)) {
             if (isSignalEnabled(s.kind(), enabled, spawners)) signals.add(s);
         }
@@ -1235,7 +1245,7 @@ public class StashHunterModule extends Module {
             reporter.reportHint(dim, center, candidate.signals(), verdict.score(), options);
         } else {
             reporter.reportStash(dim, center, candidate.signals(), verdict, earlier, known != Tier.NONE,
-                sens.toString(), options);
+                sens.toString(), sens.stashScore(), options);
         }
         reportedStashes().add(dimension, center, verdict.tier());
         diagnostics.reported(verdict.tier());

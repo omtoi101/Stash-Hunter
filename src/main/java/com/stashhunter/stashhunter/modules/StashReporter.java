@@ -1,5 +1,6 @@
 package com.stashhunter.stashhunter.modules;
 
+import com.stashhunter.stashhunter.signals.ReportGate;
 import com.stashhunter.stashhunter.signals.Signal;
 import com.stashhunter.stashhunter.signals.SignalBlocks;
 import com.stashhunter.stashhunter.signals.SignalCategory;
@@ -175,7 +176,7 @@ final class StashReporter {
      * reported in an earlier session that has no FoundStash.
      */
     void reportStash(Dimension dimension, BlockPos center, List<Signal> signals, Verdict verdict,
-                     List<FoundStash> earlier, boolean update, String sensitivityName, Options options) {
+                     List<FoundStash> earlier, boolean update, String sensitivityName, int stashScore, Options options) {
         String previously = previously(earlier, update);
         replacePrevious(dimension, center, earlier, options.dedupeRadius());
 
@@ -192,10 +193,12 @@ final class StashReporter {
             update ? "Updated" : "Found", coords, dimension, positions.size(), verdict.score(), density,
             update ? " - previously reported: " + previously : ""));
 
-        boolean announcedBefore = earlier.stream().anyMatch(old -> old.tier() == Tier.STASH && old.waypoint() != null);
+        boolean announcedBefore = growsFromHint(earlier, update)
+            || earlier.stream().anyMatch(old -> old.tier() == Tier.STASH && old.waypoint() != null);
         Waypoint waypoint = null;
-        // The density threshold only guards stashes found by the container count.
-        if (!verdict.byContainers() || density >= options.notificationDensityThreshold() || announcedBefore) {
+        // The density threshold only guards stashes found by the container count alone.
+        if (ReportGate.announce(verdict.byContainers(), verdict.score(), stashScore, density,
+            options.notificationDensityThreshold(), announcedBefore)) {
             String description = String.format(Locale.ROOT,
                 (update ? "More of an already reported stash or hint was found.\nPreviously reported: " + previously + "\n\n" : "")
                     + "Coordinates: %s (sensitivity %s)\n"
@@ -260,9 +263,10 @@ final class StashReporter {
 
         // Only send Discord notification if density meets threshold. A stash already announced
         // on Discord gets its correction there too, even if the bigger cluster is less dense.
-        boolean announcedBefore = earlier.stream().anyMatch(old -> old.waypoint() != null);
+        // A hint growing into this stash had its waypoint removed above, so it counts as announced.
+        boolean announcedBefore = growsFromHint(earlier, update) || earlier.stream().anyMatch(old -> old.waypoint() != null);
         Waypoint waypoint = null;
-        if (density >= options.notificationDensityThreshold() || announcedBefore) {
+        if (ReportGate.announce(true, 0, Integer.MAX_VALUE, density, options.notificationDensityThreshold(), announcedBefore)) {
             String description = String.format(
                 (update ? "More of an already reported stash was found.\nPreviously reported: " + previously + "\n\n" : "") +
                     "Coordinates: %s%s\n" +
@@ -296,6 +300,14 @@ final class StashReporter {
     }
 
     // ----- shared -----
+
+    // An update that replaces a hint: one of this session, or one only known from a waypoint or the
+    // reported-stashes file (an update without an earlier stash of this session).
+    private static boolean growsFromHint(List<FoundStash> earlier, boolean update) {
+        boolean earlierStash = earlier.stream().anyMatch(old -> old.tier() == Tier.STASH);
+        boolean earlierHint = earlier.stream().anyMatch(old -> old.tier() == Tier.HINT);
+        return earlierHint || (update && !earlierStash);
+    }
 
     // "N blocks at x, y, z" per earlier report, like 26.2.2; a hint from an earlier session has no entry.
     private static String previously(List<FoundStash> earlier, boolean update) {

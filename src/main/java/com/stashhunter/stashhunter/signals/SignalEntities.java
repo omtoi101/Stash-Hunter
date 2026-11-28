@@ -1,8 +1,8 @@
 package com.stashhunter.stashhunter.signals;
 
 import com.stashhunter.stashhunter.utils.MobGear;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
@@ -18,7 +18,6 @@ import net.minecraft.world.entity.vehicle.boat.AbstractBoat;
 import net.minecraft.world.entity.vehicle.minecart.MinecartChest;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.level.ChunkPos;
 
 /**
  * Turns the entities around the player into stash signals. Called from the scan (every scan interval), never per
@@ -27,16 +26,16 @@ import net.minecraft.world.level.ChunkPos;
 public final class SignalEntities {
     private SignalEntities() {}
 
-    /** Signals keyed by {@link ChunkPos#pack} of the chunk the entity stands in. */
-    public record Collected(Map<Long, Map<BlockPos, SignalKind>> byChunk) {}
+    /** One entry per entity that shows a signal, with its UUID so moving entities are not counted twice. */
+    public record Collected(List<EntitySignalIndex.Seen> seen) {}
 
     /**
      * Entities within {@code radius} blocks of {@code center}, measured horizontally like the block scan (the
      * player flies far above the ground). Does nothing unless {@link TraceGroup#ENTITIES} is enabled.
      */
     public static Collected collect(ClientLevel level, BlockPos center, int radius, Set<TraceGroup> enabled) {
-        Map<Long, Map<BlockPos, SignalKind>> byChunk = new HashMap<>();
-        if (!enabled.contains(TraceGroup.ENTITIES)) return new Collected(byChunk);
+        List<EntitySignalIndex.Seen> seen = new ArrayList<>();
+        if (!enabled.contains(TraceGroup.ENTITIES)) return new Collected(seen);
 
         long radiusSq = (long) radius * radius;
         for (Entity entity : level.entitiesForRendering()) {
@@ -46,9 +45,9 @@ public final class SignalEntities {
             if (dx * dx + dz * dz > radiusSq) continue;
             SignalKind kind = kindOf(entity);
             if (kind == null) continue;
-            byChunk.computeIfAbsent(ChunkPos.pack(pos), k -> new HashMap<>()).put(pos, kind);
+            seen.add(new EntitySignalIndex.Seen(entity.getUUID(), pos.immutable(), kind));
         }
-        return new Collected(byChunk);
+        return new Collected(seen);
     }
 
     /** The strongest kind the entity shows; null if it shows none. */
