@@ -210,6 +210,8 @@ public final class SignalBlocks {
         }
 
         Set<Block> wanted = sectionBlocks(enabled);
+        boolean bedrock = wanted.contains(Blocks.BEDROCK);
+        Set<Block> wantedNoBedrock = sectionBlocksWithoutBedrock(wanted);
         boolean skyBuilds = enabled.contains(TraceGroup.HIGH_BUILDS)
             && (dimension == Dimension.Overworld || dimension == Dimension.Nether);
         Set<BlockPos> obsidian = new HashSet<>();
@@ -222,13 +224,22 @@ public final class SignalBlocks {
             int baseY = SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(i));
 
             if (skyBuilds) highBuild(section, dimension, baseY, minX, minZ, signals);
-            if (wanted.isEmpty() || !section.maybeHas(s -> wanted.contains(s.getBlock()))) continue;
+            if (wanted.isEmpty()) continue;
+            // The bottom Overworld section and the Nether floor and roof sections always hold natural bedrock: when
+            // bedrock is their only wanted block, walk only the rows outside the natural layers (ruling R13).
+            boolean others = !wantedNoBedrock.isEmpty() && section.maybeHas(s -> wantedNoBedrock.contains(s.getBlock()));
+            int rows = others ? 0xFFFF
+                : bedrock && section.maybeHas(s -> s.is(Blocks.BEDROCK)) ? NaturalBedrock.unnaturalRows(dimension, baseY)
+                : 0;
+            if (rows == 0) continue;
+            Set<Block> walked = others ? wanted : BEDROCK_ONLY;
 
             for (int y = 0; y < 16; y++) {
+                if ((rows & (1 << y)) == 0) continue;
                 for (int z = 0; z < 16; z++) {
                     for (int x = 0; x < 16; x++) {
                         Block block = section.getBlockState(x, y, z).getBlock();
-                        if (!wanted.contains(block)) continue;
+                        if (!walked.contains(block)) continue;
                         int bx = minX + x, by = baseY + y, bz = minZ + z;
                         if (block == Blocks.OBSIDIAN) {
                             obsidian.add(new BlockPos(bx, by, bz));
@@ -290,6 +301,15 @@ public final class SignalBlocks {
 
     private static boolean isEnabled(SignalKind kind, Set<TraceGroup> enabled) {
         return kind.group() == TraceGroup.NONE || enabled.contains(kind.group());
+    }
+
+    private static final Set<Block> BEDROCK_ONLY = Set.of(Blocks.BEDROCK);
+
+    private static Set<Block> sectionBlocksWithoutBedrock(Set<Block> wanted) {
+        if (!wanted.contains(Blocks.BEDROCK)) return wanted;
+        Set<Block> rest = new HashSet<>(wanted);
+        rest.remove(Blocks.BEDROCK);
+        return rest;
     }
 
     private static synchronized Set<Block> sectionBlocks(Set<TraceGroup> enabled) {

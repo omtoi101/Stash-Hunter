@@ -18,4 +18,13 @@ public final class NaturalBedrock {
     public static boolean isEndExitPortal(int x, int y, int z) {
         return Math.abs(x) <= 4 && Math.abs(z) <= 4 && y >= 50 && y <= 80;
     }
+
+    /** Section-local rows (bit y set) where bedrock would be placed, for the section starting at {@code baseY}. */
+    public static int unnaturalRows(Dimension dimension, int baseY) {
+        int mask = 0;
+        for (int y = 0; y < 16; y++) {
+            if (!isNatural(dimension, baseY + y)) mask |= 1 << y;
+        }
+        return mask;
+    }
 }
