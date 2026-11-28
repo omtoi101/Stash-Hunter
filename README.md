@@ -24,8 +24,8 @@ Built for **Minecraft 26.3**. Current version: **26.3.0** (in development; see t
 ## Features
 
 - **Automated stash search:** elytra flight over a rectangle (`.sh start`) or an outward spiral (`.sh spiral`), with Baritone pathing or the built-in controller. Flights can be paused, saved and resumed.
-- **Stash detection:** scans the full world height around you, scores containers and player traces (signs, beds, portals, named or traded mobs, placed bedrock, ...) and filters natural structures. Big finds are reported once as a **stash** (Meteor waypoint, optionally a Xaero's Minimap waypoint, Discord); small finds such as a lone shulker box are reported as a **hint**. Finds of this session are outlined in the world (Stash ESP). `.sh diag` shows what the scan saw and why candidates were rejected.
-- **ESP helpers:** `dropped-item-esp` (valuable items on the ground), `mob-gear-esp` (mobs with player gear) and `tunnel-esp` (shafts, tunnels and staircases dug by players).
+- **Stash detection:** scans the full world height around you, scores containers and player traces (signs, beds, portals, named or traded mobs, placed bedrock, ...) with a signal score and filters natural structures. `sensitivity` picks `normal` (default), `sensitive`, or `classic` (the container-only detection of 26.2.2). Big finds are reported once as a **stash** (Meteor waypoint, optionally a Xaero's Minimap waypoint, Discord); small finds such as a lone shulker box are reported as a **hint**. Finds of this session are outlined in the world (Stash ESP). `.sh diag` shows what the scan saw and why candidates were rejected.
+- **ESP helpers** (off by default): `dropped-item-esp` (valuable items on the ground), `mob-gear-esp` (mobs with player gear) and `tunnel-esp` (shafts, tunnels and staircases dug by players).
 - **Chunk analysis:** `NewerNewChunks` marks new and old chunks and lets the flight follow chunk trails; `old-chunk-notifier` tells you when you reach old terrain; `slime-chunks` marks slime chunks.
 - **More base signals:** `activated-spawner-detector` (spawners a player has been near), `stacked-minecarts` (hidden minecart storage), `cave-disturbance-detector` (blocks broken in cave air) and `chest-index` (searchable record of container contents per server).
 - **Unattended runs:** `auto-elytra-repair` (spare elytra or landing + XP bottles), `stuck-detector`, `altitude-loss-detector`, `auto-firework`, landing on low rockets, plus `player-alarms`, `online-player-activity` and `auto-logout`.
@@ -53,14 +53,15 @@ Fabric API is **not** required.
 1. **Equip an elytra.** The flight refuses to start without one.
 2. **Optional:** Enable `auto-elytra-repair` for long runs. It needs a **Mending** elytra and **XP bottles** in your inventory (see [Auto Elytra Repair](#auto-elytra-repair)).
 3. **Enable `NewerNewChunks`** if you want the bot to follow chunk trails.
-4. Paste your **Discord webhook URL** into the `stash-hunter` module's `discord-webhook-url` setting. You can skip this step; without a URL, finds still show up in chat and as waypoints.
-5. Get airborne and start scanning, for example a 20,000 × 20,000 area centred on you:
+4. Paste your **Discord webhook URL** into the `stash-hunter` module's `discord-webhook-url` setting. You can skip this step; without a URL, finds still show up in chat and as waypoints. Hints only go to Discord with `discord-hints` on.
+5. **Optional:** pick a `sensitivity`. The default `normal` reports stashes and hints; `classic` behaves exactly like 26.2.2 (containers only, no hints).
+6. Get airborne and start scanning, for example a 20,000 × 20,000 area centred on you:
 
    ```
    .sh start ~-10000 ~-10000 ~10000 ~10000 200
    ```
 
-The command enables the `stash-hunter` module and Meteor's ElytraFly if they are off. Use `.sh status` to check progress and `.sh pause` / `.sh resume` to take a break.
+The command enables the `stash-hunter` module and Meteor's ElytraFly if they are off. Use `.sh status` to check progress, `.sh diag` to see what the scan found and rejected, and `.sh pause` / `.sh resume` to take a break.
 
 ## How it works
 
@@ -121,7 +122,7 @@ How many points a report needs depends on `sensitivity`:
 - If a stash was first seen only in part and a later scan finds it with at least 3 and 20 % more blocks, a **"Stash Updated"** report also follows (chat and Discord, without `@everyone`) and both waypoints move to the new centre. Two reported halves that turn out to be one stash are merged.
 - **Stash ESP:** the containers of every stash and hint found this session are outlined in the world (see [Stash ESP settings](#stash-esp)). Containers broken since are no longer drawn.
 
-**Diagnostics.** `.sh diag` prints what the scan did in the current period (a flight, or since you enabled the module) and in the whole session: chunks scanned and never loaded, signals per category, candidates rejected per reason (low score, structure shape, dungeon, spawner, already reported), hints and stashes. Every rejected candidate is also written to a log file (see [Files it creates](#files-it-creates)). When a flight starts and the server sends chunks well beyond `scan-radius`, the chat suggests a larger radius.
+**Diagnostics.** `.sh diag` prints what the scan did in the current period (a flight, or the time standing since the module was enabled or the last flight ended) and in the whole session: chunks scanned and never loaded, signals per category, candidates rejected per reason (low score, structure shape, dungeon, spawner, already reported), hints and stashes. When a flight ends, its summary is printed in chat; a landing for `auto-elytra-repair` does not end the flight period. Every rejected candidate is also written to a log file (see [Files it creates](#files-it-creates)). When a flight starts and your render distance reaches well beyond `scan-radius`, the chat suggests a larger radius.
 
 **Staying alive.** The flight is paused automatically (and saved, so `.sh resume` continues it) when you die, change dimension or leave the server. If the elytra breaks or goes missing and isn't replaced or repaired in time, the bot sends an "Out of Elytras" notification and disconnects, instead of falling.
 
@@ -245,7 +246,7 @@ Outlines chosen items lying on the ground, for example gear dropped at a death s
 | --- | --- | --- |
 | `items` | Items to highlight. | netherite and diamond armour and tools, elytra, totem of undying, shulker box, end crystal |
 | `render-distance` | Only items within this many blocks are highlighted. | 256 |
-| `shape-mode`, `side-color`, `line-color` | Look of the boxes. | Both, orange |
+| `shape-mode`, `side-color`, `line-color` | Look of the boxes. | Both, amber |
 | `tracers` | Tracers to the items. | false |
 
 ### Mob Gear ESP (`mob-gear-esp`)
@@ -522,7 +523,7 @@ Create a webhook in your Discord server (*Server Settings → Integrations → W
 
 | Notification | Sent when |
 | --- | --- |
-| **Stash Found** | A stash is found. Includes coordinates, dimension, signal count and score, volume, density, a rating, a per-block-type breakdown and the traces found with it. |
+| **Stash Found** | A stash is found. Includes coordinates, sensitivity, dimension, signal count and score, volume, density, a rating, a per-block-type breakdown and the traces found with it. A stash found only by its container count needs a density of at least `notification-density-threshold`; below that it is only mentioned in chat. |
 | **Stash Updated** | A reported stash turned out bigger, or a hint grew into a stash (see [Reporting](#how-it-works)). Names the earlier report and position. |
 | **Stash Hint** | A hint is found (`discord-hints` on). Includes coordinates, dimension, score and all signals. |
 | **Player Detected** | Another player comes within `player-detection-radius` (default 100 blocks). Includes name, coordinates and distance. |
@@ -541,7 +542,7 @@ Create a webhook in your Discord server (*Server Settings → Integrations → W
 | **Online Player Activity** | Players joined or left the server (`online-player-activity`, `discord` on). |
 | **Auto Logout** | `auto-logout` disconnected you (`discord` on). |
 
-Pings are opt-in: `@everyone` is only used when `mention-everyone` is on. Rate limits and temporary Discord errors are retried automatically. While Discord is unreachable, at most 50 messages are queued.
+Pings are opt-in: `@everyone` is only used when `mention-everyone` is on, and then only for **Stash Found**, **Player Detected**, **Bot Died**, **Scanning Completed**, **Disconnected**, **Out of Elytras** and **Auto Logout**. **Stash Updated** and **Stash Hint** never ping. Rate limits and temporary Discord errors are retried automatically. While Discord is unreachable, at most 50 messages are queued.
 
 ## HUD
 
@@ -576,7 +577,8 @@ All paths are relative to your Minecraft game directory. Config, trips and the c
   - Hints don't reach Discord unless `discord-hints` is on.
   - A warning that chunks "never loaded" means parts of the area were not scanned. Lower `scan-radius` (and the strip width) below the server's view distance, or fly slower.
 - **Too many false positives**: Raise `block-detection-threshold` or `min-density-threshold`, or lower `max-volume-threshold`.
-- **Too many hints**: Switch off the trace group that fires near you in the **Signals** settings (for example `entities` near a village), or use `sensitivity` `classic`.
+- **Too many hints**: Use `sensitivity` `normal` instead of `sensitive`, switch off the trace group that fires near you in the **Signals** settings (for example `entities` near a village; `.sh diag` shows the signals per category), or use `sensitivity` `classic` for no hints at all.
+- **Too few hints**: Use `sensitivity` `sensitive` (hint score 4, stash score 15) and check that the trace groups in **Signals** are on. A single kind of trace (one portal, one concrete wall) is never a hint on purpose; `.sh diag` and the diagnostics log show candidates rejected for a low score.
 - **Repairs never start**: The repair needs XP bottles in your inventory and a Mending elytra, and the module must be enabled (`.sh repair` shows its state).
 - **The bot landed and stands still**: A low-rocket landing, a failed repair or a Baritone landing it couldn't take off from saves the flight and pauses it. Restock rockets / XP bottles and run `.sh resume`.
 - **`.sh start` says a flight is already active**: Run `.sh stop` (or `.sh pause` to keep it as a trip) first.
@@ -584,7 +586,7 @@ All paths are relative to your Minecraft game directory. Config, trips and the c
 
 ## Building from source
 
-You need Java 25 and Git.
+You need Git and a JDK. The mod is compiled with Java 25; Gradle itself also runs on JDK 21 and then downloads JDK 25 through its toolchain support if it isn't installed. Using JDK 25 for both is simplest.
 
 ```sh
 git clone https://github.com/omtoi101/Stash-Hunter.git
