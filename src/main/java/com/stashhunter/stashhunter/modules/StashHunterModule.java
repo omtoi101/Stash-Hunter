@@ -2,9 +2,27 @@ package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
 import com.stashhunter.stashhunter.baritone.BaritoneBridge;
+import com.stashhunter.stashhunter.signals.Candidate;
+import com.stashhunter.stashhunter.signals.ContainerFilter;
+import com.stashhunter.stashhunter.signals.DiagnosticsLog;
+import com.stashhunter.stashhunter.signals.Rejection;
+import com.stashhunter.stashhunter.signals.ScanDiagnostics;
+import com.stashhunter.stashhunter.signals.ScanRadiusAdvice;
+import com.stashhunter.stashhunter.signals.Sensitivity;
+import com.stashhunter.stashhunter.signals.Signal;
+import com.stashhunter.stashhunter.signals.SignalBlocks;
+import com.stashhunter.stashhunter.signals.SignalCategory;
+import com.stashhunter.stashhunter.signals.SignalClusterer;
+import com.stashhunter.stashhunter.signals.SignalEntities;
+import com.stashhunter.stashhunter.signals.SignalHub;
+import com.stashhunter.stashhunter.signals.SignalKind;
+import com.stashhunter.stashhunter.signals.SignalScoring;
 import com.stashhunter.stashhunter.signals.Tier;
+import com.stashhunter.stashhunter.signals.TraceGroup;
+import com.stashhunter.stashhunter.signals.Verdict;
 import com.stashhunter.stashhunter.utils.ChunkScanSchedule;
 import com.stashhunter.stashhunter.utils.Config;
+import com.stashhunter.stashhunter.utils.DimensionIds;
 import com.stashhunter.stashhunter.utils.DiscordEmbed;
 import com.stashhunter.stashhunter.utils.DiscordWebhook;
 import com.stashhunter.stashhunter.utils.DungeonFilter;
@@ -17,9 +35,9 @@ import com.stashhunter.stashhunter.utils.ServerKey;
 import com.stashhunter.stashhunter.utils.StashBlockIndex;
 import com.stashhunter.stashhunter.utils.StashClustering;
 import com.stashhunter.stashhunter.utils.StashGrowth;
-import com.stashhunter.stashhunter.xaero.XaeroBridge;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
+import meteordevelopment.meteorclient.events.packets.PacketEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.BlockUpdateEvent;
 import meteordevelopment.meteorclient.events.world.ChunkDataEvent;
@@ -28,15 +46,15 @@ import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
-import meteordevelopment.meteorclient.systems.waypoints.Waypoint;
-import meteordevelopment.meteorclient.systems.waypoints.Waypoints;
 import meteordevelopment.meteorclient.utils.player.PlayerUtils;
-import meteordevelopment.meteorclient.utils.render.RenderUtils;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.meteorclient.utils.world.Dimension;
 import meteordevelopment.orbit.EventHandler;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BlockEntityType;
+import net.minecraft.world.level.block.entity.BlockEntityTypes;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -47,14 +65,18 @@ import net.minecraft.core.SectionPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.chunk.LevelChunkSection;
 
 import java.nio.file.Path;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -78,7 +100,7 @@ public class StashHunterModule extends Module {
 
     private final Setting<Integer> blockDetectionThreshold = sgGeneral.add(new IntSetting.Builder()
         .name("block-detection-threshold")
-        .description("The number of valuable blocks to find before a stash is detected.")
+        .description("Containers for a stash. In normal at most 6, in sensitive at most 4 are needed.")
         .defaultValue(Config.blockDetectionThreshold)
         .min(1)
         .sliderMax(50)
@@ -86,6 +108,21 @@ public class StashHunterModule extends Module {
             Config.blockDetectionThreshold = v;
             Config.saveLater();
         })
+        .build()
+    );
+
+    private final Setting<Sensitivity> sensitivity = sgGeneral.add(new EnumSetting.Builder<Sensitivity>()
+        .name("sensitivity")
+        .description("classic: only containers and block-detection-threshold, like 26.2.2. normal: also traces (signs, beds, portals, entities, other modules) and small finds such as one shulker box, reported as hints. sensitive: lower hint and stash scores.")
+        .defaultValue(Sensitivity.NORMAL)
+        .build()
+    );
+
+    private final Setting<Boolean> discordHints = sgGeneral.add(new BoolSetting.Builder()
+        .name("discord-hints")
+        .description("Also send hints (small finds and player traces) to Discord. Stashes are always sent.")
+        .defaultValue(false)
+        .visible(() -> sensitivity.get() != Sensitivity.CLASSIC)
         .build()
     );
 
@@ -105,7 +142,7 @@ public class StashHunterModule extends Module {
 
     private final Setting<Boolean> storageOnlyMode = sgGeneral.add(new BoolSetting.Builder()
         .name("storage-only-mode")
-        .description("Only search for storage containers (chests, shulkers). Disable to search for all stash blocks.")
+        .description("Only search for storage containers (chests, shulkers). Disable to search for all stash blocks. Only in classic sensitivity.")
         .defaultValue(Config.storageOnlyMode)
         .onChanged(v -> {
             Config.storageOnlyMode = v;
@@ -430,12 +467,44 @@ public class StashHunterModule extends Module {
         .build()
     );
 
+    // Signals: one switch per trace group (containers and shulker boxes/ender chests always count).
+    private final SettingGroup sgSignals = settings.createGroup("Signals");
+    private final Map<TraceGroup, Setting<Boolean>> traceGroups = traceGroupSettings();
+
+    private Map<TraceGroup, Setting<Boolean>> traceGroupSettings() {
+        Map<TraceGroup, Setting<Boolean>> result = new EnumMap<>(TraceGroup.class);
+        for (TraceGroup group : TraceGroup.values()) {
+            if (group == TraceGroup.NONE) continue;
+            result.put(group, sgSignals.add(new BoolSetting.Builder()
+                .name(group.name().toLowerCase(Locale.ROOT).replace('_', '-'))
+                .description(traceGroupDescription(group))
+                .defaultValue(true)
+                .visible(() -> sensitivity.get() != Sensitivity.CLASSIC)
+                .build()));
+        }
+        return result;
+    }
+
+    private static String traceGroupDescription(TraceGroup group) {
+        return switch (group) {
+            case SIGNS -> "Signs with text.";
+            case UNNATURAL_BLOCKS -> "Blocks that never generate naturally (concrete, some heads, ore blocks, beacons, conduits) and decorated pots holding an item.";
+            case PORTALS -> "Open nether/end portals and obsidian portal frames.";
+            case HIGH_BUILDS -> "Blocks above Y 260 in the Overworld and on the Nether roof.";
+            case BEDROCK -> "Bedrock outside the natural layers.";
+            case ENTITIES -> "Item frames with items, named entities, traded villagers, animals with chests, boats, chest minecarts and mobs with player gear.";
+            case OTHER_MODULES -> "Findings of activated-spawner-detector, stacked-minecarts and cave-disturbance-detector while they are on.";
+            case BASE_BLOCKS -> "Beds, crafting tables, anvils, enchanting tables, brewing stands (weak traces), and spawners with include-spawners.";
+            case NONE -> "";
+        };
+    }
+
     // Stash ESP
     private final SettingGroup sgRender = settings.createGroup("Stash ESP");
 
     private final Setting<Boolean> renderStashes = sgRender.add(new BoolSetting.Builder()
         .name("render-stashes")
-        .description("Outlines the containers of stashes found this session.")
+        .description("Outlines the containers of stashes and hints found this session (hints without containers: their signals).")
         .defaultValue(true)
         .build()
     );
@@ -474,6 +543,22 @@ public class StashHunterModule extends Module {
         .build()
     );
 
+    private final Setting<SettingColor> hintSideColor = sgRender.add(new ColorSetting.Builder()
+        .name("hint-side-color")
+        .description("Side color of hints (small finds and player traces).")
+        .defaultValue(new SettingColor(255, 255, 0, 50))
+        .visible(renderStashes::get)
+        .build()
+    );
+
+    private final Setting<SettingColor> hintLineColor = sgRender.add(new ColorSetting.Builder()
+        .name("hint-line-color")
+        .description("Line color of hints, their bounding box and tracer.")
+        .defaultValue(new SettingColor(255, 255, 0, 235))
+        .visible(renderStashes::get)
+        .build()
+    );
+
     private final Setting<Boolean> stashBoundingBox = sgRender.add(new BoolSetting.Builder()
         .name("stash-bounding-box")
         .description("Also draws one box around all containers of a stash.")
@@ -484,7 +569,7 @@ public class StashHunterModule extends Module {
 
     private final Setting<Boolean> stashTracers = sgRender.add(new BoolSetting.Builder()
         .name("stash-tracers")
-        .description("Draws a tracer to the nearest found stash.")
+        .description("Draws a tracer to the nearest found stash or hint.")
         .defaultValue(false)
         .visible(renderStashes::get)
         .build()
@@ -492,13 +577,25 @@ public class StashHunterModule extends Module {
 
     // State
     private final Map<UUID, Long> reportedPlayers = new ConcurrentHashMap<>();
-    // Stashes reported this session, for report corrections and the Stash ESP. Not persisted.
-    private final List<FoundStash> foundStashes = new ArrayList<>();
+    // Hints and stashes reported this session (report corrections, Stash ESP), and their messages.
+    private final StashReporter reporter = new StashReporter(this::info);
     // One file per server under the Meteor folder; loaded lazily for the server we're on.
-    private static final Path REPORTED_STASHES_DIR = MeteorClient.FOLDER.toPath().resolve("StashHunter").resolve("reported-stashes");
+    private static final Path STASH_HUNTER_DIR = MeteorClient.FOLDER.toPath().resolve("StashHunter");
+    private static final Path REPORTED_STASHES_DIR = STASH_HUNTER_DIR.resolve("reported-stashes");
+    private static final Path DIAGNOSTICS_DIR = STASH_HUNTER_DIR.resolve("diagnostics");
+    private static final long DIAGNOSTICS_LOG_MAX_BYTES = 5L * 1024 * 1024;
     private ReportedStashes reportedStashes;
-    // Stash blocks of every scanned chunk, so clusters can span several scans/flight strips.
-    private final StashBlockIndex<Block> stashBlockIndex = new StashBlockIndex<>(8192);
+    private DiagnosticsLog diagnosticsLog;
+    // Signals of every scanned chunk, so clusters can span several scans/flight strips.
+    private final StashBlockIndex<SignalKind> signalIndex = new StashBlockIndex<>(8192);
+    // Entity signals per chunk, replaced on every scan for the chunks around the player.
+    private final StashBlockIndex<SignalKind> entityIndex = new StashBlockIndex<>(8192);
+    // Every spawner seen (also when spawners are no signal), for the dungeon filter.
+    private final StashBlockIndex<Boolean> spawnerIndex = new StashBlockIndex<>(8192);
+    // Entities are only sent within the server's entity tracking range, which can be smaller than
+    // the scan radius. A chunk's entity signals are cleared only this close to the player, where its
+    // entities are surely loaded; farther out, a chunk only gets new entity signals when some are seen.
+    private static final int ENTITY_REPLACE_RADIUS = 48;
     // A chunk is only read again when it changed or after this long (catches missed updates).
     private static final int RESCAN_TICKS = 1200;
     private final ChunkScanSchedule scanSchedule = new ChunkScanSchedule(RESCAN_TICKS);
@@ -509,11 +606,19 @@ public class StashHunterModule extends Module {
     private static final int MISSED_WARNING_INTERVAL_TICKS = 12_000; // 10 minutes
     private int neverLoadedChunks = 0;
     private int lastMissedWarningTick = -MISSED_WARNING_INTERVAL_TICKS;
-    // Block set of the last scan: a settings change makes every cached chunk result stale.
-    private Set<Block> lastScanBlocks = Set.of();
-    private Set<Block> lastPlainBlocks = Set.of();
+    // Scan settings of the last scan: a change makes every cached chunk result stale.
+    private ScanConfig lastScanConfig = null;
+    // Blocks whose change invalidates a chunk's cached scan (depends on the sensitivity).
+    private Set<Block> watchedBlocks = Set.of();
+    private boolean lastScanClassic = false;
     private int lastSchedulePruneTick = 0;
-    private static final String STASH_WAYPOINT_MARKER = " Blocks at "; // part of every stash waypoint name
+    // Counters per flight (or since enabling without a flight), summed per session.
+    private final ScanDiagnostics diagnostics = new ScanDiagnostics();
+    // Candidates already counted this period: one stays in range for many scans.
+    private final Set<String> diagnosedCandidates = new HashSet<>();
+    private static final int MAX_DIAGNOSED_CANDIDATES = 20_000;
+    private static final DateTimeFormatter PERIOD_TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT);
+    private boolean wasFlying = false;
     private int tickCounter = 0;
     private int ticksSinceScan = Integer.MAX_VALUE / 2; // large = scan on the first tick
     private double lastScanX, lastScanZ;
@@ -524,6 +629,10 @@ public class StashHunterModule extends Module {
     private boolean holdingJump = false;
     private ResourceKey<Level> lastDimension = null; // Track dimension for world-change teardown
 
+    /** Everything a chunk scan depends on; when it changes, cached chunk results are stale. */
+    private record ScanConfig(boolean classic, Set<TraceGroup> enabled, boolean includeSpawners, Set<Block> classicBlocks) {
+    }
+
     public StashHunterModule() {
         super(StashHunter.CATEGORY, "stash-hunter", "Automatically finds stashes by flying around and scanning for valuable blocks. Also scans while standing unless scan-only-while-flying is on.");
     }
@@ -532,9 +641,8 @@ public class StashHunterModule extends Module {
     public void onActivate() {
         reportedPlayers.clear();
         reportedStashes = null; // reloaded from disk for the current server
-        stashBlockIndex.clear();
-        scanSchedule.clear();
-        missedChunks.clear();
+        diagnosticsLog = null;
+        clearIndexes();
         neverLoadedChunks = 0;
         lastMissedWarningTick = -MISSED_WARNING_INTERVAL_TICKS;
         lastHealth = -1; // Reset health tracking
@@ -551,6 +659,10 @@ public class StashHunterModule extends Module {
         ticksSinceScan = Integer.MAX_VALUE / 2;
         setHoldingJump(false);
 
+        // Without a flight the period runs from now until the module is turned off.
+        wasFlying = ElytraController.isActive();
+        startDiagnosticsPeriod(wasFlying ? "flight from " : "standing since ");
+
         if (useBaritonePathing.get() && !BaritoneBridge.isModLoaded()) {
             info("Baritone is not installed - falling back to the built-in flight controller. " +
                 "Install the Baritone Fabric mod (26.2) for precise pathfinding.");
@@ -560,14 +672,29 @@ public class StashHunterModule extends Module {
     @Override
     public void onDeactivate() {
         ElytraController.stop();
+        wasFlying = false;
         setHoldingJump(false);
-        foundStashes.clear();
+        reporter.clear();
+        printDiagnosticsPeriod();
+    }
+
+    private void clearIndexes() {
+        signalIndex.clear();
+        entityIndex.clear();
+        spawnerIndex.clear();
+        scanSchedule.clear();
+        missedChunks.clear();
     }
 
     /** Sets the cruise altitude (clamped to the setting's 100-400 range); a running flight follows at once. */
     public int setFlightAltitude(int altitude) {
         flightAltitude.set(Math.max(100, Math.min(400, altitude)));
         return flightAltitude.get();
+    }
+
+    /** Chat lines for .stashhunter diag: the running period and the session total. */
+    public List<String> diagnosticsLines() {
+        return diagnostics.current();
     }
 
     // Looked up lazily: this module is registered before AutoElytraRepair, so it isn't available at construction time.
@@ -587,12 +714,19 @@ public class StashHunterModule extends Module {
     public void clearReportedStashes() {
         if (mc.level != null) reportedStashes().clear();
         reportedStashes = null;
-        foundStashes.clear(); // they get reported (and highlighted) again, so no duplicate boxes
+        reporter.clear(); // they get reported (and highlighted) again, so no duplicate boxes
     }
 
     private ReportedStashes reportedStashes() {
         if (reportedStashes == null) reportedStashes = ReportedStashes.load(REPORTED_STASHES_DIR.resolve(ServerKey.current() + ".txt"));
         return reportedStashes;
+    }
+
+    private DiagnosticsLog diagnosticsLog() {
+        if (diagnosticsLog == null) {
+            diagnosticsLog = new DiagnosticsLog(DIAGNOSTICS_DIR.resolve(ServerKey.current() + ".log"), DIAGNOSTICS_LOG_MAX_BYTES);
+        }
+        return diagnosticsLog;
     }
 
     public void clearReportedPlayers() {
@@ -619,10 +753,9 @@ public class StashHunterModule extends Module {
         notifyDisconnect();
         if (ElytraController.isActive()) ElytraController.pause();
         reportedStashes = null; // the next server has its own file
-        stashBlockIndex.clear();
-        scanSchedule.clear();
-        missedChunks.clear();
-        foundStashes.clear();
+        diagnosticsLog = null;
+        clearIndexes();
+        reporter.clear();
         resetFlightState();
         lastHealth = -1;
         lastDimension = null;
@@ -644,10 +777,38 @@ public class StashHunterModule extends Module {
         setHoldingJump(false);
     }
 
+    // ----- diagnostics periods -----
+
+    private void startDiagnosticsPeriod(String label) {
+        diagnostics.startPeriod(label + LocalTime.now().format(PERIOD_TIME));
+        diagnosedCandidates.clear();
+    }
+
+    private void printDiagnosticsPeriod() {
+        for (String line : diagnostics.endPeriod()) info(line);
+    }
+
+    // Covers every way a flight starts (.stashhunter start/spiral/resume, resume after a repair) and
+    // ends (stop, pause, completion, landing, death, dimension change).
+    private void trackFlight() {
+        boolean flying = ElytraController.isActive();
+        if (flying && !wasFlying) {
+            // A standing period before the flight goes into the session total without a chat summary.
+            diagnostics.endPeriod();
+            startDiagnosticsPeriod("flight from ");
+            ScanRadiusAdvice.advise(scanRadius.get(), mc.options.getEffectiveRenderDistance()).ifPresent(this::info);
+        } else if (!flying && wasFlying) {
+            printDiagnosticsPeriod();
+            startDiagnosticsPeriod("standing since ");
+        }
+        wasFlying = flying;
+    }
+
     @EventHandler
     private void onTick(TickEvent.Post event) {
         tickCounter++;
         ElytraController.onTick();
+        trackFlight();
 
         AutoElytraRepair autoElytraRepair = autoElytraRepair();
         if (autoElytraRepair != null && autoElytraRepair.justFinishedRepair()) {
@@ -815,33 +976,48 @@ public class StashHunterModule extends Module {
         }
     }
 
+    // ----- scan -----
+
+    private Set<TraceGroup> enabledGroups() {
+        Set<TraceGroup> enabled = EnumSet.noneOf(TraceGroup.class);
+        traceGroups.forEach((group, setting) -> {
+            if (setting.get()) enabled.add(group);
+        });
+        return enabled;
+    }
+
+    // The classic block list (Config.getActiveBlockList), plus spawners: their positions feed the
+    // dungeon filter, and with include-spawners they are stash blocks.
+    private static Set<Block> classicBlocks() {
+        Set<Block> blocks = new HashSet<>(Config.getActiveBlockList());
+        blocks.add(Blocks.SPAWNER);
+        return Set.copyOf(blocks);
+    }
+
+    private void updateScanConfig(boolean classic, Set<TraceGroup> enabled) {
+        ScanConfig config = new ScanConfig(classic, Set.copyOf(enabled), includeSpawners.get(), classic ? classicBlocks() : Set.of());
+        if (!config.equals(lastScanConfig)) {
+            scanSchedule.clear();
+            lastScanConfig = config;
+            lastScanClassic = classic;
+            watchedBlocks = classic ? config.classicBlocks() : SignalBlocks.watchedBlocks();
+        }
+    }
+
     private void scanForBlocks() {
         if (mc.player == null || mc.level == null) return;
 
         BlockPos playerPos = mc.player.blockPosition();
-        String dimension = PlayerUtils.getDimension().name();
-        Set<Block> activeBlocks = new HashSet<>(Config.getActiveBlockList());
-        // Spawners have a block entity, so they come through the block-entity pass in either mode.
-        if (includeSpawners.get()) activeBlocks.add(Blocks.SPAWNER);
-
-        // Containers are found exactly through the block-entity list, so the block-by-block scan
-        // only needs the active blocks without a block entity. That also keeps a container from
-        // being counted by both passes.
-        Set<Block> plainBlocks = new HashSet<>();
-        if (!storageOnlyMode.get()) {
-            for (Block block : activeBlocks) {
-                if (!block.defaultBlockState().hasBlockEntity()) plainBlocks.add(block);
-            }
-        }
-        if (!activeBlocks.equals(lastScanBlocks) || !plainBlocks.equals(lastPlainBlocks)) {
-            scanSchedule.clear();
-            lastScanBlocks = Set.copyOf(activeBlocks);
-            lastPlainBlocks = Set.copyOf(plainBlocks);
-        }
+        Dimension dim = PlayerUtils.getDimension();
+        String dimension = dim.name();
+        boolean classic = sensitivity.get() == Sensitivity.CLASSIC;
+        Set<TraceGroup> enabled = enabledGroups();
+        updateScanConfig(classic, enabled);
         if (tickCounter - lastSchedulePruneTick >= RESCAN_TICKS) {
             scanSchedule.prune(tickCounter);
             lastSchedulePruneTick = tickCounter;
         }
+        diagnostics.viewDistance(mc.options.getEffectiveRenderDistance());
 
         // Every loaded chunk touching the scan circle is scanned whole, so its index entry is complete.
         // Horizontal (cylindrical) distance on purpose: the bot flies far above the ground, so a
@@ -851,6 +1027,9 @@ public class StashHunterModule extends Module {
         int px = playerPos.getX(), pz = playerPos.getZ();
         int chunkRadius = (radius >> 4) + 1;
         int playerChunkX = px >> 4, playerChunkZ = pz >> 4;
+        // Classic is the 26.2.2 scan: no entities.
+        Map<Long, Map<BlockPos, SignalKind>> entities = classic ? Map.of()
+            : SignalEntities.collect(mc.level, playerPos, radius, enabled).byChunk();
 
         boolean scannedAny = false;
         for (int cx = playerChunkX - chunkRadius; cx <= playerChunkX + chunkRadius; cx++) {
@@ -864,7 +1043,9 @@ public class StashHunterModule extends Module {
                     missedChunks.add(dimension, cx, cz, tickCounter);
                     continue;
                 }
-                if (scanChunkIfDue(dimension, cx, cz, activeBlocks, plainBlocks)) scannedAny = true;
+                boolean scanned = scanChunkIfDue(dim, cx, cz, classic, enabled);
+                if (scanned) scannedAny = true;
+                if (!classic) updateEntitySignals(dimension, cx, cz, px, pz, entities, scanned);
             }
         }
 
@@ -873,7 +1054,7 @@ public class StashHunterModule extends Module {
         List<BlockPos> lateCenters = new ArrayList<>();
         for (long key : missedChunks.takeLoaded(dimension, key -> mc.level.hasChunk(ChunkPos.getX(key), ChunkPos.getZ(key)))) {
             int cx = ChunkPos.getX(key), cz = ChunkPos.getZ(key);
-            if (!scanChunkIfDue(dimension, cx, cz, activeBlocks, plainBlocks)) continue;
+            if (!scanChunkIfDue(dim, cx, cz, classic, enabled)) continue;
             BlockPos center = new BlockPos((cx << 4) + 8, 0, (cz << 4) + 8);
             if (horizontalDistSq(center, px, pz) <= radiusSq) {
                 scannedAny = true;
@@ -884,16 +1065,44 @@ public class StashHunterModule extends Module {
         warnAboutMissedChunks(radius);
 
         // Nothing new around here, so clustering would reach the same result as last time.
-        if (scannedAny) findStashes(dimension, px, pz, radius, activeBlocks);
-        for (BlockPos center : lateCenters) findStashes(dimension, center.getX(), center.getZ(), 32, activeBlocks);
+        if (scannedAny) findStashes(dim, px, pz, radius);
+        for (BlockPos center : lateCenters) findStashes(dim, center.getX(), center.getZ(), 32);
     }
 
     // Unchanged since its last scan: the index still holds its result. Returns whether it was scanned.
-    private boolean scanChunkIfDue(String dimension, int cx, int cz, Set<Block> activeBlocks, Set<Block> plainBlocks) {
+    // The whole chunk, not just the part inside the scan circle: the result replaces the chunk's
+    // index entry, so a partial scan would forget blocks found there on an earlier pass.
+    private boolean scanChunkIfDue(Dimension dim, int cx, int cz, boolean classic, Set<TraceGroup> enabled) {
+        String dimension = dim.name();
         if (!scanSchedule.isDue(dimension, cx, cz, tickCounter)) return false;
-        stashBlockIndex.update(dimension, cx, cz, scanChunk(mc.level.getChunk(cx, cz), activeBlocks, plainBlocks));
+        SignalBlocks.ChunkScan scan = SignalBlocks.scan(mc.level.getChunk(cx, cz), dim, enabled, includeSpawners.get(), classic);
+        signalIndex.update(dimension, cx, cz, scan.signals());
+        Map<BlockPos, Boolean> spawners = new HashMap<>();
+        for (BlockPos pos : scan.spawners()) spawners.put(pos, Boolean.TRUE);
+        spawnerIndex.update(dimension, cx, cz, spawners);
         scanSchedule.markScanned(dimension, cx, cz, tickCounter);
+        diagnostics.chunkScanned();
+        countSignals(scan.signals().values());
         return true;
+    }
+
+    private void updateEntitySignals(String dimension, int cx, int cz, int px, int pz,
+                                     Map<Long, Map<BlockPos, SignalKind>> entities, boolean scanned) {
+        Map<BlockPos, SignalKind> found = entities.getOrDefault(ChunkPos.pack(cx, cz), Map.of());
+        long dx = (cx << 4) + 8 - px, dz = (cz << 4) + 8 - pz;
+        if (found.isEmpty() && dx * dx + dz * dz > (long) ENTITY_REPLACE_RADIUS * ENTITY_REPLACE_RADIUS) return;
+        entityIndex.update(dimension, cx, cz, found);
+        // Counted with the chunk's block scan, so a standing player doesn't count the same entities every scan.
+        if (scanned) countSignals(found.values());
+    }
+
+    private void countSignals(Collection<SignalKind> kinds) {
+        if (kinds.isEmpty()) return;
+        int[] counts = new int[SignalCategory.values().length];
+        for (SignalKind kind : kinds) counts[kind.category().ordinal()]++;
+        for (SignalCategory category : SignalCategory.values()) {
+            if (counts[category.ordinal()] > 0) diagnostics.signals(category, counts[category.ordinal()]);
+        }
     }
 
     private static long horizontalDistSq(BlockPos pos, int x, int z) {
@@ -904,7 +1113,9 @@ public class StashHunterModule extends Module {
     // Chunks the server never sent while they were in range are holes in the scanned area.
     private void warnAboutMissedChunks(int radius) {
         missedChunks.expire(tickCounter);
-        neverLoadedChunks += missedChunks.takeDropped();
+        int dropped = missedChunks.takeDropped();
+        if (dropped > 0) diagnostics.chunksNeverLoaded(dropped);
+        neverLoadedChunks += dropped;
         if (neverLoadedChunks < MISSED_WARNING_MIN_CHUNKS || tickCounter - lastMissedWarningTick < MISSED_WARNING_INTERVAL_TICKS) return;
 
         int viewBlocks = mc.options.getEffectiveRenderDistance() * 16;
@@ -914,14 +1125,162 @@ public class StashHunterModule extends Module {
         lastMissedWarningTick = tickCounter;
     }
 
+    // ----- evaluation -----
+
     /**
      * Clusters everything known within {@code range} of x/z, including chunks scanned on earlier
      * passes, so a stash split across two flight strips is seen whole. The margin lets a cluster that
      * reaches into the range pull in its members from outside it.
      */
-    private void findStashes(String dimension, int x, int z, int range, Set<Block> activeBlocks) {
-        Map<BlockPos, Block> found = stashBlockIndex.near(dimension, x, z, range + maxClusterSize.get() + 16);
-        found.values().removeIf(block -> !activeBlocks.contains(block)); // settings may have changed since
+    private void findStashes(Dimension dim, int x, int z, int range) {
+        Sensitivity sens = sensitivity.get();
+        if (sens == Sensitivity.CLASSIC) {
+            findStashesClassic(dim, x, z, range);
+            return;
+        }
+        String dimension = dim.name();
+        int reach = range + maxClusterSize.get() + 16;
+        Set<TraceGroup> enabled = enabledGroups();
+        boolean spawners = includeSpawners.get();
+
+        // Settings may have changed since a chunk was scanned: drop kinds that are switched off now.
+        List<Signal> signals = new ArrayList<>();
+        signalIndex.near(dimension, x, z, reach).forEach((pos, kind) -> {
+            if (isSignalEnabled(kind, enabled, spawners)) signals.add(new Signal(pos, kind));
+        });
+        entityIndex.near(dimension, x, z, reach).forEach((pos, kind) -> {
+            if (isSignalEnabled(kind, enabled, spawners)) signals.add(new Signal(pos, kind));
+        });
+        for (Signal s : SignalHub.near(dimension, x, z, reach)) {
+            if (isSignalEnabled(s.kind(), enabled, spawners)) signals.add(s);
+        }
+
+        // Without a strong kind or a trace only the container count can make a stash: skip the
+        // clustering while there are too few containers for that, like 26.2.2 did.
+        int threshold = blockDetectionThreshold.get();
+        int minContainers = sens.containerThreshold(threshold);
+        int containers = 0;
+        boolean strongOrTrace = false;
+        for (Signal s : signals) {
+            switch (s.kind().category()) {
+                case CONTAINER -> containers++;
+                case STRONG, TRACE -> strongOrTrace = true;
+                default -> {
+                }
+            }
+        }
+        if (!strongOrTrace && containers < minContainers) return;
+
+        Set<BlockPos> spawnerPositions = spawnerIndex.near(dimension, x, z, reach).keySet();
+        ContainerFilter filter = new ContainerFilter() {
+            @Override
+            public boolean filterNaturalStructures() {
+                return filterNaturalStructures.get();
+            }
+
+            @Override
+            public boolean hasStashShape(List<BlockPos> blocks) {
+                return StashHunterModule.this.hasStashShape(blocks);
+            }
+
+            @Override
+            public boolean nearStructureSpawner(BlockPos center) {
+                return isNearDetectedStructure(center);
+            }
+        };
+        for (Candidate candidate : SignalClusterer.candidates(signals, spawnerPositions, maxClusterDistance.get(),
+            maxClusterSize.get() / 2, minContainers, filter)) {
+            processCandidate(dim, candidate, sens, threshold);
+        }
+    }
+
+    private static boolean isSignalEnabled(SignalKind kind, Set<TraceGroup> enabled, boolean includeSpawners) {
+        if (kind == SignalKind.SPAWNER) return includeSpawners;
+        return kind.group() == TraceGroup.NONE || enabled.contains(kind.group());
+    }
+
+    private void processCandidate(Dimension dim, Candidate candidate, Sensitivity sens, int threshold) {
+        for (Rejection reason : candidate.filtered().keySet()) diagnose(dim, candidate.center(), candidate.signals(), reason);
+
+        Verdict verdict = SignalScoring.evaluate(candidate.signals(), candidate.keptContainers(),
+            candidate.containerShapeOk(), sens, threshold);
+        if (verdict.tier() == Tier.NONE) {
+            if (!candidate.filtered().isEmpty() || verdict.score() > 0) {
+                diagnose(dim, candidate.center(), candidate.signals(), Rejection.LOW_SCORE);
+            }
+            return;
+        }
+
+        String dimension = dim.name();
+        BlockPos center = candidate.center();
+        Set<BlockPos> positions = new HashSet<>();
+        for (Signal s : candidate.signals()) positions.add(s.pos());
+        int dedupeRadius = reportDedupeRadius.get();
+        List<StashReporter.FoundStash> earlier = reporter.earlierReportsOf(dim, positions);
+        Tier known = StashReporter.max(reportedStashes().highestTierNear(dimension, center, dedupeRadius),
+            StashReporter.knownTier(dim, center, dedupeRadius, earlier));
+
+        // A higher tier than any report nearby is new (a hint growing into a stash is an update);
+        // a stash reported this session is reported again once it grew well past its first report.
+        boolean higher = verdict.tier().compareTo(known) > 0;
+        boolean grew = !higher && verdict.tier() == Tier.STASH && known == Tier.STASH
+            && grewEnough(earlier, positions.size());
+        if (!higher && !grew) {
+            diagnose(dim, center, candidate.signals(), Rejection.ALREADY_REPORTED);
+            return;
+        }
+
+        StashReporter.Options options = reportOptions();
+        if (verdict.tier() == Tier.HINT) {
+            reporter.reportHint(dim, center, candidate.signals(), verdict.score(), options);
+        } else {
+            reporter.reportStash(dim, center, candidate.signals(), verdict, earlier, known != Tier.NONE,
+                sens.toString(), options);
+        }
+        reportedStashes().add(dimension, center, verdict.tier());
+        diagnostics.reported(verdict.tier());
+    }
+
+    // Growth only counts against this session's stash reports (hints are upgraded, not grown).
+    private static boolean grewEnough(List<StashReporter.FoundStash> earlier, int current) {
+        int reported = -1;
+        for (StashReporter.FoundStash stash : earlier) {
+            if (stash.tier() == Tier.STASH) reported = Math.max(reported, stash.reportedBlocks());
+        }
+        return reported >= 0 && StashGrowth.grewEnough(reported, current);
+    }
+
+    private StashReporter.Options reportOptions() {
+        return new StashReporter.Options(saveToXaero.get(), notificationDensityThreshold.get(), discordHints.get(),
+            reportDedupeRadius.get());
+    }
+
+    /** Counts a rejected candidate once per period and logs it to the diagnostics file. */
+    private void diagnose(Dimension dim, BlockPos center, List<Signal> signals, Rejection reason) {
+        String key = dim.name() + ' ' + (center.getX() >> 3) + ' ' + (center.getZ() >> 3) + ' ' + reason;
+        if (diagnosedCandidates.size() >= MAX_DIAGNOSED_CANDIDATES) diagnosedCandidates.clear();
+        if (!diagnosedCandidates.add(key)) return;
+        diagnostics.rejected(reason);
+        diagnosticsLog().candidate(DimensionIds.idOf(dim), center, signals, reason);
+    }
+
+    // ----- classic: the 26.2.2 evaluation -----
+
+    // Kinds of the classic block list, so entries scanned under other settings are left out.
+    private Set<SignalKind> classicKinds() {
+        Set<SignalKind> kinds = EnumSet.noneOf(SignalKind.class);
+        for (Block block : Config.getActiveBlockList()) {
+            SignalKind kind = SignalBlocks.kindOf(block);
+            if (kind != null) kinds.add(kind);
+        }
+        if (includeSpawners.get()) kinds.add(SignalKind.SPAWNER);
+        return kinds;
+    }
+
+    private void findStashesClassic(Dimension dim, int x, int z, int range) {
+        Map<BlockPos, SignalKind> found = signalIndex.near(dim.name(), x, z, range + maxClusterSize.get() + 16);
+        Set<SignalKind> active = classicKinds();
+        found.values().removeIf(kind -> !active.contains(kind)); // settings may have changed since
         int threshold = blockDetectionThreshold.get();
         if (found.size() < threshold) return;
 
@@ -933,7 +1292,7 @@ public class StashHunterModule extends Module {
             List<List<BlockPos>> parts = filterNaturalStructures.get()
                 ? StashClustering.tighten(cluster, linkDistance, maxRadius, threshold, this::hasStashShape)
                 : List.of(cluster);
-            for (List<BlockPos> part : parts) processCluster(part, found);
+            for (List<BlockPos> part : parts) processClusterClassic(dim, part, found);
         }
     }
 
@@ -944,196 +1303,84 @@ public class StashHunterModule extends Module {
         return volume <= maxVolumeThreshold.get() && cluster.size() / volume >= minDensityThreshold.get();
     }
 
-    // Block types come from the scan, not from the level: members of a cluster may lie in chunks
+    // Block kinds come from the scan, not from the level: members of a cluster may lie in chunks
     // that are no longer loaded and would read as air.
-    private void processCluster(List<BlockPos> cluster, Map<BlockPos, Block> types) {
+    private void processClusterClassic(Dimension dim, List<BlockPos> cluster, Map<BlockPos, SignalKind> types) {
         BlockPos stashPos = StashClustering.center(cluster).orElse(null);
         if (stashPos == null) return;
-
-        Dimension dim = PlayerUtils.getDimension();
         String dimension = dim.name();
 
         // Stashes reported this session that are part of this cluster. If it has grown well past
         // what was reported (the first report only saw part of it), the report is corrected.
-        List<FoundStash> earlier = earlierReportsOf(dim, cluster);
-        if (!earlier.isEmpty()) {
-            int reported = earlier.stream().mapToInt(FoundStash::reportedBlocks).max().orElse(0);
-            if (!StashGrowth.grewEnough(reported, cluster.size())) return;
+        List<StashReporter.FoundStash> earlier = reporter.earlierReportsOf(dim, cluster);
+        boolean update;
+        if (!earlier.isEmpty() && earlier.stream().anyMatch(s -> s.tier() == Tier.STASH)) {
+            if (!grewEnough(earlier, cluster.size())) return;
+            update = true;
         } else {
-            // Check if we've already reported a base near this location (earlier session, or cleared)
+            // Already reported near this location (earlier session, or cleared)? Only a hint from
+            // another sensitivity is replaced, never a stash.
             int dedupeRadius = reportDedupeRadius.get();
-            if (reportedStashes().highestTierNear(dimension, stashPos, dedupeRadius) != Tier.NONE || hasStashWaypointNear(stashPos, dedupeRadius)) {
+            Tier known = StashReporter.max(reportedStashes().highestTierNear(dimension, stashPos, dedupeRadius),
+                StashReporter.knownTier(dim, stashPos, dedupeRadius, earlier));
+            if (known == Tier.STASH) {
+                diagnose(dim, stashPos, signalsOf(cluster, types), Rejection.ALREADY_REPORTED);
                 return;
             }
+            update = known == Tier.HINT;
         }
-
-        double volume = StashClustering.boundingBoxVolume(cluster);
-        double density = cluster.size() / Math.max(volume, 1.0);
 
         // Enhanced filtering for natural structures. A grown cluster that now looks natural keeps
         // its first report.
-        if (isNaturalStructure(stashPos, cluster, types)) {
+        Rejection natural = naturalStructureReason(stashPos, cluster, types);
+        if (natural != null) {
+            diagnose(dim, stashPos, signalsOf(cluster, types), natural);
             return;
         }
 
-        for (FoundStash old : earlier) {
-            foundStashes.remove(old);
-            if (old.waypoint() != null) Waypoints.get().remove(old.waypoint());
-            XaeroBridge.removeWaypoint(old.xaeroWaypoint());
-        }
         reportedStashes().add(dimension, stashPos, Tier.STASH);
-        Waypoint waypoint = reportStash(stashPos, cluster, types, volume, density, earlier);
-        Object xaeroWaypoint = waypoint != null && saveToXaero.get() ? XaeroBridge.addWaypoint(stashPos, waypoint.name.get()) : null;
-        foundStashes.add(new FoundStash(dim, stashPos, Set.copyOf(cluster), cluster.size(), waypoint, xaeroWaypoint,
-            highlightOf(dim, cluster, types)));
+        reporter.reportStashClassic(dim, stashPos, cluster, types, earlier, update, storageOnlyMode.get(), reportOptions());
+        diagnostics.reported(Tier.STASH);
     }
 
-    private List<FoundStash> earlierReportsOf(Dimension dimension, List<BlockPos> cluster) {
-        List<Set<BlockPos>> known = new ArrayList<>();
-        for (FoundStash stash : foundStashes) known.add(stash.dimension() == dimension ? stash.blocks() : Set.of());
-        List<FoundStash> result = new ArrayList<>();
-        for (int i : StashGrowth.overlapping(known, cluster)) result.add(foundStashes.get(i));
-        return result;
-    }
-
-    // In full mode a cluster also holds ores/spawners etc., so only the real containers are kept.
-    private StashHighlight highlightOf(Dimension dimension, List<BlockPos> cluster, Map<BlockPos, Block> types) {
-        List<BlockPos> containers = new ArrayList<>();
+    private static List<Signal> signalsOf(List<BlockPos> cluster, Map<BlockPos, SignalKind> types) {
+        List<Signal> signals = new ArrayList<>();
         for (BlockPos pos : cluster) {
-            if (isContainer(types.get(pos))) containers.add(pos.immutable());
+            SignalKind kind = types.get(pos);
+            if (kind != null) signals.add(new Signal(pos, kind));
         }
-        return containers.isEmpty() ? null : new StashHighlight(dimension, containers);
+        return signals;
     }
 
     /**
-     * A stash reported this session: the reported position, all blocks of its cluster (to recognise
-     * it when more of it is found), the block count it was reported with, its waypoint (null if none
-     * was created), its XaeroBridge waypoint handle (null if none) and its Stash ESP highlight (null
-     * without containers). Not persisted.
+     * Enhanced natural structure detection (classic). Returns why the cluster looks natural, or null.
      */
-    private record FoundStash(Dimension dimension, BlockPos position, Set<BlockPos> blocks, int reportedBlocks,
-                              Waypoint waypoint, Object xaeroWaypoint, StashHighlight highlight) {
-    }
-
-    // A set, not Config.storageBlocks (a list): onRender asks for every highlighted container each frame.
-    private static final Set<Block> CONTAINERS = containers();
-
-    private static Set<Block> containers() {
-        Set<Block> containers = new HashSet<>(Config.storageBlocks);
-        containers.addAll(List.of(
-            Blocks.HOPPER, Blocks.FURNACE, Blocks.BLAST_FURNACE, Blocks.SMOKER,
-            Blocks.DISPENSER, Blocks.DROPPER, Blocks.ENDER_CHEST
-        ));
-        return Set.copyOf(containers);
-    }
-
-    private boolean isContainer(Block block) {
-        return CONTAINERS.contains(block);
-    }
-
-    @EventHandler
-    private void onRender(Render3DEvent event) {
-        if (!renderStashes.get() || foundStashes.isEmpty()) return;
-        if (mc.level == null || mc.player == null || event.renderer == null) return;
-
-        Dimension dimension = PlayerUtils.getDimension();
-        double maxDistanceSq = (double) stashRenderDistance.get() * stashRenderDistance.get();
-        ShapeMode mode = stashShapeMode.get();
-        SettingColor sides = stashSideColor.get();
-        SettingColor lines = stashLineColor.get();
-
-        StashHighlight nearest = null;
-        double nearestDistSq = Double.MAX_VALUE;
-        for (FoundStash found : foundStashes) {
-            StashHighlight stash = found.highlight();
-            if (stash == null || stash.dimension() != dimension) continue;
-            double distSq = mc.player.distanceToSqr(stash.centerX(), stash.centerY(), stash.centerZ());
-            if (distSq > maxDistanceSq) continue;
-
-            for (BlockPos p : stash.containers()) {
-                // Skip containers that were broken since; unloaded chunks read as air, so keep those.
-                if (mc.level.isLoaded(p) && !isContainer(mc.level.getBlockState(p).getBlock())) continue;
-                event.renderer.box(p.getX(), p.getY(), p.getZ(), p.getX() + 1, p.getY() + 1, p.getZ() + 1, sides, lines, mode, 0);
-            }
-            if (stashBoundingBox.get()) {
-                event.renderer.box(stash.min().getX(), stash.min().getY(), stash.min().getZ(),
-                    stash.max().getX() + 1, stash.max().getY() + 1, stash.max().getZ() + 1, sides, lines, ShapeMode.Lines, 0);
-            }
-            if (distSq < nearestDistSq) {
-                nearestDistSq = distSq;
-                nearest = stash;
-            }
-        }
-
-        if (stashTracers.get() && nearest != null) {
-            event.renderer.line(RenderUtils.center.x, RenderUtils.center.y, RenderUtils.center.z,
-                nearest.centerX(), nearest.centerY(), nearest.centerZ(), lines);
-        }
-    }
-
-    private record StashHighlight(Dimension dimension, List<BlockPos> containers, BlockPos min, BlockPos max) {
-        StashHighlight(Dimension dimension, List<BlockPos> containers) {
-            this(dimension, List.copyOf(containers), corner(containers, true), corner(containers, false));
-        }
-
-        private static BlockPos corner(List<BlockPos> blocks, boolean min) {
-            int x = blocks.get(0).getX(), y = blocks.get(0).getY(), z = blocks.get(0).getZ();
-            for (BlockPos p : blocks) {
-                x = min ? Math.min(x, p.getX()) : Math.max(x, p.getX());
-                y = min ? Math.min(y, p.getY()) : Math.max(y, p.getY());
-                z = min ? Math.min(z, p.getZ()) : Math.max(z, p.getZ());
-            }
-            return new BlockPos(x, y, z);
-        }
-
-        double centerX() { return (min.getX() + max.getX() + 1) / 2.0; }
-        double centerY() { return (min.getY() + max.getY() + 1) / 2.0; }
-        double centerZ() { return (min.getZ() + max.getZ() + 1) / 2.0; }
-    }
-
-    // Survives module toggles and reconnects (Meteor persists waypoints per server). Also catches
-    // stashes reported before reportedStashes was persisted, or after it was cleared.
-    private boolean hasStashWaypointNear(BlockPos pos, int radius) {
-        var dimension = PlayerUtils.getDimension();
-        for (Waypoint waypoint : Waypoints.get()) {
-            if (waypoint.dimension.get() == dimension
-                && waypoint.name.get().contains(STASH_WAYPOINT_MARKER)
-                && waypoint.pos.get().closerThan(pos, radius)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Enhanced natural structure detection
-     */
-    private boolean isNaturalStructure(BlockPos center, List<BlockPos> blocks, Map<BlockPos, Block> types) {
+    private Rejection naturalStructureReason(BlockPos center, List<BlockPos> blocks, Map<BlockPos, SignalKind> types) {
         if (!filterNaturalStructures.get()) {
-            return false;
+            return null;
         }
 
         // Volume and density: natural structures are large and sparse. findStashes has already
         // looked for a dense core, so this only rejects what is still left.
         if (!hasStashShape(blocks)) {
-            return true;
+            return Rejection.STRUCTURE_SHAPE;
         }
 
         // A vanilla dungeon (spawner + up to two chests) is no base, however low the threshold is.
         if (includeSpawners.get() && isDungeonOnly(blocks, types)) {
-            return true;
+            return Rejection.STRUCTURE_DUNGEON;
         }
 
         // Exact positions from the spawners activated-spawner-detector has seen (PLAN 67).
         if (isNearDetectedStructure(center)) {
-            return true;
+            return Rejection.STRUCTURE_SPAWNER;
         }
 
         // No block-type checks here: the cluster only holds scanned stash blocks, so ratios of
         // structure materials (the old Woodland Mansion check) were always 0 and never matched.
         // Mineshaft loot sits in chest minecarts (entities) and never reaches the block scan.
         // Structures without spawners need the world-seed structure locator (PLAN 44).
-        return false;
+        return null;
     }
 
     private boolean isNearDetectedStructure(BlockPos center) {
@@ -1144,28 +1391,28 @@ public class StashHunterModule extends Module {
             && detector.isNearNaturalStructure(PlayerUtils.getDimension(), center, radius);
     }
 
-    private boolean isDungeonOnly(List<BlockPos> blocks, Map<BlockPos, Block> types) {
+    private static boolean isDungeonOnly(List<BlockPos> blocks, Map<BlockPos, SignalKind> types) {
         Set<BlockPos> spawners = new HashSet<>();
         Set<BlockPos> chests = new HashSet<>();
         for (BlockPos pos : blocks) {
-            Block block = types.get(pos);
-            if (block == Blocks.SPAWNER) spawners.add(pos);
-            else if (block == Blocks.CHEST) chests.add(pos);
+            SignalKind kind = types.get(pos);
+            if (kind == SignalKind.SPAWNER) spawners.add(pos);
+            else if (kind == SignalKind.CHEST) chests.add(pos);
         }
         return DungeonFilter.isDungeonOnly(blocks, spawners, chests);
     }
 
-    private Map<Block, Integer> countBlockTypes(List<BlockPos> blocks, Map<BlockPos, Block> types) {
-        Map<Block, Integer> counts = new HashMap<>();
-        for (BlockPos pos : blocks) {
-            Block block = types.get(pos);
-            if (block != null) counts.merge(block, 1, Integer::sum);
-        }
-        return counts;
+    // ----- render and cache invalidation -----
+
+    @EventHandler
+    private void onRender(Render3DEvent event) {
+        if (!renderStashes.get()) return;
+        if (mc.level == null || mc.player == null || event.renderer == null) return;
+        reporter.render(event, PlayerUtils.getDimension(), new StashReporter.RenderOptions(stashRenderDistance.get(),
+            stashShapeMode.get(), stashSideColor.get(), stashLineColor.get(), hintSideColor.get(), hintLineColor.get(),
+            stashBoundingBox.get(), stashTracers.get()));
     }
 
-    // The whole chunk, not just the part inside the scan circle: the result replaces the chunk's
-    // index entry, so a partial scan would forget blocks found there on an earlier pass.
     // Chunk data arrived (again): its cached scan result may be outdated.
     @EventHandler
     private void onChunkData(ChunkDataEvent event) {
@@ -1173,130 +1420,43 @@ public class StashHunterModule extends Module {
         scanSchedule.invalidate(PlayerUtils.getDimension().name(), event.chunk().getPos().x(), event.chunk().getPos().z());
     }
 
-    // Only changes involving a scanned block type matter (a chest placed or broken, ...).
+    /**
+     * Invalidates a chunk's cached scan when a block the scan evaluates changes. In normal/sensitive
+     * also on any change above Y 260 (Overworld) or Y 127 (Nether): sky and nether roof builds depend
+     * on every block there.
+     */
     @EventHandler
     private void onBlockUpdate(BlockUpdateEvent event) {
         // oldState is null when nothing changed (LevelChunk.setBlockState returns null then, e.g. for
         // a block update the server sends with the state the client already has). An exception here
         // would end the packet handling and disconnect the client.
         if (mc.level == null || event.oldState == null || event.newState == null) return;
-        if (!lastScanBlocks.contains(event.oldState.getBlock()) && !lastScanBlocks.contains(event.newState.getBlock())) return;
-        scanSchedule.invalidate(PlayerUtils.getDimension().name(), SectionPos.blockToSectionCoord(event.pos.getX()),
+        boolean relevant = watchedBlocks.contains(event.oldState.getBlock()) || watchedBlocks.contains(event.newState.getBlock());
+        Dimension dim = PlayerUtils.getDimension();
+        if (!relevant && !lastScanClassic) {
+            int y = event.pos.getY();
+            relevant = (dim == Dimension.Overworld && y > 260) || (dim == Dimension.Nether && y > 127);
+        }
+        if (!relevant) return;
+        scanSchedule.invalidate(dim.name(), SectionPos.blockToSectionCoord(event.pos.getX()),
             SectionPos.blockToSectionCoord(event.pos.getZ()));
     }
 
-    private Map<BlockPos, Block> scanChunk(LevelChunk chunk, Set<Block> activeBlocks, Set<Block> plainBlocks) {
-        Map<BlockPos, Block> found = new HashMap<>();
-
-        // Scan through all block entities in the chunk first (most efficient)
-        for (BlockPos pos : chunk.getBlockEntitiesPos()) {
-            Block block = chunk.getBlockState(pos).getBlock();
-            if (activeBlocks.contains(block)) found.put(pos.immutable(), block);
-        }
-
-        if (plainBlocks.isEmpty()) return found;
-
-        // Block-by-block scan, limited to sections whose palette can contain one of the plain blocks.
-        LevelChunkSection[] sections = chunk.getSections();
-        int minX = chunk.getPos().getMinBlockX(), minZ = chunk.getPos().getMinBlockZ();
-        for (int i = 0; i < sections.length; i++) {
-            LevelChunkSection section = sections[i];
-            if (section == null || section.hasOnlyAir()
-                || !section.maybeHas(state -> plainBlocks.contains(state.getBlock()))) continue;
-
-            int baseY = SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(i));
-            // y, z, x: the order the section stores its blocks in.
-            for (int y = 0; y < 16; y++) {
-                for (int z = 0; z < 16; z++) {
-                    for (int x = 0; x < 16; x++) {
-                        Block block = section.getBlockState(x, y, z).getBlock();
-                        if (plainBlocks.contains(block)) found.put(new BlockPos(minX + x, baseY + y, minZ + z), block);
-                    }
-                }
-            }
-        }
-        return found;
-    }
-
     /**
-     * Reports a new stash, or corrects the reports in {@code earlier} (same stash, first seen only in
-     * part). Returns the created waypoint, or null if none was created.
+     * Sign text and decorated pot contents change through block-entity data packets, not block
+     * updates. Invalidating the chunk here is cheap; without it the 60 s rescan would catch them.
+     * The packet arrives on the network thread, so the schedule is touched on the client thread.
      */
-    private Waypoint reportStash(BlockPos stashPos, List<BlockPos> valuableBlocks, Map<BlockPos, Block> types,
-                                 double volume, double density, List<FoundStash> earlier) {
-        boolean update = !earlier.isEmpty();
-        String coords = stashPos.toShortString();
-        String rating = getRatingFromDensity(density);
-        Dimension dimension = PlayerUtils.getDimension();
-
-        Map<Block, Integer> counts = countBlockTypes(valuableBlocks, types);
-        StringBuilder containerList = new StringBuilder();
-        counts.entrySet().stream()
-            .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
-            .forEach(entry -> containerList
-                .append(entry.getValue())
-                .append("x ")
-                .append(entry.getKey().getName().getString())
-                .append("\n"));
-
-        String modeInfo = storageOnlyMode.get() ? " (Storage Only)" : " (Full Stash)";
-        StringBuilder previously = new StringBuilder();
-        for (FoundStash old : earlier) {
-            if (!previously.isEmpty()) previously.append(", ");
-            previously.append(old.reportedBlocks()).append(" blocks at ").append(old.position().toShortString());
-        }
-
-        String logMessage = String.format("Stash %s at: %s (%s) with %d valuable blocks (density: %.6f)%s",
-            update ? "Updated" : "Found", coords, dimension, valuableBlocks.size(), density,
-            update ? " - previously reported: " + previously : "");
-
-        // Always log to console/chat
-        info(logMessage);
-
-        // Only send Discord notification if density meets threshold. A stash already announced
-        // on Discord gets its correction there too, even if the bigger cluster is less dense.
-        boolean announcedBefore = earlier.stream().anyMatch(old -> old.waypoint() != null);
-        if (density >= notificationDensityThreshold.get() || announcedBefore) {
-            String description = String.format(
-                (update ? "More of an already reported stash was found.\nPreviously reported: " + previously + "\n\n" : "") +
-                "Coordinates: %s%s\n" +
-                "Dimension: %s\n" +
-                "Found %d valuable blocks\n" +
-                "Volume: %.2f blocks\n" +
-                "Density: %.6f\n" +
-                "Rating: %s\n\n" +
-                "Container List:\n%s",
-                coords, modeInfo, dimension, valuableBlocks.size(), volume, density, rating, containerList.toString()
-            );
-
-            // No second @everyone for a correction
-            String title = update ? "Stash Updated" : "Stash Found!";
-            DiscordEmbed embed = new DiscordEmbed(title, description, update ? 0x33CC99 : 0x00FF00);
-            DiscordWebhook.sendMessage(update ? "" : "@everyone", embed);
-
-            // Create a waypoint
-            String waypointName = valuableBlocks.size() + STASH_WAYPOINT_MARKER + coords;
-            Waypoint waypoint = new Waypoint.Builder()
-                .name(waypointName)
-                .pos(stashPos)
-                .dimension(dimension)
-                .build();
-            Waypoints.get().add(waypoint);
-            info((update ? "Moved waypoint to: " : "Created waypoint: ") + waypointName);
-            return waypoint;
-        }
-
-        // Log that we skipped notification due to low density
-        info("Skipped Discord notification for low density stash (density: " + String.format("%.6f", density) +
-             ", threshold: " + String.format("%.6f", notificationDensityThreshold.get()) + ")");
-        return null;
-    }
-
-    private String getRatingFromDensity(double density) {
-        if (density > 0.1) return "Very High Density";
-        if (density > 0.01) return "High Density";
-        if (density > 0.005) return "Medium Density";
-        if (density > 0.001) return "Low Density";
-        return "Very Low Density";
+    @EventHandler
+    private void onPacket(PacketEvent.Receive event) {
+        if (!(event.packet instanceof ClientboundBlockEntityDataPacket packet)) return;
+        BlockEntityType<?> type = packet.getType();
+        if (type != BlockEntityTypes.SIGN && type != BlockEntityTypes.HANGING_SIGN && type != BlockEntityTypes.DECORATED_POT) return;
+        BlockPos pos = packet.getPos();
+        mc.execute(() -> {
+            if (mc.level == null || !isActive() || lastScanClassic) return;
+            scanSchedule.invalidate(PlayerUtils.getDimension().name(), SectionPos.blockToSectionCoord(pos.getX()),
+                SectionPos.blockToSectionCoord(pos.getZ()));
+        });
     }
 }

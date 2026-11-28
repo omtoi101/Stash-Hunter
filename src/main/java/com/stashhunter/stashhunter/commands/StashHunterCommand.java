@@ -242,6 +242,19 @@ public class StashHunterCommand extends Command {
             })
         );
 
+        // Scan diagnostics: the running period (flight, or since enabling) and the session total
+        builder.then(literal("diag")
+            .executes(context -> {
+                StashHunterModule module = Modules.get().get(StashHunterModule.class);
+                if (module == null) {
+                    error("Stash-Hunter module not found.");
+                    return SINGLE_SUCCESS;
+                }
+                for (String line : module.diagnosticsLines()) info(line);
+                return SINGLE_SUCCESS;
+            })
+        );
+
         // Flight altitude command
         builder.then(literal("altitude")
             .executes(context -> {
@@ -276,6 +289,7 @@ public class StashHunterCommand extends Command {
                 info("§7.stashhunter list §f- List all saved trips with their progress");
                 info("§7.stashhunter status §f- Show current status and progress");
                 info("§7.stashhunter altitude [y] §f- Show or set the flight altitude (100-400, applies to the current flight)");
+                info("§7.stashhunter diag §f- Show scan diagnostics: chunks, signals, rejected candidates, hints and stashes");
                 info("§7.stashhunter repair §f- Show elytra repair status");
                 info("§7.stashhunter repair toggle §f- Toggle auto elytra repair");
                 info("§7.stashhunter help §f- Show this help message");
