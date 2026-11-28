@@ -1,6 +1,7 @@
 package com.stashhunter.stashhunter.utils;
 
 import com.stashhunter.stashhunter.StashHunter;
+import com.stashhunter.stashhunter.signals.Tier;
 import net.minecraft.core.BlockPos;
 
 import java.io.IOException;
@@ -14,13 +15,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Stashes already reported on one server, per dimension. Persisted because stashes below the
- * notification threshold get no waypoint, so after a reconnect or module toggle nothing else would
- * stop them from being reported again. One line per stash: "dimension x y z".
+ * Stashes already reported on one server, per dimension, together with the tier each report had.
+ * Persisted because stashes below the notification threshold get no waypoint, so after a reconnect
+ * or module toggle nothing else would stop them from being reported again. One line per stash:
+ * "dimension x y z TIER". Lines with four fields (written before tiers existed) count as STASH.
  */
 public final class ReportedStashes {
+    private record Entry(BlockPos pos, Tier tier) {}
+
     private final Path file;
-    private final Map<String, List<BlockPos>> byDimension = new HashMap<>();
+    private final Map<String, List<Entry>> byDimension = new HashMap<>();
 
     private ReportedStashes(Path file) {
         this.file = file;
@@ -46,17 +50,21 @@ public final class ReportedStashes {
         return stashes;
     }
 
-    public boolean isNear(String dimension, BlockPos pos, int radius) {
-        for (BlockPos reported : byDimension.getOrDefault(dimension, List.of())) {
-            if (reported.closerThan(pos, radius)) return true;
+    /** Highest tier of a reported stash within {@code radius} of {@code pos}, or {@link Tier#NONE}. */
+    public Tier highestTierNear(String dimension, BlockPos pos, int radius) {
+        Tier highest = Tier.NONE;
+        for (Entry reported : byDimension.getOrDefault(dimension, List.of())) {
+            if (reported.pos().closerThan(pos, radius) && reported.tier().compareTo(highest) > 0) {
+                highest = reported.tier();
+            }
         }
-        return false;
+        return highest;
     }
 
-    public void add(String dimension, BlockPos pos) {
-        byDimension.computeIfAbsent(dimension, d -> new ArrayList<>()).add(pos);
+    public void add(String dimension, BlockPos pos, Tier tier) {
+        byDimension.computeIfAbsent(dimension, d -> new ArrayList<>()).add(new Entry(pos, tier));
         try {
-            AppendFiles.append(file, format(dimension, pos) + System.lineSeparator());
+            AppendFiles.append(file, format(dimension, pos, tier) + System.lineSeparator());
         } catch (IOException e) {
             StashHunter.LOG.warn("Could not save reported stash to {}", file, e);
         }
@@ -71,18 +79,19 @@ public final class ReportedStashes {
         }
     }
 
-    static String format(String dimension, BlockPos pos) {
-        return dimension + " " + pos.getX() + " " + pos.getY() + " " + pos.getZ();
+    static String format(String dimension, BlockPos pos, Tier tier) {
+        return dimension + " " + pos.getX() + " " + pos.getY() + " " + pos.getZ() + " " + tier.name();
     }
 
     private boolean parseInto(String line) {
         String[] parts = line.trim().split("\\s+");
-        if (parts.length != 4) return false;
+        if (parts.length != 4 && parts.length != 5) return false;
         try {
             BlockPos pos = new BlockPos(Integer.parseInt(parts[1]), Integer.parseInt(parts[2]), Integer.parseInt(parts[3]));
-            byDimension.computeIfAbsent(parts[0], d -> new ArrayList<>()).add(pos);
+            Tier tier = parts.length == 4 ? Tier.STASH : Tier.valueOf(parts[4]);
+            byDimension.computeIfAbsent(parts[0], d -> new ArrayList<>()).add(new Entry(pos, tier));
             return true;
-        } catch (NumberFormatException e) {
+        } catch (IllegalArgumentException e) {
             return false;
         }
     }

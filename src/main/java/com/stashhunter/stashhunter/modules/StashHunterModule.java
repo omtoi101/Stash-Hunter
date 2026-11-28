@@ -2,6 +2,7 @@ package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
 import com.stashhunter.stashhunter.baritone.BaritoneBridge;
+import com.stashhunter.stashhunter.signals.Tier;
 import com.stashhunter.stashhunter.utils.ChunkScanSchedule;
 import com.stashhunter.stashhunter.utils.Config;
 import com.stashhunter.stashhunter.utils.DiscordEmbed;
@@ -961,7 +962,7 @@ public class StashHunterModule extends Module {
         } else {
             // Check if we've already reported a base near this location (earlier session, or cleared)
             int dedupeRadius = reportDedupeRadius.get();
-            if (reportedStashes().isNear(dimension, stashPos, dedupeRadius) || hasStashWaypointNear(stashPos, dedupeRadius)) {
+            if (reportedStashes().highestTierNear(dimension, stashPos, dedupeRadius) != Tier.NONE || hasStashWaypointNear(stashPos, dedupeRadius)) {
                 return;
             }
         }
@@ -980,7 +981,7 @@ public class StashHunterModule extends Module {
             if (old.waypoint() != null) Waypoints.get().remove(old.waypoint());
             XaeroBridge.removeWaypoint(old.xaeroWaypoint());
         }
-        reportedStashes().add(dimension, stashPos);
+        reportedStashes().add(dimension, stashPos, Tier.STASH);
         Waypoint waypoint = reportStash(stashPos, cluster, types, volume, density, earlier);
         Object xaeroWaypoint = waypoint != null && saveToXaero.get() ? XaeroBridge.addWaypoint(stashPos, waypoint.name.get()) : null;
         foundStashes.add(new FoundStash(dim, stashPos, Set.copyOf(cluster), cluster.size(), waypoint, xaeroWaypoint,
