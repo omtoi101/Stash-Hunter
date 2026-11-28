@@ -17,6 +17,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.vehicle.boat.AbstractBoat;
 import net.minecraft.world.entity.vehicle.minecart.MinecartChest;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
 
 /**
@@ -52,7 +53,10 @@ public final class SignalEntities {
 
     /** The strongest kind the entity shows; null if it shows none. */
     private static SignalKind kindOf(Entity entity) {
-        if (entity instanceof ItemFrame frame && !frame.getItem().isEmpty()) return SignalKind.ITEM_FRAME;
+        // End ships hang an elytra in an item frame naturally.
+        if (entity instanceof ItemFrame frame && !frame.getItem().isEmpty() && !frame.getItem().is(Items.ELYTRA)) {
+            return SignalKind.ITEM_FRAME;
+        }
         if (entity instanceof Villager villager && villager.getVillagerData().level() > 1) {
             return SignalKind.TRADED_VILLAGER;
         }

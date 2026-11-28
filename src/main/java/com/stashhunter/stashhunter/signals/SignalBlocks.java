@@ -115,6 +115,11 @@ public final class SignalBlocks {
         return WATCHED;
     }
 
+    /** The kind a block maps to on its own, or null (signs, pots, obsidian, bedrock and spawners need context). */
+    public static SignalKind kindOf(Block block) {
+        return KINDS.get(block);
+    }
+
     /**
      * @param classic exactly the 26.2.2 scan: only {@link Config#getActiveBlockList()} (plus spawners with
      *                {@code includeSpawners}), mapped to their kinds, no other traces; {@code enabled} is ignored

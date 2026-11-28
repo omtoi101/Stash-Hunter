@@ -37,4 +37,10 @@ public enum Sensitivity {
     public boolean hints() {
         return hints;
     }
+
+    /** Lower case: Meteor's EnumSetting shows, saves and parses enum values through toString. */
+    @Override
+    public String toString() {
+        return name().toLowerCase(java.util.Locale.ROOT);
+    }
 }

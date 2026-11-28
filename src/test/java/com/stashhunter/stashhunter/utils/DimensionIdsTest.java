@@ -15,6 +15,14 @@ class DimensionIdsTest {
     }
 
     @Test
+    void meteorDimensionsMapToVanillaIds() {
+        assertEquals("minecraft:overworld", DimensionIds.idOf(Dimension.Overworld));
+        assertEquals("minecraft:the_nether", DimensionIds.idOf(Dimension.Nether));
+        assertEquals("minecraft:the_end", DimensionIds.idOf(Dimension.End));
+        assertNull(DimensionIds.idOf(null));
+    }
+
+    @Test
     void otherIdsHaveNoMeteorDimension() {
         assertNull(DimensionIds.toMeteor("custom:mining_world"));
         assertNull(DimensionIds.toMeteor("Overworld"));

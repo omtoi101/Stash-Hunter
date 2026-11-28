@@ -34,9 +34,14 @@ public final class XaeroBridge {
      * world open.
      */
     public static Object addWaypoint(BlockPos pos, String name) {
+        return addWaypoint(pos, name, false);
+    }
+
+    /** Like {@link #addWaypoint(BlockPos, String)}; {@code hint} picks the hint symbol and color. */
+    public static Object addWaypoint(BlockPos pos, String name, boolean hint) {
         if (!isModLoaded() || incompatible) return null;
         try {
-            return XaeroImpl.addWaypoint(pos, name);
+            return XaeroImpl.addWaypoint(pos, name, hint);
         } catch (LinkageError e) {
             markIncompatible(e);
         } catch (RuntimeException e) {

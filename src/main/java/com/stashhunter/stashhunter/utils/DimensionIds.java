@@ -20,4 +20,14 @@ public final class DimensionIds {
             default -> null;
         };
     }
+
+    /** The vanilla dimension id of a Meteor dimension, e.g. "minecraft:the_nether"; null for null. */
+    public static String idOf(Dimension dimension) {
+        if (dimension == null) return null;
+        return switch (dimension) {
+            case Overworld -> "minecraft:overworld";
+            case Nether -> "minecraft:the_nether";
+            case End -> "minecraft:the_end";
+        };
+    }
 }

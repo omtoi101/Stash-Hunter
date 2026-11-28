@@ -25,11 +25,12 @@ final class XaeroImpl {
     private XaeroImpl() {}
 
     private static final String SYMBOL = "S";
+    private static final String HINT_SYMBOL = "H";
 
     /** Where a waypoint went, so it can be taken out of the same set again. */
     private record Added(MinimapSession session, MinimapWorld world, WaypointSet set, Waypoint waypoint) {}
 
-    static Object addWaypoint(BlockPos pos, String name) {
+    static Object addWaypoint(BlockPos pos, String name, boolean hint) {
         MinimapSession session = BuiltInHudModules.MINIMAP.getCurrentSession();
         if (session == null) return null; // no world joined yet
         MinimapWorld world = session.getWorldManager().getCurrentWorld();
@@ -41,8 +42,8 @@ final class XaeroImpl {
         WaypointSet set = world.getCurrentWaypointSet();
         if (set == null) return null;
 
-        Waypoint waypoint = new Waypoint(pos.getX(), pos.getY(), pos.getZ(), name, SYMBOL,
-            WaypointColor.GOLD, WaypointPurpose.NORMAL);
+        Waypoint waypoint = new Waypoint(pos.getX(), pos.getY(), pos.getZ(), name, hint ? HINT_SYMBOL : SYMBOL,
+            hint ? WaypointColor.YELLOW : WaypointColor.GOLD, WaypointPurpose.NORMAL);
         set.add(waypoint);
         save(session, world);
         return new Added(session, world, set, waypoint);
