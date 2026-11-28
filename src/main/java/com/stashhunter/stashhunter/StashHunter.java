@@ -24,6 +24,9 @@ import com.stashhunter.stashhunter.modules.AutoFirework;
 import com.stashhunter.stashhunter.modules.OnlinePlayerActivityDetector;
 import com.stashhunter.stashhunter.modules.PlayerAlarms;
 import com.stashhunter.stashhunter.modules.AutoLogout;
+import com.stashhunter.stashhunter.modules.DroppedItemEsp;
+import com.stashhunter.stashhunter.modules.MobGearEsp;
+import com.stashhunter.stashhunter.modules.TunnelEsp;
 import com.mojang.logging.LogUtils;
 import meteordevelopment.meteorclient.addons.GithubRepo;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
@@ -74,6 +77,9 @@ public class StashHunter extends MeteorAddon {
         Modules.get().add(new StackedMinecartDetector());
         Modules.get().add(new ChestIndexer());
         Modules.get().add(new CaveDisturbanceDetector());
+        Modules.get().add(new DroppedItemEsp());
+        Modules.get().add(new MobGearEsp());
+        Modules.get().add(new TunnelEsp());
 
         // Commands
         Commands.add(new StashHunterCommand());
