@@ -39,14 +39,14 @@ class PortalFramesTest {
 
     @Test
     void minimalPortalFrameIsFound() {
-        List<BlockPos> frames = PortalFrames.frames(frameX(10, 60, 5, 2, 3));
-        assertEquals(List.of(new BlockPos(10, 60, 5)), frames);
+        List<PortalFrames.Frame> frames = PortalFrames.frames(frameX(10, 60, 5, 2, 3));
+        assertEquals(List.of(new PortalFrames.Frame(new BlockPos(10, 60, 5), true)), frames);
     }
 
     @Test
     void zPlaneFrameIsFound() {
-        List<BlockPos> frames = PortalFrames.frames(frameZ(10, 60, 5, 3, 4));
-        assertEquals(List.of(new BlockPos(10, 60, 5)), frames);
+        List<PortalFrames.Frame> frames = PortalFrames.frames(frameZ(10, 60, 5, 3, 4));
+        assertEquals(List.of(new PortalFrames.Frame(new BlockPos(10, 60, 5), false)), frames);
     }
 
     @Test
@@ -70,5 +70,35 @@ class PortalFramesTest {
         Set<BlockPos> s = frameX(0, 0, 0, 2, 3);
         s.addAll(frameZ(100, 10, 100, 2, 3));
         assertEquals(2, PortalFrames.frames(s).size());
+    }
+
+    @Test
+    void oneThickObsidianWallHasNoFrames() {
+        Set<BlockPos> wallX = new HashSet<>();
+        Set<BlockPos> wallZ = new HashSet<>();
+        for (int a = 0; a < 5; a++) {
+            for (int y = 0; y < 5; y++) {
+                wallX.add(new BlockPos(a, y, 0));
+                wallZ.add(new BlockPos(0, y, a));
+            }
+        }
+        assertTrue(PortalFrames.frames(wallX).isEmpty());
+        assertTrue(PortalFrames.frames(wallZ).isEmpty());
+    }
+
+    @Test
+    void solidObsidianCubeHasNoFrames() {
+        Set<BlockPos> s = new HashSet<>();
+        for (int x = 0; x < 6; x++)
+            for (int y = 0; y < 6; y++)
+                for (int z = 0; z < 6; z++) s.add(new BlockPos(x, y, z));
+        assertTrue(PortalFrames.frames(s).isEmpty());
+    }
+
+    @Test
+    void frameWithObsidianInsideIsNotAFrame() {
+        Set<BlockPos> s = frameX(0, 0, 0, 2, 3);
+        s.add(new BlockPos(2, 3, 0));
+        assertTrue(PortalFrames.frames(s).isEmpty());
     }
 }

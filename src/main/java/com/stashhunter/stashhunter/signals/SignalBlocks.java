@@ -245,14 +245,13 @@ public final class SignalBlocks {
         }
 
         if (!obsidian.isEmpty() && obsidian.size() <= MAX_OBSIDIAN_FOR_FRAMES) {
-            for (BlockPos corner : PortalFrames.frames(obsidian)) {
-                // A solid obsidian block contains "frames" everywhere; a real frame has a non-obsidian inside.
-                BlockPos insideX = corner.offset(1, 1, 0), insideZ = corner.offset(0, 1, 1);
-                if (obsidian.contains(insideX) && obsidian.contains(insideZ)) continue;
-                signals.put(corner, SignalKind.OBSIDIAN_FRAME);
+            // PortalFrames rejects rectangles with obsidian inside (walls, solid blocks).
+            for (PortalFrames.Frame frame : PortalFrames.frames(obsidian)) {
+                signals.put(frame.corner(), SignalKind.OBSIDIAN_FRAME);
             }
         }
-        return new ChunkScan(signals, spawners);
+        // One signal per trace kind and section: a portal or a concrete wall is one trace, not one per block.
+        return new ChunkScan(SignalCollapse.perSection(signals), spawners);
     }
 
     /** At most one sky or nether roof build per section: the first block above the build Y. */

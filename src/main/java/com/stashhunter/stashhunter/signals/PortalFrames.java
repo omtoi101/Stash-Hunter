@@ -12,13 +12,17 @@ public final class PortalFrames {
 
     private PortalFrames() {}
 
+    /** A frame's minimum outer corner and its plane: {@code xAxis} for the X-Y plane, otherwise the Z-Y plane. */
+    public record Frame(BlockPos corner, boolean xAxis) {}
+
     /**
-     * One entry per frame: the minimum corner (lowest x, y, z) of the outer rectangle. Frames in the X-Y and Z-Y
-     * plane are found; the four corner blocks and the inside are not checked. Every obsidian block is tried as the
+     * One entry per frame: the minimum corner (lowest x, y, z) of the outer rectangle and its plane. Frames in the
+     * X-Y and Z-Y plane are found; the four corner blocks are not checked. A rectangle with obsidian anywhere inside
+     * it (in its own plane) is no frame: a one-thick obsidian wall or a solid cube contains rectangles everywhere. Every obsidian block is tried as the
      * first block of a bottom edge (corner + 1 along the plane axis).
      */
-    public static List<BlockPos> frames(Set<BlockPos> obsidian) {
-        Set<BlockPos> found = new LinkedHashSet<>();
+    public static List<Frame> frames(Set<BlockPos> obsidian) {
+        Set<Frame> found = new LinkedHashSet<>();
         for (BlockPos b : obsidian) {
             for (int axis = 0; axis < 2; axis++) {
                 int dx = axis == 0 ? 1 : 0, dz = axis == 0 ? 0 : 1;
@@ -27,7 +31,7 @@ public final class PortalFrames {
                 for (int w = 1; w <= MAX_W && obsidian.contains(at(x0, y0, z0, dx, dz, w, 0)); w++) {
                     if (w < MIN_W) continue;
                     for (int h = MIN_H; h <= MAX_H; h++) {
-                        if (isFrame(obsidian, x0, y0, z0, dx, dz, w, h)) found.add(new BlockPos(x0, y0, z0));
+                        if (isFrame(obsidian, x0, y0, z0, dx, dz, w, h)) found.add(new Frame(new BlockPos(x0, y0, z0), axis == 0));
                     }
                 }
             }
@@ -45,6 +49,11 @@ public final class PortalFrames {
         }
         for (int j = 1; j <= h; j++) {
             if (!o.contains(at(x0, y0, z0, dx, dz, 0, j)) || !o.contains(at(x0, y0, z0, dx, dz, w + 1, j))) return false;
+        }
+        for (int i = 1; i <= w; i++) {
+            for (int j = 1; j <= h; j++) {
+                if (o.contains(at(x0, y0, z0, dx, dz, i, j))) return false;
+            }
         }
         return true;
     }
