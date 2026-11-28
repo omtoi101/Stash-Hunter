@@ -490,7 +490,7 @@ public class StashHunterModule extends Module {
     private static String traceGroupDescription(TraceGroup group) {
         return switch (group) {
             case SIGNS -> "Signs with text.";
-            case UNNATURAL_BLOCKS -> "Blocks that never generate naturally (concrete, some heads, ore blocks, beacons, conduits) and decorated pots holding an item.";
+            case UNNATURAL_BLOCKS -> "Blocks that never generate naturally (concrete, some heads, mineral storage blocks such as diamond or netherite blocks, beacons, conduits) and decorated pots holding an item.";
             case PORTALS -> "Open nether/end portals and obsidian portal frames.";
             case HIGH_BUILDS -> "Blocks above Y 260 in the Overworld and on the Nether roof.";
             case BEDROCK -> "Bedrock outside the natural layers.";
