@@ -2,13 +2,25 @@ package com.stashhunter.stashhunter.signals;
 
 import net.minecraft.core.BlockPos;
 
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
-/** Scores one cluster of signals into NONE, HINT or STASH. Rules: see globals "Gewichte und Schwellen". */
+/**
+ * Scores one cluster of signals into NONE, HINT or STASH. Rules: see globals "Gewichte und Schwellen", with ruling
+ * R12: each TRACE and WEAK_TRACE kind counts once per cluster (a wall of concrete or a portal is one trace), open
+ * portal and obsidian frame count as one portal trace, and a hint without a STRONG kind needs two distinct kinds.
+ * STRONG and CONTAINER kinds still count per block.
+ */
 public final class SignalScoring {
     private static final int WEAK_TRACE_CAP = 4;
 
     private SignalScoring() {
+    }
+
+    /** The kind a signal counts as: the obsidian frame around a portal is the same trace as the portal. */
+    static SignalKind scoringKind(SignalKind kind) {
+        return kind == SignalKind.OBSIDIAN_FRAME ? SignalKind.OPEN_PORTAL : kind;
     }
 
     /**
@@ -21,19 +33,23 @@ public final class SignalScoring {
         int score = 0;
         int weakScore = 0;
         int strong = 0;
-        int trace = 0;
+        boolean trace = false;
+        Set<SignalKind> kinds = EnumSet.noneOf(SignalKind.class);
         for (Signal s : signals) {
-            SignalKind kind = s.kind();
+            SignalKind kind = scoringKind(s.kind());
+            boolean firstOfKind = kinds.add(kind);
             switch (kind.category()) {
                 case STRONG -> {
                     strong++;
                     score += kind.weight();
                 }
                 case TRACE -> {
-                    trace++;
-                    score += kind.weight();
+                    trace = true;
+                    if (firstOfKind) score += kind.weight();
                 }
-                case WEAK_TRACE -> weakScore += kind.weight();
+                case WEAK_TRACE -> {
+                    if (firstOfKind) weakScore += kind.weight();
+                }
                 case CONTAINER -> score += kind.weight();
             }
         }
@@ -47,14 +63,14 @@ public final class SignalScoring {
             return new Verdict(Tier.STASH, score, true);
         }
         // Score-stash needs at least one TRACE kind; STRONG alone never stashes by score.
-        if (trace > 0 && score >= sensitivity.stashScore()) {
+        if (trace && score >= sensitivity.stashScore()) {
             return new Verdict(Tier.STASH, score, false);
         }
         if (!sensitivity.hints()) {
             return new Verdict(Tier.NONE, score, false);
         }
-        // A single trace never makes a hint, even when its weight reaches the hint score.
-        boolean hintByTrace = trace > 0 && signals.size() >= 2 && score >= sensitivity.hintScore();
+        // One kind alone (one portal, one wall of concrete) never makes a hint, even when it reaches the hint score.
+        boolean hintByTrace = trace && kinds.size() >= 2 && score >= sensitivity.hintScore();
         if (strong > 0 || hintByTrace) {
             return new Verdict(Tier.HINT, score, false);
         }
