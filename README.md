@@ -542,7 +542,7 @@ Create a webhook in your Discord server (*Server Settings → Integrations → W
 | **Online Player Activity** | Players joined or left the server (`online-player-activity`, `discord` on). |
 | **Auto Logout** | `auto-logout` disconnected you (`discord` on). |
 
-Pings are opt-in: `@everyone` is only used when `mention-everyone` is on, and then only for **Stash Found**, **Player Detected**, **Bot Died**, **Scanning Completed**, **Disconnected**, **Out of Elytras** and **Auto Logout**. **Stash Updated** and **Stash Hint** never ping. Rate limits and temporary Discord errors are retried automatically. While Discord is unreachable, at most 50 messages are queued.
+Pings are opt-in: `@everyone` is only used when `mention-everyone` is on, and then only for **Stash Found**, **Bot Died**, **Scanning Completed**, **Disconnected**, **Out of Elytras** and **Auto Logout**. **Stash Updated** and **Stash Hint** never ping. Rate limits and temporary Discord errors are retried automatically. While Discord is unreachable, at most 50 messages are queued.
 
 ## HUD
 
