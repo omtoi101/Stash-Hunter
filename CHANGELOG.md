@@ -4,6 +4,18 @@ All notable changes to Stash-Hunter. Newest version first, format based on [Keep
 
 One line per change. How a feature works and what each setting does is in the [README](README.md); the full reasoning behind a change is in the commit history. Build, test and code changes that don't affect players are listed under **Development**.
 
+## [Unreleased]
+
+### Changed
+
+- **Minecraft 26.3.** Stash-Hunter now requires Minecraft 26.3, Meteor Client 26.3 and, optionally, Baritone and Xaero's Minimap for 26.3. Stay on 26.2.2 for Minecraft 26.2.
+
+### Development
+
+- Pins: Minecraft 26.3, Baritone 26.3-SNAPSHOT, Xaero fabric-26.3-26.6.2, fabric-resource-loader-v1 3.0.4+ba0d6c0d5d; Loom stays at 1.17.21.
+- `ClientboundLevelChunkWithLightPacket` is a record in 26.3 (`x()`, `z()`, `chunkData()`); block entity tags are read with `forEachBlockEntityTag`.
+- `ChunkPacketDecoder` reads the chunk sections itself, because `LevelChunk.replaceWithPacketData` now also creates block entities.
+
 ## [v26.2.2] - 2026-11-10
 
 Builds and passes all unit tests; in-game testing is still pending.

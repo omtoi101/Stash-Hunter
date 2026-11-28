@@ -4,7 +4,7 @@ A [Meteor Client](https://meteorclient.com/) addon that finds stashes on anarchy
 
 It can also follow trails of newly generated chunks toward player activity, land to repair its elytra with XP bottles, and recover from rubber-banding and sudden altitude loss, so it can run for hours without you.
 
-Built for **Minecraft 26.2**. Current version: **26.2.2** (see the [Changelog](CHANGELOG.md)). Licensed under the Apache License 2.0.
+Built for **Minecraft 26.3**. Current version: **26.3.0** (in development; see the [Changelog](CHANGELOG.md)). For Minecraft 26.2, use version 26.2.2. Licensed under the Apache License 2.0.
 
 ## Contents
 
@@ -32,11 +32,11 @@ Built for **Minecraft 26.2**. Current version: **26.2.2** (see the [Changelog](C
 
 ## Requirements
 
-- Minecraft **26.2** with [Fabric Loader](https://fabricmc.net/)
-- [Meteor Client](https://meteorclient.com/) for 26.2
+- Minecraft **26.3** with [Fabric Loader](https://fabricmc.net/)
+- [Meteor Client](https://meteorclient.com/) for 26.3
 - Java **25**
-- *(Optional)* [Baritone](https://github.com/MeteorDevelopment/baritone) for 26.2 (the Meteor fork), for obstacle-aware pathfinding
-- *(Optional)* [Xaero's Minimap](https://modrinth.com/mod/xaeros-minimap) for 26.2, to get stash waypoints on the minimap and Xaero's World Map too (`save-to-xaero`)
+- *(Optional)* [Baritone](https://github.com/MeteorDevelopment/baritone) for 26.3 (the Meteor fork), for obstacle-aware pathfinding
+- *(Optional)* [Xaero's Minimap](https://modrinth.com/mod/xaeros-minimap) for 26.3, to get stash waypoints on the minimap and Xaero's World Map too (`save-to-xaero`)
 
 Fabric API is **not** required.
 

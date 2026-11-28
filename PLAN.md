@@ -1,6 +1,12 @@
 # Stash-Hunter — Plan
 
-## Stand (2026-11-10)
+## Stand (2026-11-28)
+
+- Branch `port/26.3`: Port auf **MC 26.3** erledigt (Version `26.3.0-dev`, Build grün, 157 Tests).
+  Release 26.3.0 kommt in Etappen, Designs und Pläne unter `docs/superpowers/`. In-game-Test auf
+  26.3 offen.
+
+### Stand 2026-11-10
 
 - Branch `code-revision`. Version **26.2.2** ist release-fertig (CHANGELOG `[v26.2.2] - 2026-11-10`):
   101–103 plus **96** Trip-Save im Hintergrund, **53-Rest** für `.chest-index` komplett
@@ -24,9 +30,9 @@ Baritone-Cancel, Landungs-Timeout, Stashfinden, ActivatedSpawnerDetector) und
 
 ## Projekt-Kontext
 
-- Meteor-Client-Addon (Fabric, client-only) für **MC 26.2**, Lizenz **Apache-2.0**.
+- Meteor-Client-Addon (Fabric, client-only) für **MC 26.3**, Lizenz **Apache-2.0**.
 - Loom 1.17.21, **Java 25**, offizielle Mojang-Mappings (MC seit 26.1 unobfuskiert, kein
-  `mappings(...)`), Meteor `26.2-SNAPSHOT`, Baritone `26.2-SNAPSHOT` als Soft-Dependency, Gson.
+  `mappings(...)`), Meteor `26.3-SNAPSHOT`, Baritone `26.3-SNAPSHOT` als Soft-Dependency, Gson.
   Keine Fabric API (nur `fabric-resource-loader-v1`, das Meteor bündelt).
 - Quellen: `src/main/java/com/stashhunter/stashhunter/`
 - Build: `./gradlew build` (Windows: `gradlew.bat build`). Braucht JDK 25 und Netzzugang zu Mojang
@@ -163,7 +169,7 @@ Scan und Stashes:
 - [ ] Index-Save im Hintergrund: großer Index (Stash mit Hunderten Kisten), kein Ruckler im
       Minutentakt; Welt verlassen bzw. Spiel aus der Welt heraus schließen → JSON aktuell;
       `.chest-index clear` direkt nach einem Save → Datei bleibt gelöscht
-- [ ] `save-to-xaero` mit Xaero's Minimap 26.2: Stash bekommt einen goldenen `S`-Waypoint im
+- [ ] `save-to-xaero` mit Xaero's Minimap 26.3: Stash bekommt einen goldenen `S`-Waypoint im
       aktuellen Set, er übersteht einen Neustart, die World Map zeigt ihn nach dem Öffnen;
       „Stash Updated“ verschiebt ihn; ohne Xaero kein Fehler im Log
 
@@ -263,13 +269,6 @@ Im Multiplayer ist der Seed client-seitig nicht verfügbar. Im Singleplayer übe
 - **47 Erz-/Biom-Vorhersage** (baut auf 44 auf): Scan-Ziele priorisieren, uninteressante Biome
   überspringen.
 
-### Port auf MC 26.3/26.4
-
-Wegen der `26.2`-Pins (`minecraft_version`, `meteor-client: ~26.2-`, Meteor/Baritone
-`26.2-SNAPSHOT`) lädt das Mod nicht auf neueren Versionen. Meteor gibt es schon als
-`26.3-SNAPSHOT`. Bei Bedarf die Pins anheben, `fabric-resource-loader-v1` (hart gepinnt) prüfen,
-`xaero_minimap_version` (gibt es als `fabric-26.3-…`) mitziehen, bauen und testen.
-
 ### Stash-Auswertung
 
 - **63 StorageLooter:** Container automatisch looten und sortieren. PathSeeker ✅. Hinlaufen und
@@ -336,6 +335,8 @@ Wegen der `26.2`-Pins (`minecraft_version`, `meteor-client: ~26.2-`, Meteor/Bari
 - **Phase 5 Architektur (28–32):** Logik in getestete Klassen ausgelagert (StashClustering,
   GridWaypoints, TrailAnalysis, ChunkDataFormat), statischer Modul-Lookup und kaputte Reflection
   entfernt, Logging vereinheitlicht, Spotless + JUnit.
+- **Port auf MC 26.3** (2026-11-28, Branch `port/26.3`): Pins angehoben, Chunk-Paket-API angepasst.
+  26.4 offen.
 - **33** `Logger.java` entfernt (alles über `StashHunter.LOG`). **34** echtes Icon.
   **38** `meteor-client: ~26.2-` (`>=26.2` hätte jede Meteor-Pre-Release abgelehnt).
   **39** Loader 0.20.1. **40/42** Fabric API komplett entfernt. **41** Loom 1.17.21 (1.18.4 braucht
