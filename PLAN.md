@@ -5,6 +5,9 @@
 - Branch `port/26.3`: Port auf **MC 26.3** erledigt (Version `26.3.0-dev`, Build grün, 157 Tests).
   Release 26.3.0 kommt in Etappen, Designs und Pläne unter `docs/superpowers/`. In-game-Test auf
   26.3 offen.
+- **Erkennung per Signal-Score** (59 Base Finder, 56 Portal-Finder, 62 ESP-Suite) ist fertig und
+  dokumentiert (README, CHANGELOG), Build grün. Nächster Schritt: Checkliste „Erkennung (Signal-Score)“
+  und „Singleplayer-Testwelt Erkennung“ in Abschnitt 1 in-game abarbeiten.
 
 ### Stand 2026-11-10
 
@@ -131,6 +134,43 @@ Grundfunktionen:
       „Flight Paused After Landing“ und `.sh resume` geht
 - [ ] `.sh altitude <y>` während eines Flugs: Baritone plant auf neuer Höhe neu, GUI-Wert
       `flight-altitude` zieht mit, `.sh resume` nutzt die aktuelle Höhe
+
+Erkennung (Signal-Score, Details in README „How it works“):
+- [ ] `.sh diag` nach einem Flug: Chunks, Signale je Kategorie, abgelehnte Kandidaten je Grund,
+      Hinweise/Stashes; `diagnostics/<server>.log` unter `meteor-client/StashHunter/` füllt sich
+      (nach 5 MB `.log.old`)
+- [ ] Scan-Radius-Hinweis: Flug starten mit `scan-radius` 64 auf einem Server mit View-Distance 12 →
+      Chat schlägt einen größeren Radius vor; bei passendem Radius keine Meldung
+- [ ] `sensitivity` `normal`: ein einzelner Shulker/Endertruhe → „Hint: …“ im Chat, Waypoint
+      `Hint: … at x, y, z`, gelbe ESP-Box; Discord nur mit `discord-hints`; Stash weiter wie bisher
+      (Waypoint `<n> Blocks at …`, Discord)
+- [ ] Hinweis → Stash: am Hinweis weitere Kisten dazustellen (bis zur Stash-Schwelle) → „Stash
+      Updated“ mit Discord, Hinweis-Waypoint ersetzt; nach Neustart des Spiels dasselbe
+- [ ] `classic`: nur Container, `block-detection-threshold`, keine Hinweise, `storage-only-mode`
+      wirkt wieder; `discord-hints` ist ausgeblendet; Verhalten wie 26.2.2
+- [ ] `sensitive`: niedrigere Schwellen (Hinweis ab Score 4, Stash ab 15); Dörfer und Mineshafts
+      bleiben ohne Hinweis
+- [ ] Signals-Schalter: `signs`, `portals`, `entities` usw. ausschalten → die jeweilige Spur löst
+      keinen Hinweis mehr aus (nach dem nächsten Scan)
+- [ ] `dropped-item-esp`: weggeworfene Diamantrüstung/Totem leuchtet bis `render-distance`, andere
+      Items nicht
+- [ ] `mob-gear-esp`: Zombie mit Diamant-Rüstung/Elytra leuchtet; Mob ohne Spielerausrüstung nicht;
+      Meldung verschwindet nach Wegfliegen/Töten (keine alten Hinweise)
+- [ ] `tunnel-esp`: selbst gegrabener 1x1-Schacht, 2-3 hoher Tunnel und Treppe leuchten; Höhlen
+      machen wenig Treffer; `spark`: Tick-Kosten mit `chunks-per-tick` 1 unauffällig, auch beim
+      schnellen Flug über viele neue Chunks
+
+Singleplayer-Testwelt Erkennung (Erwartung mit `sensitivity` `normal`, Standardwerte):
+- [ ] 3 vergrabene Shulker nebeneinander → **Hinweis** (kein Stash)
+- [ ] 10 Shulker dicht beieinander → **Stash**
+- [ ] 1 Endertruhe in einer Höhle → **Hinweis**
+- [ ] Schild mit Text + Bett + Kiste → **Hinweis**
+- [ ] 10 Kisten dicht beieinander → **Stash**
+- [ ] Dungeon (Spawner + 2 Kisten), unverändert → **nichts**
+- [ ] Dorf, unverändert → **nichts**
+- [ ] Shulker in einem Dungeon → **Hinweis**
+- [ ] Hinweis (z. B. 3 Shulker) später auf 10 Kisten erweitern → **Stash Updated**
+- [ ] Dieselben Lagen mit `classic` → nur der 10-Kisten-Stash, sonst nichts
 
 Scan und Stashes:
 - [ ] `scan-by-distance` (CPU-Last beim Flug), `scan-only-while-flying`
@@ -276,13 +316,6 @@ Im Multiplayer ist der Seed client-seitig nicht verfügbar. Im Singleplayer übe
 - **73 ChestTracker mit GUI:** live gepflegtes Container-Verzeichnis (erweitert 53). BepHax ⚠️.
 - **74 ShulkerOverview:** Shulker-Inhalt im Tooltip, ohne Platzieren. BepHax ⚠️.
 
-### Erkennung
-
-- **56 PortalPatternFinder:** entfernte/kaputte Nether-Portale als Base-Signal. Trouser-Streak ⛔.
-- **59 Base Finder:** Base-Erkennung über Spieleraktivität. PathSeeker ✅.
-- **62 ESP-Suite:** PotESP, MobGearESP, DroppedItemESP, EntityClusterESP, Hole/Tunnel/Stair-ESP.
-  Nur die von PathSeeker selbst geschriebenen ✅ übernehmen, Rest clean-room.
-
 ### Flug und Komfort
 
 - **61 ElytraFlyPlusPlus:** Bounce, Hindernisse auf Highways. jeff mod ⛔. Y-Boost/Fake-Fly sind
@@ -335,6 +368,13 @@ Im Multiplayer ist der Seed client-seitig nicht verfügbar. Im Singleplayer übe
 - **Phase 5 Architektur (28–32):** Logik in getestete Klassen ausgelagert (StashClustering,
   GridWaypoints, TrailAnalysis, ChunkDataFormat), statischer Modul-Lookup und kaputte Reflection
   entfernt, Logging vereinheitlicht, Spotless + JUnit.
+- **59 Base Finder** (2026-11-28, clean-room): Base-Erkennung über Spuren (Schilder, Betten, Portale,
+  Bedrock, Entities, Module) als Signal-Score mit Hinweis/Stash-Stufen und `sensitivity`
+  (`classic`/`normal`/`sensitive`), `.sh diag` und Diagnose-Log (`signals/`, Spec unter `docs/superpowers/`).
+- **56 Portal-Finder** (2026-11-28): offene Portale und Obsidian-Rahmen (`signals/PortalFrames`) sind
+  Spuren im Signal-Score (Gruppe `portals`).
+- **62 ESP-Suite** (2026-11-28): `dropped-item-esp`, `mob-gear-esp` (auch schwache Spur) und
+  `tunnel-esp` (Hole/Tunnel/Stair); PotESP als `UNNATURAL_POT`-Signal, EntityClusterESP über Stacked-Minecarts/Entity-Signale.
 - **Port auf MC 26.3** (2026-11-28, Branch `port/26.3`): Pins angehoben, Chunk-Paket-API angepasst.
   26.4 offen.
 - **33** `Logger.java` entfernt (alles über `StashHunter.LOG`). **34** echtes Icon.

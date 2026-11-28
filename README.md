@@ -24,7 +24,8 @@ Built for **Minecraft 26.3**. Current version: **26.3.0** (in development; see t
 ## Features
 
 - **Automated stash search:** elytra flight over a rectangle (`.sh start`) or an outward spiral (`.sh spiral`), with Baritone pathing or the built-in controller. Flights can be paused, saved and resumed.
-- **Stash detection:** scans the full world height around you, clusters containers (optionally all base blocks and spawners), filters natural structures and reports each stash once, as a Meteor waypoint, optionally a Xaero's Minimap waypoint, and on Discord. Stashes found this session are outlined in the world (Stash ESP).
+- **Stash detection:** scans the full world height around you, scores containers and player traces (signs, beds, portals, named or traded mobs, placed bedrock, ...) and filters natural structures. Big finds are reported once as a **stash** (Meteor waypoint, optionally a Xaero's Minimap waypoint, Discord); small finds such as a lone shulker box are reported as a **hint**. Finds of this session are outlined in the world (Stash ESP). `.sh diag` shows what the scan saw and why candidates were rejected.
+- **ESP helpers:** `dropped-item-esp` (valuable items on the ground), `mob-gear-esp` (mobs with player gear) and `tunnel-esp` (shafts, tunnels and staircases dug by players).
 - **Chunk analysis:** `NewerNewChunks` marks new and old chunks and lets the flight follow chunk trails; `old-chunk-notifier` tells you when you reach old terrain; `slime-chunks` marks slime chunks.
 - **More base signals:** `activated-spawner-detector` (spawners a player has been near), `stacked-minecarts` (hidden minecart storage), `cave-disturbance-detector` (blocks broken in cave air) and `chest-index` (searchable record of container contents per server).
 - **Unattended runs:** `auto-elytra-repair` (spare elytra or landing + XP bottles), `stuck-detector`, `altitude-loss-detector`, `auto-firework`, landing on low rockets, plus `player-alarms`, `online-player-activity` and `auto-logout`.
@@ -74,23 +75,49 @@ After each detour it returns to its strips. Chunks the server hasn't sent yet ar
 
 **Scanning.** Every `scan-interval` ticks the addon scans a cylinder of `scan-radius` blocks around the player over the **full world height**, so stashes far below the flight altitude are found too. Each chunk is read once when it loads and again only when a stash block in it changes or after a minute, so a large radius stays cheap. A chunk that was inside the radius before the server sent it is scanned as soon as it arrives, even if the bot has flown on by then. If chunks never arrive (the server is too slow for your flight speed, or its view distance is smaller than `scan-radius`), the chat warns you at most every 10 minutes, because those spots stay unscanned.
 
-- **Storage-only mode (default):** looks for chests, trapped chests, barrels and shulker boxes of every colour.
-- **Full mode:** also counts furnaces, blast furnaces, smokers, brewing stands, enchanting tables, anvils, crafting tables, beacons, conduits, hoppers, dispensers, droppers and beds.
+**Signals and score.** The scan turns everything it sees into *signals*, each with a weight. A candidate (a group of signals close together) is rated by the sum of its weights:
 
-**Clustering and filtering.**
+| Kind | Signals | Weight |
+| --- | --- | --- |
+| Strong | shulker box, ender chest | 10 |
+| Container | chest, trapped chest, barrel | 2 |
+| Container | hopper, dispenser, dropper, furnace (all kinds) | 1 |
+| Trace | written sign, unnatural block (concrete, some heads, ore blocks, ...), open portal, obsidian portal frame, build above Y 260 / on the Nether roof, decorated pot holding an item, item frame with an item, named entity, traded villager, animal with a chest, activated spawner, cave disturbance | 3 |
+| Trace | placed bedrock, stacked minecarts, beacon, conduit | 4 |
+| Weak trace | bed, crafting table, anvil, enchanting table, brewing stand, boat, chest minecart, mob with player gear, spawner (only with `include-spawners`) | 1 (together at most 4) |
 
-- Found blocks are grouped into clusters. Neighbouring blocks may be up to `max-cluster-distance` apart, and one cluster is at most `max-cluster-size` across.
-- A cluster counts as a stash if it has at least `block-detection-threshold` blocks and passes the filters: `max-volume-threshold`, `min-density-threshold` and, if enabled, `filter-natural-structures`.
+Natural look-alikes are ignored: skeleton and wither skeleton skulls, dragon heads and waxed copper (ancient cities, fortresses, End ships, trial chambers), natural bedrock, End gateways and item frames holding an elytra (End ships). Each group of traces can be switched off in the **Signals** settings group.
+
+How many points a report needs depends on `sensitivity`:
+
+| `sensitivity` | Hint | Stash | Containers for a stash |
+| --- | --- | --- | --- |
+| `classic` | no hints | containers only, exactly like 26.2.2 | `block-detection-threshold` |
+| `normal` (default) | score 6 | score 25 | `block-detection-threshold`, at most 6 |
+| `sensitive` | score 4 | score 15 | `block-detection-threshold`, at most 4 |
+
+- **Hint:** a strong signal (even a single shulker box or ender chest), or at least two signals including a trace, with a score at or above the hint score. One trace alone never makes a hint, and containers or weak traces alone never do either, so villages and mineshafts stay quiet.
+- **Stash:** enough containers (shulker boxes and ender chests count as containers too) in a stash-shaped group, or a score at or above the stash score with at least one trace. Three shulker boxes are a hint; ten shulker boxes close together are a stash.
+- **Classic:** with `sensitivity` `classic` only `block-detection-threshold` decides, and `storage-only-mode` still switches between storage blocks only (default) and all base blocks (furnaces, brewing stands, enchanting tables, anvils, crafting tables, beacons, conduits, hoppers, dispensers, droppers, beds). In the other modes `storage-only-mode` has no effect.
+
+**Clustering and filtering.** The filters below apply to the containers of a candidate; shulker boxes, ender chests and traces are not filtered out by them.
+
+- Found containers are grouped into clusters. Neighbouring blocks may be up to `max-cluster-distance` apart, and one cluster is at most `max-cluster-size` across.
+- A group of containers counts if it reaches the container threshold and passes the filters: `max-volume-threshold`, `min-density-threshold` and, if enabled, `filter-natural-structures`.
 - A cluster that is too big or too sparse is not simply dropped: it is split into tighter groups, and a group that still has enough blocks and passes the filters is reported. So a stash hidden in or next to a natural structure, or a base with a few chests far away from its storage room, is still found.
 - These filters are heuristics. Structure loot (dungeons, mineshafts, villages) can still be reported now and then.
 
 **Reporting.**
 
-- Each stash is reported once. Another cluster within `report-dedupe-radius` of a reported stash, or of an existing stash waypoint, is not reported again.
-- If the stash's density reaches `notification-density-threshold`, you get a Discord message and a Meteor waypoint named `<count> Blocks at <x, y, z>` in the current dimension. Lower-density finds are only mentioned in chat.
+- Each stash or hint is reported once. Another cluster within `report-dedupe-radius` of a reported one, or of an existing stash or hint waypoint, is not reported again.
+- **Stash:** you get a chat message (`Stash Found at: ...`), a Discord message and a Meteor waypoint named `<count> Blocks at <x, y, z>` in the current dimension. A stash found only by its container count and with a density below `notification-density-threshold` is only mentioned in chat; a stash that also reaches the stash score is always announced.
+- **Hint:** a chat message (`Hint: <what> at <x, y, z> (<dimension>)`) and a Meteor waypoint named `Hint: <what> at <x, y, z>`, and with `discord-hints` on also a Discord message (*Stash Hint*, without `@everyone`). The Stash ESP outlines hints in yellow.
+- **Hint to stash:** if a later scan finds more at the place of a hint and it now qualifies as a stash, you get **"Stash Updated"** (chat and Discord) and the hint waypoint is replaced by the stash waypoint, even in a later session. A stash is never downgraded to a hint.
 - With `save-to-xaero` on and Xaero's Minimap installed, the same waypoint (gold, symbol `S`) is also added to Xaero's current waypoint set. Xaero's World Map reads the minimap's waypoints each time it is opened, so it shows there as well.
-- If a stash was first seen only in part and a later scan finds it with at least 3 and 20 % more blocks, a **"Stash Updated"** report follows (chat and Discord, without `@everyone`) and both waypoints move to the new centre. Two reported halves that turn out to be one stash are merged.
-- **Stash ESP:** the containers of every stash found this session are outlined in the world (see [Stash ESP settings](#stash-esp)). Containers broken since are no longer drawn.
+- If a stash was first seen only in part and a later scan finds it with at least 3 and 20 % more blocks, a **"Stash Updated"** report also follows (chat and Discord, without `@everyone`) and both waypoints move to the new centre. Two reported halves that turn out to be one stash are merged.
+- **Stash ESP:** the containers of every stash and hint found this session are outlined in the world (see [Stash ESP settings](#stash-esp)). Containers broken since are no longer drawn.
+
+**Diagnostics.** `.sh diag` prints what the scan did in the current period (a flight, or since you enabled the module) and in the whole session: chunks scanned and never loaded, signals per category, candidates rejected per reason (low score, structure shape, dungeon, spawner, already reported), hints and stashes. Every rejected candidate is also written to a log file (see [Files it creates](#files-it-creates)). When a flight starts and the server sends chunks well beyond `scan-radius`, the chat suggests a larger radius.
 
 **Staying alive.** The flight is paused automatically (and saved, so `.sh resume` continues it) when you die, change dimension or leave the server. If the elytra breaks or goes missing and isn't replaced or repaired in time, the bot sends an "Out of Elytras" notification and disconnects, instead of falling.
 
@@ -112,6 +139,7 @@ After each detour it returns to its strips. Chunks the server hasn't sent yet ar
 | `.sh altitude [y]` | Shows or sets the flight altitude (100-400). A running flight moves its remaining waypoints to the new height; resumed trips also use the current value. |
 | `.sh repair` | Shows the Auto Elytra Repair state and your elytra's durability. |
 | `.sh repair toggle` | Turns Auto Elytra Repair on or off. |
+| `.sh diag` | Shows the scan diagnostics: chunks scanned and never loaded, signals per category, rejected candidates per reason, hints and stashes, for the current period and the session. |
 | `.sh help` | Prints a short command reference in chat. |
 | `.clear-stashes` | Forgets the already reported stashes of the current server (also on disk), so they can be reported again. Existing stash waypoints still prevent a repeat report until you delete them. |
 | `.clear-players` | Forgets the recently reported players, so they are reported again. |
@@ -146,15 +174,17 @@ Scans for stashes, drives the flight and sends the notifications. It must be ena
 | Setting | Description | Default |
 | --- | --- | --- |
 | `discord-webhook-url` | Discord webhook for all notifications of this module. | *(empty)* |
-| `block-detection-threshold` | Minimum number of blocks for a cluster to count as a stash. | 10 |
+| `sensitivity` | `classic`: only containers and `block-detection-threshold`, like 26.2.2, no hints. `normal`: also traces and small finds such as one shulker box, reported as hints. `sensitive`: lower hint and stash scores (see [How it works](#how-it-works)). | normal |
+| `discord-hints` | Also send hints to Discord. Stashes are always sent. Hidden in `classic`. | false |
+| `block-detection-threshold` | Containers needed for a stash. In `normal` at most 6, in `sensitive` at most 4 are needed; `classic` uses the value as is. | 10 |
 | `scan-radius` | Horizontal scan radius in blocks; the scan always covers the full world height. | 64 |
-| `storage-only-mode` | Only look for storage containers (see [How it works](#how-it-works)). | true |
+| `storage-only-mode` | Only look for storage containers, or all base blocks when off. Only in `classic` sensitivity. | true |
 | `max-volume-threshold` | Clusters with a larger bounding box are split into tighter groups; a group that is still larger counts as a natural structure. | 5000 |
 | `filter-natural-structures` | Apply the natural-structure filters (volume, density, and the structure filter below). | true |
 | `structure-filter-radius` | With `activated-spawner-detector` on: ignore clusters whose center is within this many blocks of a natural-structure spawner (dungeon, mineshaft, trial chamber, ...). Spawners with blocks placed/removed around them (farms) don't count. 0 = off; 6-8 covers dungeon chests. | 0 |
-| `include-spawners` | Also count mob spawners as stash blocks (spawner farms are a base signal). A plain dungeon (spawner + up to two chests) is still ignored while `filter-natural-structures` is on. | false |
+| `include-spawners` | Also count mob spawners as weak traces (spawner farms are a base signal). A plain dungeon (spawner + up to two chests) is still ignored while `filter-natural-structures` is on. | false |
 | `min-density-threshold` | Minimum blocks per bounding-box volume for a cluster to count. Sparser clusters are split like oversized ones. | 0.002 |
-| `notification-density-threshold` | Minimum density for a Discord message and waypoint. 0 reports every find. | 0.005 |
+| `notification-density-threshold` | Minimum density for a Discord message and waypoint of a stash found by its container count alone. 0 reports every find. | 0.005 |
 | `max-cluster-distance` | Maximum distance between neighbouring blocks of one cluster. | 30 |
 | `max-cluster-size` | Maximum diameter of one cluster, so neighbouring stashes aren't merged. | 64 |
 | `report-dedupe-radius` | A stash this close to a reported one or to a stash waypoint isn't reported again. | 48 |
@@ -175,17 +205,70 @@ Scans for stashes, drives the flight and sends the notifications. It must be ena
 | `land-on-low-fireworks` | With Baritone flight: once the rockets in your inventory drop to `low-firework-threshold`, the scan is saved as a trip and Baritone lands on a safe spot about 64 blocks ahead. Restock and `.sh resume`. Without Baritone, ElytraFly needs no rockets, so nothing happens. | true |
 | `low-firework-threshold` | Rocket count (whole inventory) that triggers the landing. | 8 |
 
+#### Signals
+
+Settings group **Signals** of the same module. Chests, barrels, other containers, shulker boxes and ender chests always count; each group of traces can be switched off. All are on by default.
+
+| Setting | Traces it covers |
+| --- | --- |
+| `signs` | Signs with text. |
+| `unnatural-blocks` | Blocks that never generate naturally (concrete, some heads, ore blocks, beacons, conduits) and decorated pots holding an item. |
+| `portals` | Open nether/end portals and obsidian portal frames. |
+| `high-builds` | Blocks above Y 260 in the Overworld and on the Nether roof. |
+| `bedrock` | Bedrock outside the natural layers. |
+| `entities` | Item frames with items, named entities, traded villagers, animals with chests, boats, chest minecarts and mobs with player gear. |
+| `other-modules` | Findings of `activated-spawner-detector`, `stacked-minecarts` and `cave-disturbance-detector` while they are on. |
+| `base-blocks` | Beds, crafting tables, anvils, enchanting tables, brewing stands, and spawners with `include-spawners`. |
+
 #### Stash ESP
 
-Settings group **Stash ESP** of the same module. It only draws stashes reported in the current session.
+Settings group **Stash ESP** of the same module. It only draws stashes and hints reported in the current session.
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `render-stashes` | Outline the containers of found stashes. | true |
+| `render-stashes` | Outline the containers of found stashes and hints (hints without containers: their signals). | true |
 | `stash-render-distance` | Maximum distance in blocks at which stashes are drawn (16-512). | 128 |
-| `stash-shape-mode`, `stash-side-color`, `stash-line-color` | Look of the outlines; the line colour is also used for the bounding box and the tracer. | Both, green |
+| `stash-shape-mode`, `stash-side-color`, `stash-line-color` | Look of the stash outlines; the line colour is also used for the bounding box and the tracer. | Both, green |
+| `hint-side-color`, `hint-line-color` | Look of the hint outlines, their bounding box and tracer. | yellow |
 | `stash-bounding-box` | Also draw one box around all containers of a stash. | false |
-| `stash-tracers` | Draw a tracer to the nearest found stash. | false |
+| `stash-tracers` | Draw a tracer to the nearest found stash or hint. | false |
+
+### Dropped Item ESP (`dropped-item-esp`)
+
+Outlines chosen items lying on the ground, for example gear dropped at a death spot or left behind in a base. It only highlights; it adds no signal to the score, because items also lie around after every death.
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `items` | Items to highlight. | netherite and diamond armour and tools, elytra, totem of undying, shulker box, end crystal |
+| `render-distance` | Only items within this many blocks are highlighted. | 256 |
+| `shape-mode`, `side-color`, `line-color` | Look of the boxes. | Both, orange |
+| `tracers` | Tracers to the items. | false |
+
+### Mob Gear ESP (`mob-gear-esp`)
+
+Outlines mobs that wear or hold gear that looks like a player's, a sign that a base or a death spot is nearby. Such mobs also count as weak traces for the score (group `entities`).
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `render-distance` | Only mobs within this many blocks are highlighted. | 256 |
+| `shape-mode`, `side-color`, `line-color` | Look of the boxes. | Both, pink |
+| `tracers` | Tracers to the mobs. | false |
+
+### Tunnel ESP (`tunnel-esp`)
+
+Outlines 1x1 shafts, 2-3 high tunnels and staircases, the shapes players dig. It only highlights; it adds no signal to the score, because caves produce too many false hits. Chunks are scanned when they load or change, a few per tick, so the cost per tick stays small (`chunks-per-tick`).
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `min-hole-depth` | Minimum depth of a 1x1 shaft. | 4 |
+| `min-tunnel-length` | Minimum length of a 2-3 high tunnel. | 3 |
+| `min-stair-steps` | Minimum number of steps of a staircase. | 3 |
+| `scan-radius` | Radius in chunks around you that is scanned and drawn. | 4 |
+| `chunks-per-tick` | Maximum number of chunks scanned per tick. Lower is smoother. | 1 |
+| `holes`, `tunnels`, `stairs` | Which shapes to show. | on, on, on |
+| `shape-mode`, `side-opacity` | Look of the boxes. | Both, 40 |
+| `hole-color`, `tunnel-color`, `stair-color` | Colours of shafts, tunnels and staircases. | red, blue, green |
+| `tracers` | Tracers to shafts, tunnels and staircases. | false |
 
 ### Auto Elytra Repair (`auto-elytra-repair`)
 
@@ -435,8 +518,9 @@ Create a webhook in your Discord server (*Server Settings → Integrations → W
 
 | Notification | Sent when |
 | --- | --- |
-| **Stash Found** | A stash is found. Includes coordinates, dimension, block count, volume, density, a rating and a per-block-type breakdown. |
-| **Stash Updated** | A reported stash turned out bigger (see [Reporting](#how-it-works)). Names the earlier count and position. |
+| **Stash Found** | A stash is found. Includes coordinates, dimension, signal count and score, volume, density, a rating, a per-block-type breakdown and the traces found with it. |
+| **Stash Updated** | A reported stash turned out bigger, or a hint grew into a stash (see [Reporting](#how-it-works)). Names the earlier report and position. |
+| **Stash Hint** | A hint is found (`discord-hints` on). Includes coordinates, dimension, score and all signals. |
 | **Player Detected** | Another player comes within `player-detection-radius` (default 100 blocks). Includes name, coordinates and distance. |
 | **Bot Died** / **Bot Respawned** | You die or respawn. Includes the location. |
 | **Scanning Completed** | An area is fully scanned. |
@@ -471,6 +555,7 @@ Add the **stash-hunter-status** element in Meteor's HUD editor. It shows the bot
 | `meteor-client/stashhunter_trips.json` | Saved trips for `.sh resume` (waypoints, progress, optional name). If it is ever unreadable, it is moved to `stashhunter_trips.json.corrupt` instead of being overwritten. |
 | `meteor-client/StashHunter/NewChunks/<server>/<dimension>/*.txt` | Chunk data saved by NewerNewChunks, one file per chunk type (`NewChunkData.txt`, `OldChunkData.txt`, `BeingUpdatedChunkData.txt`, `OldGenerationChunkData.txt`, `BlockExploitChunkData.txt`) with one `[x, z]` chunk position per line. Older versions saved it under `StashHunter/NewChunks/` relative to the launcher's working directory; that folder is moved here automatically the first time it's needed. |
 | `meteor-client/StashHunter/chest-index/<server>.json` | Containers recorded by `chest-index`: dimension, position (and the other half of a double chest), block, slot count, time, the items summed per id, and each shulker box inside with its name and contents. A file that can't be parsed is moved to `<server>.json.corrupt`. `.chest-index clear` deletes it. |
+| `meteor-client/StashHunter/diagnostics/<server>.log` | One line per rejected candidate (time, dimension, position, reason, signals found), written by the scan. At 5 MB it moves to `<server>.log.old` and a new file starts. Use it to see why a suspected base wasn't reported. |
 | `meteor-client/StashHunter/reported-stashes/<server>.txt` | Stashes already reported on that server (`dimension x y z` per line), so they aren't reported again after a reconnect. `.clear-stashes` deletes it. |
 
 All paths are relative to your Minecraft game directory. Config, trips and the chest index are written through a temp file (trips and the chest index on a background thread, so saving never stutters), so a crash mid-save keeps the previous version; leftover `*.tmp` files are cleaned up on the next start. Log output goes to the normal game log (`logs/latest.log`).
@@ -482,9 +567,12 @@ All paths are relative to your Minecraft game directory. Config, trips and the c
 - **No stashes are reported**:
   - Check `notification-density-threshold`. Finds below it only appear in chat.
   - A stash that is already reported, or has a stash waypoint nearby, is not reported again.
-  - `storage-only-mode` ignores everything that isn't a container.
+  - In `classic` sensitivity, `storage-only-mode` ignores everything that isn't a container, and nothing is reported as a hint.
+  - Run `.sh diag` or read the diagnostics log: it names the reason a candidate was rejected (low score, structure, already reported). Try `sensitivity` `sensitive`.
+  - Hints don't reach Discord unless `discord-hints` is on.
   - A warning that chunks "never loaded" means parts of the area were not scanned. Lower `scan-radius` (and the strip width) below the server's view distance, or fly slower.
 - **Too many false positives**: Raise `block-detection-threshold` or `min-density-threshold`, or lower `max-volume-threshold`.
+- **Too many hints**: Switch off the trace group that fires near you in the **Signals** settings (for example `entities` near a village), or use `sensitivity` `classic`.
 - **Repairs never start**: The repair needs XP bottles in your inventory and a Mending elytra, and the module must be enabled (`.sh repair` shows its state).
 - **The bot landed and stands still**: A low-rocket landing, a failed repair or a Baritone landing it couldn't take off from saves the flight and pauses it. Restock rockets / XP bottles and run `.sh resume`.
 - **`.sh start` says a flight is already active**: Run `.sh stop` (or `.sh pause` to keep it as a trip) first.

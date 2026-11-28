@@ -6,12 +6,33 @@ One line per change. How a feature works and what each setting does is in the [R
 
 ## [Unreleased]
 
+### Added
+
+- **Signal score detection.** The scan now rates everything it finds by weight: containers, shulker boxes and ender chests, plus player traces (signs, unnatural blocks, portals, builds above Y 260 and on the Nether roof, placed bedrock, item frames, named and traded mobs, animals with chests, beds and other base blocks, and the findings of `activated-spawner-detector`, `stacked-minecarts` and `cave-disturbance-detector`). Natural look-alikes (skeleton and wither skeleton skulls, dragon heads, waxed copper, natural bedrock, End gateways, elytra in item frames) are ignored.
+- **Hints.** Small finds, such as a single shulker box or ender chest or a few traces together, are reported as a hint: chat, a waypoint named `Hint: <what> at <x, y, z>`, yellow Stash ESP outline, and Discord with `discord-hints`. A single trace never makes a hint.
+- **`sensitivity`** (`classic`, `normal`, `sensitive`; default `normal`) and `discord-hints` settings; `classic` keeps the 26.2.2 container-only detection without hints.
+- **Signals settings group** with one switch per trace group (`signs`, `unnatural-blocks`, `portals`, `high-builds`, `bedrock`, `entities`, `other-modules`, `base-blocks`), and `hint-side-color` / `hint-line-color` in the Stash ESP group.
+- **Hint to stash:** a hint that grows into a stash reports **"Stash Updated"** (also on Discord) and replaces the hint waypoint, even across sessions.
+- **`.sh diag`** and a diagnostics log `meteor-client/StashHunter/diagnostics/<server>.log` (rejected candidates with reason, 5 MB then `.old`), plus a chat hint to raise `scan-radius` when the server sends chunks well beyond it.
+- **`dropped-item-esp`**, **`mob-gear-esp`** and **`tunnel-esp`** (new modules, off by default, clean-room): outline valuable dropped items, mobs with player gear (also a weak trace) and shafts, tunnels and staircases dug by players (`chunks-per-tick` keeps the scan cost per tick small).
+
 ### Changed
 
 - **Minecraft 26.3.** Stash-Hunter now requires Minecraft 26.3, Meteor Client 26.3 and, optionally, Baritone and Xaero's Minimap for 26.3. Stay on 26.2.2 for Minecraft 26.2.
+- `block-detection-threshold` now means containers: `normal` needs at most 6, `sensitive` at most 4; `classic` uses it as before. `storage-only-mode` only acts in `classic`.
+- Shulker boxes and ender chests count as containers for a stash; the structure filters (volume, density, dungeon, spawner distance) only apply to chests, barrels and the like, not to shulker boxes, ender chests or traces.
+- `notification-density-threshold` only guards stashes found by the container count alone; stashes that reach the stash score always get their waypoint and Discord message.
+- `activated-spawner-detector` also reports spawners of natural structures that have blocks placed or removed around them (farms) as traces.
+
+### Fixed
+
+- `activated-spawner-detector` reads spawner tags null-safely: the 26.3 chunk packet can carry a spawner without a tag, which counts as an empty tag now.
 
 ### Development
 
+- New package `signals/` (`SignalKind` weights, `Sensitivity`, `SignalScoring`, `SignalClusterer`, `ContainerFilter`, `SignalHub`, `ReportGate`, `ScanDiagnostics`, `DiagnosticsLog`, `ScanRadiusAdvice`, `WaypointNames`, `NaturalBedrock`, `PortalFrames`, `EntitySignalIndex`) with unit tests; `StashReporter` reports hints and stashes, `StashHunterModule` feeds the scan into the score.
+- `utils/SpawnerTags` (+ test) holds the spawner tag reading without Minecraft static initialisers, so it can be unit tested.
+- `utils/MobGear` (+ test) and tests for the dirty-chunk tracking and scan budget of `tunnel-esp`.
 - Pins: Minecraft 26.3, Baritone 26.3-SNAPSHOT, Xaero fabric-26.3-26.6.2, fabric-resource-loader-v1 3.0.4+ba0d6c0d5d; Loom stays at 1.17.21.
 - `ClientboundLevelChunkWithLightPacket` is a record in 26.3 (`x()`, `z()`, `chunkData()`); block entity tags are read with `forEachBlockEntityTag`.
 - `ChunkPacketDecoder` reads the chunk sections itself, because `LevelChunk.replaceWithPacketData` now also creates block entities.
