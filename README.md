@@ -82,7 +82,7 @@ After each detour it returns to its strips. Chunks the server hasn't sent yet ar
 | Strong | shulker box, ender chest | 10 |
 | Container | chest, trapped chest, barrel | 2 |
 | Container | hopper, dispenser, dropper, furnace (all kinds) | 1 |
-| Trace | written sign, unnatural block (concrete, some heads, ore blocks, ...), open portal, obsidian portal frame, build above Y 260 / on the Nether roof, decorated pot holding an item, item frame with an item, named entity, traded villager, animal with a chest, activated spawner, cave disturbance | 3 |
+| Trace | written sign, unnatural block (concrete, some heads, mineral storage blocks such as diamond or netherite, ...), open portal, obsidian portal frame, build above Y 260 / on the Nether roof, decorated pot holding an item, item frame with an item, named entity, traded villager, animal with a chest, activated spawner, cave disturbance | 3 |
 | Trace | placed bedrock, stacked minecarts, beacon, conduit | 4 |
 | Weak trace | bed, crafting table, anvil, enchanting table, brewing stand, boat, chest minecart, mob with player gear, spawner (only with `include-spawners`) | 1 (together at most 4) |
 
@@ -212,7 +212,7 @@ Settings group **Signals** of the same module. Chests, barrels, other containers
 | Setting | Traces it covers |
 | --- | --- |
 | `signs` | Signs with text. |
-| `unnatural-blocks` | Blocks that never generate naturally (concrete, some heads, ore blocks, beacons, conduits) and decorated pots holding an item. |
+| `unnatural-blocks` | Blocks that never generate naturally (concrete, some heads, mineral storage blocks (diamond, emerald, netherite, lapis, redstone block), beacons, conduits) and decorated pots holding an item. |
 | `portals` | Open nether/end portals and obsidian portal frames. |
 | `high-builds` | Blocks above Y 260 in the Overworld and on the Nether roof. |
 | `bedrock` | Bedrock outside the natural layers. |
