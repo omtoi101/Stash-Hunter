@@ -5,6 +5,7 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.stashhunter.stashhunter.baritone.BaritoneBridge;
 import com.stashhunter.stashhunter.modules.ChestIndexer;
 import com.stashhunter.stashhunter.utils.ChestIndex;
+import com.stashhunter.stashhunter.utils.DimensionIds;
 import com.stashhunter.stashhunter.utils.ElytraController;
 import com.stashhunter.stashhunter.utils.ServerKey;
 import meteordevelopment.meteorclient.MeteorClient;
@@ -139,7 +140,7 @@ public class ChestIndexCommand extends Command {
             .append(link("[" + pos.x() + ", " + pos.y() + ", " + pos.z() + "]", canWalk ? ChatFormatting.GREEN : ChatFormatting.AQUA, click, hover))
             .append(Component.literal(" (" + entry.block() + ", " + entry.dimension() + ")"));
 
-        Dimension dimension = meteorDimension(entry.dimension());
+        Dimension dimension = DimensionIds.toMeteor(entry.dimension()); // Meteor waypoints know only the vanilla dimensions
         if (dimension != null) {
             String name = label + WAYPOINT_SUFFIX;
             line.append(Component.literal(" "))
@@ -193,13 +194,5 @@ public class ChestIndexCommand extends Command {
         }
         Waypoints.get().add(new Waypoint.Builder().name(name).pos(pos).dimension(dimension).build());
         info("Added waypoint \"%s\" at %s.", name, pos.toShortString());
-    }
-
-    // Meteor waypoints know only the three vanilla dimensions; Dimension.toString() is their id.
-    private static Dimension meteorDimension(String id) {
-        for (Dimension dimension : Dimension.values()) {
-            if (dimension.toString().equals(id)) return dimension;
-        }
-        return null;
     }
 }

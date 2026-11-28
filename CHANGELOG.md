@@ -15,6 +15,7 @@ One line per change. How a feature works and what each setting does is in the [R
 - Pins: Minecraft 26.3, Baritone 26.3-SNAPSHOT, Xaero fabric-26.3-26.6.2, fabric-resource-loader-v1 3.0.4+ba0d6c0d5d; Loom stays at 1.17.21.
 - `ClientboundLevelChunkWithLightPacket` is a record in 26.3 (`x()`, `z()`, `chunkData()`); block entity tags are read with `forEachBlockEntityTag`.
 - `ChunkPacketDecoder` reads the chunk sections itself, because `LevelChunk.replaceWithPacketData` now also creates block entities.
+- `utils/DimensionIds` (+ test): Meteor 26.3 dropped `Dimension.toString()` returning the vanilla id, which hid the `.chest-index` `[+waypoint]` link.
 
 ## [v26.2.2] - 2026-11-10
 
