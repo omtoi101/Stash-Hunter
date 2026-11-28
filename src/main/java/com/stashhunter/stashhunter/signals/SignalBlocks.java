@@ -16,7 +16,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.SignBlock;
-import net.minecraft.world.level.block.WeatheringCopperCollection;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.DecoratedPotBlockEntity;
 import net.minecraft.world.level.block.entity.SignBlockEntity;
@@ -71,19 +70,13 @@ public final class SignalBlocks {
         KINDS.put(Blocks.BREWING_STAND, SignalKind.BREWING_STAND);
 
         Blocks.CONCRETE.forEach(b -> KINDS.put(b, SignalKind.UNNATURAL_BLOCK));
-        for (Block b : List.of(Blocks.SKELETON_SKULL, Blocks.SKELETON_WALL_SKULL, Blocks.ZOMBIE_HEAD,
-            Blocks.ZOMBIE_WALL_HEAD, Blocks.PLAYER_HEAD, Blocks.PLAYER_WALL_HEAD, Blocks.CREEPER_HEAD,
-            Blocks.CREEPER_WALL_HEAD, Blocks.DRAGON_HEAD, Blocks.DRAGON_WALL_HEAD, Blocks.PIGLIN_HEAD,
+        // Left out because they generate naturally: skeleton and wither skeleton skulls (ancient cities, nether
+        // fortresses), dragon heads (End ships), waxed copper (trial chambers).
+        for (Block b : List.of(Blocks.ZOMBIE_HEAD, Blocks.ZOMBIE_WALL_HEAD, Blocks.PLAYER_HEAD,
+            Blocks.PLAYER_WALL_HEAD, Blocks.CREEPER_HEAD, Blocks.CREEPER_WALL_HEAD, Blocks.PIGLIN_HEAD,
             Blocks.PIGLIN_WALL_HEAD, Blocks.REDSTONE_BLOCK, Blocks.DIAMOND_BLOCK, Blocks.NETHERITE_BLOCK,
             Blocks.EMERALD_BLOCK, Blocks.LAPIS_BLOCK)) {
             KINDS.put(b, SignalKind.UNNATURAL_BLOCK);
-        }
-        // Waxed copper building blocks (copper chests and golem statues are left out: chests count as containers).
-        for (WeatheringCopperCollection<Block> family : List.of(Blocks.COPPER_BLOCK, Blocks.CUT_COPPER,
-            Blocks.CHISELED_COPPER, Blocks.CUT_COPPER_STAIRS, Blocks.CUT_COPPER_SLAB, Blocks.COPPER_DOOR,
-            Blocks.COPPER_TRAPDOOR, Blocks.COPPER_GRATE, Blocks.COPPER_BULB, Blocks.COPPER_BARS, Blocks.COPPER_CHAIN,
-            Blocks.COPPER_LANTERN, Blocks.LIGHTNING_ROD)) {
-            family.waxed().forEach(b -> KINDS.put(b, SignalKind.UNNATURAL_BLOCK));
         }
 
         KINDS.put(Blocks.NETHER_PORTAL, SignalKind.OPEN_PORTAL);
