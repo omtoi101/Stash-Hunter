@@ -118,6 +118,8 @@ public class MobGearEsp extends Module {
         double maxSq = (double) renderDistance.get() * renderDistance.get();
         String dimension = PlayerUtils.getDimension().name();
         List<Mob> next = new ArrayList<>();
+        // Rebuild from what is seen now: moved, dead or despawned mobs must not leave stale signals.
+        SignalHub.clear(name);
         for (Entity entity : mc.level.entitiesForRendering()) {
             if (!(entity instanceof Mob mob) || mob.isRemoved() || !hasPlayerGear(mob)) continue;
             SignalHub.put(name, dimension, mob.blockPosition(), SignalKind.MOB_GEAR);

@@ -2,6 +2,7 @@ package com.stashhunter.stashhunter.modules;
 
 import com.stashhunter.stashhunter.StashHunter;
 import com.stashhunter.stashhunter.utils.DirtyChunks;
+import com.stashhunter.stashhunter.utils.ScanBudget;
 import com.stashhunter.stashhunter.utils.TunnelShapes;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
@@ -17,6 +18,8 @@ import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,6 +32,8 @@ import java.util.Map;
  * Idea from Trouser-Streak (etianl) hole/tunnel ESP, no code used.
  */
 public class TunnelEsp extends Module {
+    // Time after which no new scan work starts in a tick (a column in progress finishes).
+    private static final long TICK_BUDGET_NANOS = 2_000_000L;
     private static final int RESCAN_INTERVAL_TICKS = 20;
     // Bounds the work and the boxes drawn for one chunk (a big cave can match thousands of times).
     private static final int MAX_HITS_PER_KIND = 1024;
@@ -156,6 +161,8 @@ public class TunnelEsp extends Module {
     // Client thread only. Results per chunk (key from DirtyChunks.key); absent = not scanned yet.
     private final Map<Long, ChunkResult> results = new HashMap<>();
     private final DirtyChunks dirty = new DirtyChunks();
+    private final ScanBudget budget = new ScanBudget(TICK_BUDGET_NANOS, System::nanoTime);
+    private ChunkScan current;
     private ClientLevel lastLevel;
     private int ticksUntilRescan;
 
@@ -181,6 +188,7 @@ public class TunnelEsp extends Module {
     private void clearData() {
         results.clear();
         dirty.clear();
+        current = null;
         lastLevel = null;
         ticksUntilRescan = 0;
     }
@@ -233,9 +241,25 @@ public class TunnelEsp extends Module {
             housekeeping(pcx, pcz, radius);
         }
 
-        for (long key : dirty.drain(chunksPerTick.get(), k -> readyToScan(k, pcx, pcz, radius))) {
-            results.put(key, scan(DirtyChunks.x(key), DirtyChunks.z(key)));
-        }
+        budget.start();
+        int started = 0;
+        do {
+            if (current == null) {
+                if (started >= chunksPerTick.get()) break;
+                List<Long> next = dirty.drain(1, k -> readyToScan(k, pcx, pcz, radius));
+                if (next.isEmpty()) break;
+                current = new ChunkScan(DirtyChunks.x(next.get(0)), DirtyChunks.z(next.get(0)));
+                started++;
+            }
+            if (!readyToScan(DirtyChunks.key(current.cx, current.cz), pcx, pcz, radius)) {
+                current = null; // unloaded or out of range meanwhile
+                continue;
+            }
+            if (current.advance(budget)) {
+                results.put(DirtyChunks.key(current.cx, current.cz), current.result());
+                current = null;
+            }
+        } while (!budget.exhausted());
     }
 
     // Drops what is out of range or unloaded and queues loaded in-range chunks that were never scanned.
@@ -266,43 +290,78 @@ public class TunnelEsp extends Module {
         return true;
     }
 
-    private ChunkResult scan(int cx, int cz) {
-        List<Hit> holeHits = new ArrayList<>();
-        List<Hit> tunnelHits = new ArrayList<>();
-        List<Hit> stairHits = new ArrayList<>();
-
-        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-        TunnelShapes.Passable passable = (x, y, z) -> {
+    /** A chunk scan that can pause between columns when the tick budget runs out. */
+    private final class ChunkScan {
+        final int cx, cz;
+        private final List<Hit> holeHits = new ArrayList<>();
+        private final List<Hit> tunnelHits = new ArrayList<>();
+        private final List<Hit> stairHits = new ArrayList<>();
+        private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        private final TunnelShapes.Passable passable = (x, y, z) -> {
             cursor.set(x, y, z);
             return isPassable(mc.level.getBlockState(cursor), cursor);
         };
-
-        int depth = minHoleDepth.get(), length = minTunnelLength.get(), steps = minStairSteps.get();
-        boolean doHoles = holes.get(), doTunnels = tunnels.get(), doStairs = stairs.get();
+        private final int depth = minHoleDepth.get(), length = minTunnelLength.get(), steps = minStairSteps.get();
+        private final boolean doHoles = holes.get(), doTunnels = tunnels.get(), doStairs = stairs.get();
         // Keep the lookups of every shape inside the world (floor y-1, ceiling y+3, stair top y+steps+1).
-        int minY = mc.level.getMinY() + 1;
-        int maxY = mc.level.getMinY() + mc.level.getHeight() - 5 - steps;
-        for (int lx = 0; lx < 16; lx++) {
-            for (int lz = 0; lz < 16; lz++) {
-                int x = (cx << 4) + lx, z = (cz << 4) + lz;
-                for (int y = minY; y <= maxY; y++) {
-                    if (!passable.at(x, y, z)) continue;
-                    if (doHoles && holeHits.size() < MAX_HITS_PER_KIND
-                        && TunnelShapes.isHole(passable, x, y, z, depth)
-                        // Report the shaft once, from its top.
-                        && !TunnelShapes.isHole(passable, x, y + 1, z, depth)) {
-                        holeHits.add(new Hit(x, y - depth + 1, z, depth + 1));
-                    }
-                    if (doTunnels && tunnelHits.size() < MAX_HITS_PER_KIND && TunnelShapes.isTunnel(passable, x, y, z, length)) {
-                        tunnelHits.add(new Hit(x, y, z, 2));
-                    }
-                    if (doStairs && stairHits.size() < MAX_HITS_PER_KIND && TunnelShapes.isStair(passable, x, y, z, steps)) {
-                        stairHits.add(new Hit(x, y, z, 2));
-                    }
+        private final int minY = mc.level.getMinY() + 1;
+        private final int maxY = mc.level.getMinY() + mc.level.getHeight() - 5 - steps;
+        private final boolean[] skipSection;
+        private int column;
+
+        ChunkScan(int cx, int cz) {
+            this.cx = cx;
+            this.cz = cz;
+            LevelChunk chunk = mc.level.getChunk(cx, cz);
+            LevelChunkSection[] sections = chunk.getSections();
+            boolean[] onlyAir = new boolean[sections.length];
+            boolean[] hasPassable = new boolean[sections.length];
+            for (int i = 0; i < sections.length; i++) {
+                onlyAir[i] = sections[i].hasOnlyAir();
+                hasPassable[i] = onlyAir[i]
+                    || sections[i].maybeHas(s -> s.isAir() || !s.isCollisionShapeFullBlock(mc.level, BlockPos.ZERO));
+            }
+            skipSection = new boolean[sections.length];
+            for (int i = 0; i < sections.length; i++) skipSection[i] = ScanBudget.skipSection(onlyAir, hasPassable, i);
+        }
+
+        /** Scans columns until done or the budget is spent; at least one column per call. Returns true when done. */
+        boolean advance(ScanBudget budget) {
+            do {
+                scanColumn((cx << 4) + (column >> 4), (cz << 4) + (column & 15));
+                column++;
+            } while (column < 256 && !budget.exhausted());
+            return column >= 256;
+        }
+
+        private void scanColumn(int x, int z) {
+            int baseY = mc.level.getMinY();
+            for (int y = minY; y <= maxY; y++) {
+                int sec = (y - baseY) >> 4;
+                if (skipSection[sec]) {
+                    // Jump to the next section.
+                    y = baseY + ((sec + 1) << 4) - 1;
+                    continue;
+                }
+                if (!passable.at(x, y, z)) continue;
+                if (doHoles && holeHits.size() < MAX_HITS_PER_KIND
+                    && TunnelShapes.isHole(passable, x, y, z, depth)
+                    // Report the shaft once, from its top.
+                    && !TunnelShapes.isHole(passable, x, y + 1, z, depth)) {
+                    holeHits.add(new Hit(x, y - depth + 1, z, depth + 1));
+                }
+                if (doTunnels && tunnelHits.size() < MAX_HITS_PER_KIND && TunnelShapes.isTunnel(passable, x, y, z, length)) {
+                    tunnelHits.add(new Hit(x, y, z, 2));
+                }
+                if (doStairs && stairHits.size() < MAX_HITS_PER_KIND && TunnelShapes.isStair(passable, x, y, z, steps)) {
+                    stairHits.add(new Hit(x, y, z, 2));
                 }
             }
         }
-        return new ChunkResult(holeHits, tunnelHits, stairHits);
+
+        ChunkResult result() {
+            return new ChunkResult(holeHits, tunnelHits, stairHits);
+        }
     }
 
     @EventHandler
